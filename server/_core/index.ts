@@ -245,6 +245,99 @@ async function startServer() {
             console.warn('[Migration] assignedClassId:', err?.message?.substring(0, 80));
           }
         }
+
+        // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
+        async function checkEventBonuses() {
+          try {
+            const db = await getRawDb();
+            if (!db) return;
+            
+            // Buscar eventos ativos
+            const [events] = await db.execute(
+              `SELECT * FROM gameEvents WHERE isActive = 1 AND endDate >= NOW()`
+            ) as any;
+            
+            if (!events || events.length === 0) {
+              console.log('[EventBonus] Nenhum evento ativo encontrado');
+              return;
+            }
+            
+            for (const event of events) {
+              console.log(`[EventBonus] Processando evento: ${event.eventName}`);
+              
+              // Buscar alunos que completaram todas as quests do evento
+              const questIds = JSON.parse(event.requiredQuestIds || '[]');
+              if (questIds.length === 0) continue;
+              
+              const placeholders = questIds.map(() => '?').join(',');
+              
+              // Encontrar alunos com progresso no jogo que completaram TODAS as quests requeridas
+              const [eligibleStudents] = await db.execute(
+                `SELECT gp.memberId, gp.id as gameProgressId, m.name as studentName
+                 FROM gameProgress gp
+                 JOIN members m ON m.id = gp.memberId
+                 WHERE (
+                   SELECT COUNT(DISTINCT gt.description)
+                   FROM gameTransactions gt
+                   WHERE gt.gameProgressId = gp.id
+                   AND gt.type = 'quest_complete'
+                   AND gt.description IN (${placeholders})
+                 ) >= ?
+                 AND gp.memberId NOT IN (
+                   SELECT memberId FROM gameEventRewards WHERE eventId = ?
+                 )`,
+                [...questIds.map(String), questIds.length, event.id]
+              ) as any;
+              
+              if (!eligibleStudents || eligibleStudents.length === 0) {
+                console.log(`[EventBonus] Nenhum aluno elegível para o evento ${event.eventName}`);
+                continue;
+              }
+              
+              let bonusCount = 0;
+              for (const student of eligibleStudents) {
+                try {
+                  // Conceder bônus de PF
+                  await db.execute(
+                    `UPDATE gameProgress SET totalPF = totalPF + ? WHERE id = ?`,
+                    [event.bonusPF, student.gameProgressId]
+                  );
+                  
+                  // Registrar transação
+                  await db.execute(
+                    `INSERT INTO gameTransactions (gameProgressId, type, amount, description, createdAt)
+                     VALUES (?, 'event_bonus', ?, ?, NOW())`,
+                    [student.gameProgressId, event.bonusPF, `Bônus do evento: ${event.eventName}`]
+                  );
+                  
+                  // Registrar que o aluno já recebeu o bônus
+                  await db.execute(
+                    `INSERT INTO gameEventRewards (eventId, memberId, bonusPF, grantedAt)
+                     VALUES (?, ?, ?, NOW())`,
+                    [event.id, student.memberId, event.bonusPF]
+                  );
+                  
+                  bonusCount++;
+                  console.log(`[EventBonus] +${event.bonusPF} PF para ${student.studentName} (evento: ${event.eventName})`);
+                } catch (err: any) {
+                  console.warn(`[EventBonus] Erro ao conceder bônus para memberId ${student.memberId}:`, err?.message?.substring(0, 100));
+                }
+              }
+              
+              console.log(`[EventBonus] ${bonusCount} alunos receberam bônus do evento ${event.eventName}`);
+            }
+          } catch (err: any) {
+            console.warn('[EventBonus] Erro no cron job:', err?.message?.substring(0, 100));
+          }
+        }
+        
+        // Executar imediatamente na inicialização
+        checkEventBonuses();
+        
+        // Executar a cada 30 minutos
+        setInterval(checkEventBonuses, 30 * 60 * 1000);
+        console.log('[CronJob] Event bonus checker started (every 30 minutes)');
+
       }
     } catch (err) {
       console.warn('[Migration] Could not run geo migration:', err);
