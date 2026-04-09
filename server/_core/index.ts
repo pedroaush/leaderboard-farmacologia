@@ -162,19 +162,12 @@ async function startServer() {
         return res.status(400).json({ error: 'fileKey é obrigatório' });
       }
       const { ENV } = await import('./env');
-      const { db } = await import('../db');
-      const { sql } = await import('drizzle-orm');
       
-      // Buscar a URL original do material no banco de dados usando SQL raw
-      const result = await db.execute(sql`SELECT url FROM materials WHERE fileKey = ${fileKey} LIMIT 1`);
-      const rows = (result as any)?.[0] || (result as any)?.rows || result;
-      const materialRow = Array.isArray(rows) ? rows[0] : null;
-      if (!materialRow || !materialRow.url) {
-        console.error(`Material not found for fileKey: ${fileKey}`);
-        return res.status(404).json({ error: 'Material não encontrado' });
-      }
-      
-      const originalUrl = materialRow.url as string;
+      // Construir a URL do Cloudinary diretamente a partir do fileKey
+      // Formato: https://res.cloudinary.com/{cloud}/raw/upload/v{version}/farmacologia-materiais/{fileKey}
+      const cloudName = ENV.cloudinaryCloudName;
+      const key = fileKey.replace(/^\/+/, '');
+      const originalUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/farmacologia-materiais/${key}`;
       const fileName = fileKey.split('/').pop() || 'download.pdf';
       console.log(`[Download] fileKey: ${fileKey}, originalUrl: ${originalUrl}`);
       
