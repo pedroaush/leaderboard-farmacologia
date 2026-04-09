@@ -16,7 +16,7 @@ export default function Materiais() {
   const [expandedPlaylist, setExpandedPlaylist] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
-  // Função para obter URL assinada e abrir o download
+  // Função para download via proxy do servidor (evita 401 do Cloudinary)
   const handleDownload = useCallback(async (mat: any) => {
     if (!mat.fileKey) {
       window.open(mat.url, '_blank');
@@ -24,18 +24,11 @@ export default function Materiais() {
     }
     setDownloadingId(mat.id);
     try {
-      const response = await fetch(
-        `/api/trpc/materials.getDownloadUrl?input=${encodeURIComponent(JSON.stringify({ json: { fileKey: mat.fileKey } }))}`
-      );
-      const data = await response.json();
-      const signedUrl = data?.result?.data?.json?.url;
-      if (signedUrl) {
-        window.open(signedUrl, '_blank');
-      } else {
-        window.open(mat.url, '_blank');
-      }
+      // Usar o endpoint de proxy que baixa do Cloudinary via Admin API
+      const proxyUrl = `/api/materials/download?fileKey=${encodeURIComponent(mat.fileKey)}`;
+      window.open(proxyUrl, '_blank');
     } catch (error) {
-      console.error("Erro ao obter URL de download:", error);
+      console.error("Erro ao baixar material:", error);
       window.open(mat.url, '_blank');
     } finally {
       setDownloadingId(null);

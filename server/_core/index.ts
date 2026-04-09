@@ -153,6 +153,70 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback (rate limited above)
   registerOAuthRoutes(app);
+
+  // Proxy de download de materiais do Cloudinary
+  app.get('/api/materials/download', async (req, res) => {
+    try {
+      const fileKey = req.query.fileKey as string;
+      if (!fileKey) {
+        return res.status(400).json({ error: 'fileKey é obrigatório' });
+      }
+      const { v2: cloudinary } = await import('cloudinary');
+      const { ENV } = await import('./env');
+      cloudinary.config({
+        cloud_name: ENV.cloudinaryCloudName,
+        api_key: ENV.cloudinaryApiKey,
+        api_secret: ENV.cloudinaryApiSecret,
+        secure: true,
+      });
+      // O upload remove a extensão do publicId, mas o fileKey no banco tem extensão
+      const key = fileKey.replace(/^\/+/, '');
+      const keyNoExt = key.replace(/\.[^.]+$/, '');
+      const fullPublicId = keyNoExt.startsWith('farmacologia-materiais/') ? keyNoExt : `farmacologia-materiais/${keyNoExt}`;
+      
+      // Usar Admin API para obter detalhes do recurso (secure_url)
+      const resource = await cloudinary.api.resource(fullPublicId, { resource_type: 'raw' });
+      const secureUrl = resource.secure_url;
+      
+      // Extrair nome do arquivo original
+      const fileName = key.split('/').pop() || 'download.pdf';
+      
+      // Tentar baixar com URL direta primeiro, depois com basic auth
+      let cloudResp = await globalThis.fetch(secureUrl);
+      if (!cloudResp.ok) {
+        // Tentar com URL autenticada via basic auth
+        const authUrl = secureUrl.replace('https://', `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@`);
+        cloudResp = await globalThis.fetch(authUrl);
+        if (!cloudResp.ok) {
+          return res.status(404).json({ error: 'Arquivo não encontrado no Cloudinary' });
+        }
+      }
+      
+      // Detectar content-type baseado na extensão
+      const ext = key.split('.').pop()?.toLowerCase();
+      const contentTypes: Record<string, string> = {
+        'pdf': 'application/pdf',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'ppt': 'application/vnd.ms-powerpoint',
+        'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      };
+      const contentType = contentTypes[ext || ''] || 'application/octet-stream';
+      
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      
+      // Stream o body para o response
+      const arrayBuffer = await cloudResp.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (err: any) {
+      console.error('Material download proxy error:', err?.message || err);
+      return res.status(500).json({ error: 'Erro ao baixar material' });
+    }
+  });
+
   // tRPC API (rate limited above)
   app.use(
     "/api/trpc",
