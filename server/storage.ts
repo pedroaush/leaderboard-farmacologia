@@ -56,8 +56,10 @@ async function cloudinaryPut(
 async function cloudinaryGet(relKey: string): Promise<{ key: string; url: string }> {
   initCloudinary();
   const key = relKey.replace(/^\/+/, "");
+  // O upload usa folder "farmacologia-materiais", então o public_id completo inclui esse prefixo
+  const fullKey = key.startsWith("farmacologia-materiais/") ? key : `farmacologia-materiais/${key}`;
   // Gerar URL assinada com validade de 1 hora
-  const url = cloudinary.url(key, {
+  const url = cloudinary.url(fullKey, {
     resource_type: "raw",
     secure: true,
     sign_url: true,
