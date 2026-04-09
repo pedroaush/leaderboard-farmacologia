@@ -154,6 +154,17 @@ async function startServer() {
   // OAuth callback under /api/oauth/callback (rate limited above)
   registerOAuthRoutes(app);
 
+  // Debug endpoint para verificar configuração do Cloudinary
+  app.get('/api/materials/debug', async (_req, res) => {
+    const { ENV } = await import('./env');
+    res.json({
+      cloudName: ENV.cloudinaryCloudName || '(not set)',
+      apiKeySet: !!ENV.cloudinaryApiKey,
+      apiKeyPrefix: ENV.cloudinaryApiKey ? ENV.cloudinaryApiKey.substring(0, 4) + '...' : '(not set)',
+      apiSecretSet: !!ENV.cloudinaryApiSecret,
+    });
+  });
+
   // Proxy de download de materiais do Cloudinary
   app.get('/api/materials/download', async (req, res) => {
     try {
@@ -163,13 +174,23 @@ async function startServer() {
       }
       const { ENV } = await import('./env');
       
+      // Verificar se as variáveis de ambiente estão configuradas
+      if (!ENV.cloudinaryCloudName || !ENV.cloudinaryApiKey || !ENV.cloudinaryApiSecret) {
+        console.error('[Download] Cloudinary env vars missing:', {
+          cloudName: !!ENV.cloudinaryCloudName,
+          apiKey: !!ENV.cloudinaryApiKey,
+          apiSecret: !!ENV.cloudinaryApiSecret,
+        });
+        return res.status(500).json({ error: 'Configuração do Cloudinary incompleta' });
+      }
+      
       // Construir a URL do Cloudinary diretamente a partir do fileKey
       // Formato: https://res.cloudinary.com/{cloud}/raw/upload/v{version}/farmacologia-materiais/{fileKey}
       const cloudName = ENV.cloudinaryCloudName;
       const key = fileKey.replace(/^\/+/, '');
       const originalUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/farmacologia-materiais/${key}`;
       const fileName = fileKey.split('/').pop() || 'download.pdf';
-      console.log(`[Download] fileKey: ${fileKey}, originalUrl: ${originalUrl}`);
+      console.log(`[Download] fileKey: ${fileKey}, key: ${key}, originalUrl: ${originalUrl}`);
       
       // Tentar múltiplas abordagens para baixar o arquivo
       let cloudResp: Response | null = null;
