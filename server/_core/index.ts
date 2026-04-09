@@ -173,21 +173,22 @@ async function startServer() {
       
       // Tentar múltiplas abordagens para baixar o arquivo
       let cloudResp: Response | null = null;
+      const basicAuth = Buffer.from(`${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}`).toString('base64');
       
-      // Abordagem 1: URL direta (caso o Cloudinary permita)
+      // Abordagem 1: URL direta (caso o Cloudinary permita acesso público)
       cloudResp = await globalThis.fetch(originalUrl);
       console.log(`[Download] Direct URL status: ${cloudResp.status}`);
       
       if (!cloudResp.ok) {
-        // Abordagem 2: Basic auth na URL original
-        const authUrl = originalUrl.replace('https://res.cloudinary.com/', 
-          `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@res.cloudinary.com/`);
-        cloudResp = await globalThis.fetch(authUrl);
-        console.log(`[Download] Basic auth URL status: ${cloudResp.status}`);
+        // Abordagem 2: Basic auth via Authorization header
+        cloudResp = await globalThis.fetch(originalUrl, {
+          headers: { 'Authorization': `Basic ${basicAuth}` }
+        });
+        console.log(`[Download] Basic auth header status: ${cloudResp.status}`);
       }
       
       if (!cloudResp.ok) {
-        // Abordagem 3: Cloudinary Admin API - download direto
+        // Abordagem 3: Cloudinary Admin API para obter secure_url e baixar com auth
         const { v2: cloudinary } = await import('cloudinary');
         cloudinary.config({
           cloud_name: ENV.cloudinaryCloudName,
@@ -195,9 +196,7 @@ async function startServer() {
           api_secret: ENV.cloudinaryApiSecret,
           secure: true,
         });
-        const key = fileKey.replace(/^\/+/, '');
         const keyNoExt = key.replace(/\.[^.]+$/, '');
-        // Tentar vários formatos de public_id
         const publicIds = [
           `farmacologia-materiais/${keyNoExt}`,
           keyNoExt,
@@ -209,10 +208,14 @@ async function startServer() {
             console.log(`[Download] Trying Admin API with publicId: ${pid}`);
             const resource = await cloudinary.api.resource(pid, { resource_type: 'raw' });
             if (resource?.secure_url) {
-              const adminAuthUrl = resource.secure_url.replace('https://res.cloudinary.com/', 
-                `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@res.cloudinary.com/`);
-              cloudResp = await globalThis.fetch(adminAuthUrl);
-              console.log(`[Download] Admin API + auth status: ${cloudResp.status} for pid: ${pid}`);
+              cloudResp = await globalThis.fetch(resource.secure_url, {
+                headers: { 'Authorization': `Basic ${basicAuth}` }
+              });
+              console.log(`[Download] Admin API + auth header status: ${cloudResp.status} for pid: ${pid}`);
+              if (cloudResp.ok) break;
+              // Tentar também sem auth (a secure_url pode ser pública)
+              cloudResp = await globalThis.fetch(resource.secure_url);
+              console.log(`[Download] Admin API direct status: ${cloudResp.status} for pid: ${pid}`);
               if (cloudResp.ok) break;
             }
           } catch (e: any) {
@@ -222,20 +225,20 @@ async function startServer() {
       }
       
       if (!cloudResp || !cloudResp.ok) {
-        // Abordagem 4: Usar a API de download do Cloudinary
-        const apiDownloadUrl = `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@api.cloudinary.com/v1_1/${ENV.cloudinaryCloudName}/resources/raw/upload/farmacologia-materiais/${fileKey.replace(/^\/+/, '').replace(/\.[^.]+$/, '')}`;
-        console.log(`[Download] Trying API download: ${apiDownloadUrl.replace(ENV.cloudinaryApiSecret, '***')}`);
-        cloudResp = await globalThis.fetch(apiDownloadUrl);
-        console.log(`[Download] API download status: ${cloudResp.status}`);
-        
-        if (cloudResp.ok) {
-          // A API retorna JSON com info do recurso, não o arquivo
-          const resourceInfo = await cloudResp.json() as any;
+        // Abordagem 4: Admin API resource endpoint diretamente
+        const apiUrl = `https://api.cloudinary.com/v1_1/${ENV.cloudinaryCloudName}/resources/raw/upload/farmacologia-materiais/${key.replace(/\.[^.]+$/, '')}`;
+        console.log(`[Download] Trying Admin API resource endpoint`);
+        const apiResp = await globalThis.fetch(apiUrl, {
+          headers: { 'Authorization': `Basic ${basicAuth}` }
+        });
+        console.log(`[Download] Admin API resource status: ${apiResp.status}`);
+        if (apiResp.ok) {
+          const resourceInfo = await apiResp.json() as any;
           if (resourceInfo?.secure_url) {
-            const finalUrl = resourceInfo.secure_url.replace('https://res.cloudinary.com/', 
-              `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@res.cloudinary.com/`);
-            cloudResp = await globalThis.fetch(finalUrl);
-            console.log(`[Download] Final auth download status: ${cloudResp.status}`);
+            cloudResp = await globalThis.fetch(resourceInfo.secure_url, {
+              headers: { 'Authorization': `Basic ${basicAuth}` }
+            });
+            console.log(`[Download] Final download status: ${cloudResp.status}`);
           }
         }
       }
