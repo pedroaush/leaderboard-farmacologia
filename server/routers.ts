@@ -1764,13 +1764,34 @@ export const appRouter = router({
       return { count };
     }),
 
-    // Public: get signed download URL for a material
+    // Public: get signed download URL for a material (uses Cloudinary private_download_url)
     getDownloadUrl: publicProcedure
       .input(z.object({ fileKey: z.string() }))
       .query(async ({ input }) => {
-        const { storageGet } = await import("./storage");
-        const { url } = await storageGet(input.fileKey);
-        return { url };
+        try {
+          const { v2: cloudinary } = await import('cloudinary');
+          const { ENV } = await import('./_core/env');
+          cloudinary.config({
+            cloud_name: ENV.cloudinaryCloudName,
+            api_key: ENV.cloudinaryApiKey,
+            api_secret: ENV.cloudinaryApiSecret,
+            secure: true,
+          });
+          const key = input.fileKey.replace(/^\/+/, "");
+          const fullPublicId = key.startsWith("farmacologia-materiais/") ? key : `farmacologia-materiais/${key}`;
+          // Use utils.private_download_url for authenticated access
+          const url = cloudinary.utils.private_download_url(fullPublicId, '', {
+            resource_type: 'raw',
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+          });
+          return { url };
+        } catch (err) {
+          console.error('getDownloadUrl error:', err);
+          // Fallback to storageGet
+          const { storageGet } = await import("./storage");
+          const { url } = await storageGet(input.fileKey);
+          return { url };
+        }
       }),
 
     // Public: get materials by class
