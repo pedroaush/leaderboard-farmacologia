@@ -1,10 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Link2, MessageSquare, Download, ExternalLink,
   FlaskConical, ArrowLeft, BookOpen, Search, Filter,
-  Youtube, Play, X, ChevronDown, ChevronUp
+  Youtube, Play, X, ChevronDown, ChevronUp, Loader2
 } from "lucide-react";
 
 const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/oUYumbCRVNHBqtNw.png";
@@ -14,6 +14,33 @@ export default function Materiais() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"materials" | "playlists">("materials");
   const [expandedPlaylist, setExpandedPlaylist] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+  // Função para obter URL assinada e abrir o download
+  const handleDownload = useCallback(async (mat: any) => {
+    if (!mat.fileKey) {
+      window.open(mat.url, '_blank');
+      return;
+    }
+    setDownloadingId(mat.id);
+    try {
+      const response = await fetch(
+        `/api/trpc/materials.getDownloadUrl?input=${encodeURIComponent(JSON.stringify({ fileKey: mat.fileKey }))}`
+      );
+      const data = await response.json();
+      const signedUrl = data?.result?.data?.url;
+      if (signedUrl) {
+        window.open(signedUrl, '_blank');
+      } else {
+        window.open(mat.url, '_blank');
+      }
+    } catch (error) {
+      console.error("Erro ao obter URL de download:", error);
+      window.open(mat.url, '_blank');
+    } finally {
+      setDownloadingId(null);
+    }
+  }, []);
 
   const { data: materials, isLoading: materialsLoading } = trpc.materials.getVisible.useQuery();
   const { data: playlists, isLoading: playlistsLoading } = trpc.youtubePlaylists.getVisible.useQuery();
@@ -234,15 +261,19 @@ export default function Materiais() {
                             {/* Action buttons */}
                             <div className="mt-3 flex items-center gap-2">
                               {mat.type === "file" && mat.url && (
-                                <a
-                                  href={mat.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                                <button
+                                  onClick={() => handleDownload(mat)}
+                                  disabled={downloadingId === mat.id}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
                                   style={{ backgroundColor: "rgba(247,148,29,0.15)", color: "#F7941D" }}
                                 >
-                                  <Download size={12} /> Baixar
-                                </a>
+                                  {downloadingId === mat.id ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <Download size={12} />
+                                  )}
+                                  {downloadingId === mat.id ? "Carregando..." : "Baixar"}
+                                </button>
                               )}
                               {mat.type === "link" && mat.url && (
                                 <a
