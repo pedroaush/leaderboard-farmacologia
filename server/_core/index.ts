@@ -163,17 +163,18 @@ async function startServer() {
       }
       const { ENV } = await import('./env');
       const { db } = await import('../db');
-      const { materials } = await import('@shared/schema');
-      const { eq } = await import('drizzle-orm');
+      const { sql } = await import('drizzle-orm');
       
-      // Buscar a URL original do material no banco de dados
-      const material = await db.select().from(materials).where(eq(materials.fileKey, fileKey)).limit(1);
-      if (!material || material.length === 0) {
+      // Buscar a URL original do material no banco de dados usando SQL raw
+      const result = await db.execute(sql`SELECT url FROM materials WHERE fileKey = ${fileKey} LIMIT 1`);
+      const rows = (result as any)?.[0] || (result as any)?.rows || result;
+      const materialRow = Array.isArray(rows) ? rows[0] : null;
+      if (!materialRow || !materialRow.url) {
         console.error(`Material not found for fileKey: ${fileKey}`);
         return res.status(404).json({ error: 'Material não encontrado' });
       }
       
-      const originalUrl = material[0].url;
+      const originalUrl = materialRow.url as string;
       const fileName = fileKey.split('/').pop() || 'download.pdf';
       console.log(`[Download] fileKey: ${fileKey}, originalUrl: ${originalUrl}`);
       
