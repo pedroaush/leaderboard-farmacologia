@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Search, Filter, X, Download, Eye } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { Search, Filter, X, Download, Eye, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,6 +18,7 @@ export default function StudentMaterials() {
   const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [previewMaterial, setPreviewMaterial] = useState<any>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   // Buscar materiais visíveis
   const { data: materials = [], isLoading } = trpc.materials.getVisible.useQuery();
@@ -81,6 +82,39 @@ export default function StudentMaterials() {
   };
 
   const hasActiveFilters = searchTerm || selectedModule || selectedWeek;
+
+  // Função para obter URL assinada e abrir o download
+  const handleDownload = useCallback(async (material: any) => {
+    // Se não tem fileKey, é um link externo - abrir diretamente
+    if (!material.fileKey) {
+      window.open(material.url, '_blank');
+      return;
+    }
+
+    setDownloadingId(material.id);
+    try {
+      // Buscar URL assinada do servidor
+      const response = await fetch(
+        `/api/trpc/materials.getDownloadUrl?input=${encodeURIComponent(JSON.stringify({ fileKey: material.fileKey }))}`
+      );
+      const data = await response.json();
+      const signedUrl = data?.result?.data?.url;
+
+      if (signedUrl) {
+        window.open(signedUrl, '_blank');
+      } else {
+        // Fallback: tentar URL direta
+        console.warn("Não foi possível obter URL assinada, tentando URL direta");
+        window.open(material.url, '_blank');
+      }
+    } catch (error) {
+      console.error("Erro ao obter URL de download:", error);
+      // Fallback: tentar URL direta
+      window.open(material.url, '_blank');
+    } finally {
+      setDownloadingId(null);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -238,9 +272,14 @@ export default function StudentMaterials() {
                       size="sm"
                       variant="outline"
                       className="flex-1 gap-2"
-                      onClick={() => window.open(material.url!, '_blank')}
+                      disabled={downloadingId === material.id}
+                      onClick={() => handleDownload(material)}
                     >
-                      <Download size={14} />
+                      {downloadingId === material.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Download size={14} />
+                      )}
                       {material.fileKey ? "Baixar" : "Abrir"}
                     </Button>
                   )}
@@ -288,10 +327,15 @@ export default function StudentMaterials() {
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Arquivo: {previewMaterial.fileName}</p>
                   <Button
-                    onClick={() => window.open(previewMaterial.url, '_blank')}
+                    disabled={downloadingId === previewMaterial.id}
+                    onClick={() => handleDownload(previewMaterial)}
                     className="w-full gap-2"
                   >
-                    <Download size={16} />
+                    {downloadingId === previewMaterial.id ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Download size={16} />
+                    )}
                     Baixar Arquivo
                   </Button>
                 </div>

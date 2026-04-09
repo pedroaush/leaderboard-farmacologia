@@ -1764,6 +1764,15 @@ export const appRouter = router({
       return { count };
     }),
 
+    // Public: get signed download URL for a material
+    getDownloadUrl: publicProcedure
+      .input(z.object({ fileKey: z.string() }))
+      .query(async ({ input }) => {
+        const { storageGet } = await import("./storage");
+        const { url } = await storageGet(input.fileKey);
+        return { url };
+      }),
+
     // Public: get materials by class
     getByClass: publicProcedure
       .input(z.object({ classId: z.number() }))
