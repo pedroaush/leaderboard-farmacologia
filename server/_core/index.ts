@@ -162,6 +162,10 @@ async function startServer() {
       apiKeySet: !!ENV.cloudinaryApiKey,
       apiKeyPrefix: ENV.cloudinaryApiKey ? ENV.cloudinaryApiKey.substring(0, 4) + '...' : '(not set)',
       apiSecretSet: !!ENV.cloudinaryApiSecret,
+      // Direct process.env check
+      directCloudName: process.env.CLOUDINARY_CLOUD_NAME || '(not set)',
+      directApiKeySet: !!process.env.CLOUDINARY_API_KEY,
+      directApiSecretSet: !!process.env.CLOUDINARY_API_SECRET,
     });
   });
 
