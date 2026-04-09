@@ -161,39 +161,97 @@ async function startServer() {
       if (!fileKey) {
         return res.status(400).json({ error: 'fileKey é obrigatório' });
       }
-      const { v2: cloudinary } = await import('cloudinary');
       const { ENV } = await import('./env');
-      cloudinary.config({
-        cloud_name: ENV.cloudinaryCloudName,
-        api_key: ENV.cloudinaryApiKey,
-        api_secret: ENV.cloudinaryApiSecret,
-        secure: true,
-      });
-      // O upload remove a extensão do publicId, mas o fileKey no banco tem extensão
-      const key = fileKey.replace(/^\/+/, '');
-      const keyNoExt = key.replace(/\.[^.]+$/, '');
-      const fullPublicId = keyNoExt.startsWith('farmacologia-materiais/') ? keyNoExt : `farmacologia-materiais/${keyNoExt}`;
+      const { db } = await import('../db');
+      const { materials } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
       
-      // Usar Admin API para obter detalhes do recurso (secure_url)
-      const resource = await cloudinary.api.resource(fullPublicId, { resource_type: 'raw' });
-      const secureUrl = resource.secure_url;
+      // Buscar a URL original do material no banco de dados
+      const material = await db.select().from(materials).where(eq(materials.fileKey, fileKey)).limit(1);
+      if (!material || material.length === 0) {
+        console.error(`Material not found for fileKey: ${fileKey}`);
+        return res.status(404).json({ error: 'Material não encontrado' });
+      }
       
-      // Extrair nome do arquivo original
-      const fileName = key.split('/').pop() || 'download.pdf';
+      const originalUrl = material[0].url;
+      const fileName = fileKey.split('/').pop() || 'download.pdf';
+      console.log(`[Download] fileKey: ${fileKey}, originalUrl: ${originalUrl}`);
       
-      // Tentar baixar com URL direta primeiro, depois com basic auth
-      let cloudResp = await globalThis.fetch(secureUrl);
+      // Tentar múltiplas abordagens para baixar o arquivo
+      let cloudResp: Response | null = null;
+      
+      // Abordagem 1: URL direta (caso o Cloudinary permita)
+      cloudResp = await globalThis.fetch(originalUrl);
+      console.log(`[Download] Direct URL status: ${cloudResp.status}`);
+      
       if (!cloudResp.ok) {
-        // Tentar com URL autenticada via basic auth
-        const authUrl = secureUrl.replace('https://', `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@`);
+        // Abordagem 2: Basic auth na URL original
+        const authUrl = originalUrl.replace('https://res.cloudinary.com/', 
+          `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@res.cloudinary.com/`);
         cloudResp = await globalThis.fetch(authUrl);
-        if (!cloudResp.ok) {
-          return res.status(404).json({ error: 'Arquivo não encontrado no Cloudinary' });
+        console.log(`[Download] Basic auth URL status: ${cloudResp.status}`);
+      }
+      
+      if (!cloudResp.ok) {
+        // Abordagem 3: Cloudinary Admin API - download direto
+        const { v2: cloudinary } = await import('cloudinary');
+        cloudinary.config({
+          cloud_name: ENV.cloudinaryCloudName,
+          api_key: ENV.cloudinaryApiKey,
+          api_secret: ENV.cloudinaryApiSecret,
+          secure: true,
+        });
+        const key = fileKey.replace(/^\/+/, '');
+        const keyNoExt = key.replace(/\.[^.]+$/, '');
+        // Tentar vários formatos de public_id
+        const publicIds = [
+          `farmacologia-materiais/${keyNoExt}`,
+          keyNoExt,
+          `farmacologia-materiais/${key}`,
+          key,
+        ];
+        for (const pid of publicIds) {
+          try {
+            console.log(`[Download] Trying Admin API with publicId: ${pid}`);
+            const resource = await cloudinary.api.resource(pid, { resource_type: 'raw' });
+            if (resource?.secure_url) {
+              const adminAuthUrl = resource.secure_url.replace('https://res.cloudinary.com/', 
+                `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@res.cloudinary.com/`);
+              cloudResp = await globalThis.fetch(adminAuthUrl);
+              console.log(`[Download] Admin API + auth status: ${cloudResp.status} for pid: ${pid}`);
+              if (cloudResp.ok) break;
+            }
+          } catch (e: any) {
+            console.log(`[Download] Admin API failed for pid ${pid}: ${e?.message}`);
+          }
         }
       }
       
+      if (!cloudResp || !cloudResp.ok) {
+        // Abordagem 4: Usar a API de download do Cloudinary
+        const apiDownloadUrl = `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@api.cloudinary.com/v1_1/${ENV.cloudinaryCloudName}/resources/raw/upload/farmacologia-materiais/${fileKey.replace(/^\/+/, '').replace(/\.[^.]+$/, '')}`;
+        console.log(`[Download] Trying API download: ${apiDownloadUrl.replace(ENV.cloudinaryApiSecret, '***')}`);
+        cloudResp = await globalThis.fetch(apiDownloadUrl);
+        console.log(`[Download] API download status: ${cloudResp.status}`);
+        
+        if (cloudResp.ok) {
+          // A API retorna JSON com info do recurso, não o arquivo
+          const resourceInfo = await cloudResp.json() as any;
+          if (resourceInfo?.secure_url) {
+            const finalUrl = resourceInfo.secure_url.replace('https://res.cloudinary.com/', 
+              `https://${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}@res.cloudinary.com/`);
+            cloudResp = await globalThis.fetch(finalUrl);
+            console.log(`[Download] Final auth download status: ${cloudResp.status}`);
+          }
+        }
+      }
+      
+      if (!cloudResp || !cloudResp.ok) {
+        return res.status(404).json({ error: 'Não foi possível baixar o arquivo do Cloudinary' });
+      }
+      
       // Detectar content-type baseado na extensão
-      const ext = key.split('.').pop()?.toLowerCase();
+      const ext = fileKey.split('.').pop()?.toLowerCase();
       const contentTypes: Record<string, string> = {
         'pdf': 'application/pdf',
         'doc': 'application/msword',
@@ -208,12 +266,11 @@ async function startServer() {
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       
-      // Stream o body para o response
       const arrayBuffer = await cloudResp.arrayBuffer();
       res.send(Buffer.from(arrayBuffer));
     } catch (err: any) {
-      console.error('Material download proxy error:', err?.message || err);
-      return res.status(500).json({ error: 'Erro ao baixar material' });
+      console.error('Material download proxy error:', err?.message || err, err?.stack);
+      return res.status(500).json({ error: 'Erro ao baixar material', details: err?.message });
     }
   });
 
