@@ -170,6 +170,8 @@ async function startServer() {
   });
 
   // Proxy de download de materiais do Cloudinary
+  // Usa generate_archive API (download_zip_url) porque o Cloudinary tem "Signed URLs only" habilitado
+  // que bloqueia acesso direto a arquivos raw mesmo com URLs assinadas
   app.get('/api/materials/download', async (req, res) => {
     try {
       const fileKey = req.query.fileKey as string;
@@ -178,102 +180,63 @@ async function startServer() {
       }
       const { ENV } = await import('./env');
       
-      // Verificar se as variáveis de ambiente estão configuradas
       if (!ENV.cloudinaryCloudName || !ENV.cloudinaryApiKey || !ENV.cloudinaryApiSecret) {
-        console.error('[Download] Cloudinary env vars missing:', {
-          cloudName: !!ENV.cloudinaryCloudName,
-          apiKey: !!ENV.cloudinaryApiKey,
-          apiSecret: !!ENV.cloudinaryApiSecret,
-        });
+        console.error('[Download] Cloudinary env vars missing');
         return res.status(500).json({ error: 'Configuração do Cloudinary incompleta' });
       }
       
-      // Construir a URL do Cloudinary diretamente a partir do fileKey
-      // Formato: https://res.cloudinary.com/{cloud}/raw/upload/v{version}/farmacologia-materiais/{fileKey}
-      const cloudName = ENV.cloudinaryCloudName;
+      const { v2: cloudinary } = await import('cloudinary');
+      cloudinary.config({
+        cloud_name: ENV.cloudinaryCloudName,
+        api_key: ENV.cloudinaryApiKey,
+        api_secret: ENV.cloudinaryApiSecret,
+        secure: true,
+      });
+      
       const key = fileKey.replace(/^\/+/, '');
-      const originalUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/farmacologia-materiais/${key}`;
-      const fileName = fileKey.split('/').pop() || 'download.pdf';
-      console.log(`[Download] fileKey: ${fileKey}, key: ${key}, originalUrl: ${originalUrl}`);
+      const fullPublicId = key.startsWith('farmacologia-materiais/') ? key : `farmacologia-materiais/${key}`;
       
-      // Tentar múltiplas abordagens para baixar o arquivo
-      let cloudResp: Response | null = null;
-      const basicAuth = Buffer.from(`${ENV.cloudinaryApiKey}:${ENV.cloudinaryApiSecret}`).toString('base64');
+      // Extrair nome do arquivo original (remover timestamp prefix)
+      const rawFileName = fileKey.split('/').pop() || 'download';
+      // Remove o prefixo timestamp-hash (ex: "1774827483589-t60tkj8d-")
+      const cleanFileName = rawFileName.replace(/^\d+-[a-z0-9]+-/, '');
+      const fileName = cleanFileName || rawFileName;
       
-      // Abordagem 1: URL direta (caso o Cloudinary permita acesso público)
-      cloudResp = await globalThis.fetch(originalUrl);
-      console.log(`[Download] Direct URL status: ${cloudResp.status}`);
+      console.log(`[Download] fileKey: ${fileKey}, fullPublicId: ${fullPublicId}, fileName: ${fileName}`);
       
-      if (!cloudResp.ok) {
-        // Abordagem 2: Basic auth via Authorization header
-        cloudResp = await globalThis.fetch(originalUrl, {
-          headers: { 'Authorization': `Basic ${basicAuth}` }
-        });
-        console.log(`[Download] Basic auth header status: ${cloudResp.status}`);
+      // Gerar URL de download via generate_archive API (funciona com Signed URLs only)
+      const downloadUrl = cloudinary.utils.download_zip_url({
+        public_ids: [fullPublicId],
+        resource_type: 'raw',
+        flatten_folders: true,
+      });
+      
+      console.log(`[Download] Generated archive URL for: ${fullPublicId}`);
+      
+      // Baixar o ZIP do Cloudinary
+      const zipResp = await globalThis.fetch(downloadUrl);
+      if (!zipResp.ok) {
+        console.error(`[Download] Archive download failed: ${zipResp.status}`);
+        return res.status(404).json({ error: 'Arquivo não encontrado no Cloudinary' });
       }
       
-      if (!cloudResp.ok) {
-        // Abordagem 3: Cloudinary Admin API para obter secure_url e baixar com auth
-        const { v2: cloudinary } = await import('cloudinary');
-        cloudinary.config({
-          cloud_name: ENV.cloudinaryCloudName,
-          api_key: ENV.cloudinaryApiKey,
-          api_secret: ENV.cloudinaryApiSecret,
-          secure: true,
-        });
-        const keyNoExt = key.replace(/\.[^.]+$/, '');
-        const publicIds = [
-          `farmacologia-materiais/${keyNoExt}`,
-          keyNoExt,
-          `farmacologia-materiais/${key}`,
-          key,
-        ];
-        for (const pid of publicIds) {
-          try {
-            console.log(`[Download] Trying Admin API with publicId: ${pid}`);
-            const resource = await cloudinary.api.resource(pid, { resource_type: 'raw' });
-            if (resource?.secure_url) {
-              cloudResp = await globalThis.fetch(resource.secure_url, {
-                headers: { 'Authorization': `Basic ${basicAuth}` }
-              });
-              console.log(`[Download] Admin API + auth header status: ${cloudResp.status} for pid: ${pid}`);
-              if (cloudResp.ok) break;
-              // Tentar também sem auth (a secure_url pode ser pública)
-              cloudResp = await globalThis.fetch(resource.secure_url);
-              console.log(`[Download] Admin API direct status: ${cloudResp.status} for pid: ${pid}`);
-              if (cloudResp.ok) break;
-            }
-          } catch (e: any) {
-            console.log(`[Download] Admin API failed for pid ${pid}: ${e?.message}`);
-          }
-        }
+      const zipBuffer = Buffer.from(await zipResp.arrayBuffer());
+      
+      // Extrair o arquivo do ZIP
+      const AdmZip = (await import('adm-zip')).default;
+      const zip = new AdmZip(zipBuffer);
+      const entries = zip.getEntries();
+      
+      if (entries.length === 0) {
+        return res.status(404).json({ error: 'Arquivo vazio no Cloudinary' });
       }
       
-      if (!cloudResp || !cloudResp.ok) {
-        // Abordagem 4: Admin API resource endpoint diretamente
-        const apiUrl = `https://api.cloudinary.com/v1_1/${ENV.cloudinaryCloudName}/resources/raw/upload/farmacologia-materiais/${key.replace(/\.[^.]+$/, '')}`;
-        console.log(`[Download] Trying Admin API resource endpoint`);
-        const apiResp = await globalThis.fetch(apiUrl, {
-          headers: { 'Authorization': `Basic ${basicAuth}` }
-        });
-        console.log(`[Download] Admin API resource status: ${apiResp.status}`);
-        if (apiResp.ok) {
-          const resourceInfo = await apiResp.json() as any;
-          if (resourceInfo?.secure_url) {
-            cloudResp = await globalThis.fetch(resourceInfo.secure_url, {
-              headers: { 'Authorization': `Basic ${basicAuth}` }
-            });
-            console.log(`[Download] Final download status: ${cloudResp.status}`);
-          }
-        }
-      }
-      
-      if (!cloudResp || !cloudResp.ok) {
-        return res.status(404).json({ error: 'Não foi possível baixar o arquivo do Cloudinary' });
-      }
+      // Pegar o primeiro (e único) arquivo do ZIP
+      const entry = entries[0];
+      const fileData = entry.getData();
       
       // Detectar content-type baseado na extensão
-      const ext = fileKey.split('.').pop()?.toLowerCase();
+      const ext = fileName.split('.').pop()?.toLowerCase();
       const contentTypes: Record<string, string> = {
         'pdf': 'application/pdf',
         'doc': 'application/msword',
@@ -282,14 +245,23 @@ async function startServer() {
         'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         'xls': 'application/vnd.ms-excel',
         'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'mp4': 'video/mp4',
+        'mp3': 'audio/mpeg',
+        'zip': 'application/zip',
+        'txt': 'text/plain',
       };
       const contentType = contentTypes[ext || ''] || 'application/octet-stream';
       
       res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+      res.setHeader('Content-Length', fileData.length.toString());
       
-      const arrayBuffer = await cloudResp.arrayBuffer();
-      res.send(Buffer.from(arrayBuffer));
+      console.log(`[Download] Serving file: ${fileName} (${fileData.length} bytes)`);
+      res.send(fileData);
     } catch (err: any) {
       console.error('Material download proxy error:', err?.message || err, err?.stack);
       return res.status(500).json({ error: 'Erro ao baixar material', details: err?.message });

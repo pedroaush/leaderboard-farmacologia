@@ -83,36 +83,31 @@ export default function StudentMaterials() {
 
   const hasActiveFilters = searchTerm || selectedModule || selectedWeek;
 
-  // Função para obter URL assinada e abrir o download
+    // Função para baixar material via proxy do servidor
   const handleDownload = useCallback(async (material: any) => {
     // Se não tem fileKey, é um link externo - abrir diretamente
     if (!material.fileKey) {
       window.open(material.url, '_blank');
       return;
     }
-
     setDownloadingId(material.id);
     try {
-      // Buscar URL assinada do servidor
-      const response = await fetch(
-        `/api/trpc/materials.getDownloadUrl?input=${encodeURIComponent(JSON.stringify({ fileKey: material.fileKey }))}`
-      );
-      const data = await response.json();
-      const signedUrl = data?.result?.data?.url;
-
-      if (signedUrl) {
-        window.open(signedUrl, '_blank');
-      } else {
-        // Fallback: tentar URL direta
-        console.warn("Não foi possível obter URL assinada, tentando URL direta");
-        window.open(material.url, '_blank');
-      }
+      // Usar o endpoint proxy que baixa do Cloudinary via generate_archive API
+      const downloadUrl = `/api/materials/download?fileKey=${encodeURIComponent(material.fileKey)}`;
+      
+      // Criar um link temporário para download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = material.fileName || material.fileKey.split('/').pop() || 'download';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
-      console.error("Erro ao obter URL de download:", error);
+      console.error("Erro ao baixar material:", error);
       // Fallback: tentar URL direta
       window.open(material.url, '_blank');
     } finally {
-      setDownloadingId(null);
+      setTimeout(() => setDownloadingId(null), 2000);
     }
   }, []);
 

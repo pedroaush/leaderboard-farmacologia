@@ -1764,7 +1764,9 @@ export const appRouter = router({
       return { count };
     }),
 
-    // Public: get signed download URL for a material (uses Cloudinary private_download_url)
+    // Public: get signed download URL for a material
+    // Uses generate_archive API (download_zip_url) because Cloudinary has "Signed URLs only" enabled
+    // which blocks direct access to raw files even with signed URLs
     getDownloadUrl: publicProcedure
       .input(z.object({ fileKey: z.string() }))
       .query(async ({ input }) => {
@@ -1779,11 +1781,10 @@ export const appRouter = router({
           });
           const key = input.fileKey.replace(/^\/+/, "");
           const fullPublicId = key.startsWith("farmacologia-materiais/") ? key : `farmacologia-materiais/${key}`;
-          // Use utils.private_download_url for authenticated access
-          const url = cloudinary.utils.private_download_url(fullPublicId, '', {
-            resource_type: 'raw',
-            expires_at: Math.floor(Date.now() / 1000) + 3600,
-          });
+          
+          // Use the proxy endpoint which handles the download server-side
+          // This avoids CORS issues and handles ZIP extraction
+          const url = `/api/materials/download?fileKey=${encodeURIComponent(key)}`;
           return { url };
         } catch (err) {
           console.error('getDownloadUrl error:', err);
