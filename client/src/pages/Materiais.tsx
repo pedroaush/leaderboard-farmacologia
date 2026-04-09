@@ -25,10 +25,10 @@ export default function Materiais() {
     setDownloadingId(mat.id);
     try {
       const response = await fetch(
-        `/api/trpc/materials.getDownloadUrl?input=${encodeURIComponent(JSON.stringify({ fileKey: mat.fileKey }))}`
+        `/api/trpc/materials.getDownloadUrl?input=${encodeURIComponent(JSON.stringify({ json: { fileKey: mat.fileKey } }))}`
       );
       const data = await response.json();
-      const signedUrl = data?.result?.data?.url;
+      const signedUrl = data?.result?.data?.json?.url;
       if (signedUrl) {
         window.open(signedUrl, '_blank');
       } else {
