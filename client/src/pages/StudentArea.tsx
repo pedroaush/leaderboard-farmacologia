@@ -290,6 +290,72 @@ export default function StudentArea() {
           <StudentNotificationBanner memberId={memberId} classId={classId || undefined} />
         )}
 
+        {/* ═══ DESTAQUES DA SEMANA + RANKING (sempre visíveis) ═══ */}
+        {leaderboardData && (
+          <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Destaques da Semana */}
+            {(leaderboardData as any).highlights && (leaderboardData as any).highlights.length > 0 && (
+              <div className="rounded-xl p-4" style={{ backgroundColor: CARD_BG, border: "1px solid rgba(247,148,29,0.2)" }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span style={{ color: ORANGE }}>⭐</span>
+                  <h3 className="font-bold text-white text-sm">Destaques da Semana</h3>
+                </div>
+                <div className="space-y-2">
+                  {(leaderboardData as any).highlights.slice(-3).reverse().map((h: any) => (
+                    <div key={h.id} className="rounded-lg p-3" style={{ backgroundColor: "rgba(247,148,29,0.06)", border: "1px solid rgba(247,148,29,0.1)" }}>
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-mono text-xs font-bold" style={{ color: ORANGE }}>SEM {h.week}</span>
+                        <span className="text-xs text-white/40">{h.date}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: ORANGE + "15", color: ORANGE }}>{h.activity}</span>
+                      </div>
+                      <p className="text-sm text-white">{h.description}</p>
+                      {h.topTeam !== "—" && (
+                        <div className="flex flex-col sm:flex-row gap-1 sm:gap-4 mt-1.5 text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                          <span>🏆 {h.topTeam}</span>
+                          <span>⭐ {h.topStudent}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Ranking da Turma */}
+            {(leaderboardData as any).members && (leaderboardData as any).members.length > 0 && (
+              <div className="rounded-xl p-4" style={{ backgroundColor: CARD_BG, border: "1px solid rgba(255,255,255,0.1)" }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span style={{ color: ORANGE }}>🏅</span>
+                  <h3 className="font-bold text-white text-sm">Ranking da Turma</h3>
+                </div>
+                <div className="space-y-1.5">
+                  {(leaderboardData as any).members.slice(0, 10).map((member: any, idx: number) => (
+                    <div
+                      key={member.id}
+                      className="rounded-lg px-3 py-2 flex items-center gap-2"
+                      style={{
+                        backgroundColor: member.id === memberId ? 'rgba(247,148,29,0.15)' : 'rgba(255,255,255,0.03)',
+                        border: member.id === memberId ? '1px solid rgba(247,148,29,0.4)' : '1px solid transparent',
+                      }}
+                    >
+                      <span className="text-xs font-bold w-6 text-center" style={{ color: idx < 3 ? ORANGE : 'rgba(255,255,255,0.4)' }}>
+                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                      </span>
+                      <span className="flex-1 text-sm text-white truncate">{member.name}</span>
+                      <span className="text-xs font-mono font-bold" style={{ color: ORANGE }}>
+                        {parseFloat(member.xp || 0).toFixed(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {(leaderboardData as any).members.length > 10 && (
+                  <p className="text-[10px] text-white/30 mt-2 text-center">+ {(leaderboardData as any).members.length - 10} alunos</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ═══ CRONOGRAMA ═══ */}
         {activeTab === "cronograma" && (
           <div>
@@ -490,33 +556,40 @@ export default function StudentArea() {
                 </div>
                 {jigsawScoreData && Number(jigsawScoreData.totalJigsawPF) > 0 ? (
                   <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: "rgba(99,102,241,0.1)" }}>
-                        <div className="font-mono font-bold text-lg" style={{ color: "#6366f1" }}>
-                          {Number(jigsawScoreData.totalPresentationScore).toFixed(1)}
+                    {/* Notas por Fase */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)" }}>
+                        <div className="font-mono font-bold text-lg" style={{ color: "#10B981" }}>
+                          {Number((jigsawScoreData as any).fase1PF || 0).toFixed(2)}
                         </div>
-                        <div className="text-[10px] text-white/50 mt-0.5">Apresentação</div>
+                        <div className="text-[10px] text-white/50 mt-0.5">Fase 1</div>
+                        <div className="text-[9px] text-white/30">máx. 2 pts</div>
                       </div>
-                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: "rgba(99,102,241,0.1)" }}>
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)" }}>
                         <div className="font-mono font-bold text-lg" style={{ color: "#6366f1" }}>
-                          {Number(jigsawScoreData.totalParticipationScore).toFixed(1)}
+                          {Number((jigsawScoreData as any).fase2PF || 0).toFixed(2)}
                         </div>
-                        <div className="text-[10px] text-white/50 mt-0.5">Participação</div>
+                        <div className="text-[10px] text-white/50 mt-0.5">Fase 2</div>
+                        <div className="text-[9px] text-white/30">máx. 5 pts</div>
                       </div>
-                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: "rgba(99,102,241,0.1)" }}>
-                        <div className="font-mono font-bold text-lg" style={{ color: "#6366f1" }}>
-                          {Number(jigsawScoreData.totalPeerRating).toFixed(1)}
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: "rgba(247,148,29,0.1)", border: "1px solid rgba(247,148,29,0.2)" }}>
+                        <div className="font-mono font-bold text-lg" style={{ color: ORANGE }}>
+                          {Number((jigsawScoreData as any).fase3PF || 0).toFixed(2)}
                         </div>
-                        <div className="text-[10px] text-white/50 mt-0.5">Pares</div>
+                        <div className="text-[10px] text-white/50 mt-0.5">Fase 3</div>
+                        <div className="text-[9px] text-white/30">máx. 3 pts</div>
                       </div>
                     </div>
                     <div className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                      <span className="text-sm text-white/70">PF Jigsaw Total</span>
+                      <div>
+                        <span className="text-sm text-white/70">PF Jigsaw Total</span>
+                        <p className="text-[10px] text-white/40">F1 (2pts) + F2 (5pts) + F3 (3pts)</p>
+                      </div>
                       <span className="font-mono font-bold text-xl" style={{ color: "#6366f1" }}>
-                        {Number(jigsawScoreData.totalJigsawPF).toFixed(1)}
+                        {Number(jigsawScoreData.totalJigsawPF).toFixed(2)}
+                        <span className="text-sm text-white/40">/10</span>
                       </span>
                     </div>
-                    <p className="text-[11px] text-white/40">Apresentação + Participação + Avaliação por Pares (máx. 12 pontos)</p>
                   </div>
                 ) : (
                   <div className="text-center py-4">
@@ -929,7 +1002,7 @@ export default function StudentArea() {
                             </div>
                           ))}
                         </div>
-                        <p className="text-[10px] text-white/30 mt-2">Sua avaliação é anônima e contribui para a nota final do colega.</p>
+                        <p className="text-[10px] text-white/30 mt-2">Sua avaliação contribui para a nota final do colega na Fase 2 do Jigsaw.</p>
                       </div>
 
                       {/* Colegas do grupo mosaico */}

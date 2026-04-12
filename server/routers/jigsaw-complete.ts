@@ -916,38 +916,40 @@ export const jigsawCompleteRouter = router({
             .from(jigsawHomeMembers)
             .where(eq(jigsawHomeMembers.memberId, input.memberId));
 
-          const totalPresentation = [
-            ...expertScores.map((s: any) => Number(s.presentationScore) || 0),
-            ...homeScores.map((s: any) => Number(s.presentationScore) || 0),
-          ].reduce((a: number, b: number) => a + b, 0);
-
-          const totalParticipation = [
-            ...expertScores.map((s: any) => Number(s.participationScore) || 0),
-            ...homeScores.map((s: any) => Number(s.participationScore) || 0),
-          ].reduce((a: number, b: number) => a + b, 0);
-
-          const totalPeerRating = homeScores
-            .map((s: any) => Number(s.peerRating) || 0)
-            .reduce((a: number, b: number) => a + b, 0);
-
-          const totalJigsawPF =
-            totalPresentation + totalParticipation + totalPeerRating;
+          // === NORMALIZAÇÃO DAS NOTAS POR FASE ===
+          // Fase 1: Grupos Especialistas (apresentação 0-5 + participação 0-2 = máx 7 brutos -> normaliza para 0-2 pts)
+          const fase1Presentation = expertScores.reduce((s: number, x: any) => s + (Number(x.presentationScore) || 0), 0);
+          const fase1Participation = expertScores.reduce((s: number, x: any) => s + (Number(x.participationScore) || 0), 0);
+          const fase1Raw = fase1Presentation + fase1Participation; // máx 7 brutos
+          // Fase 2: Grupos Mosaico (apresentação 0-5 + participação 0-2 + pares 0-5 = máx 12 brutos -> normaliza para 0-5 pts)
+          const fase2Presentation = homeScores.reduce((s: number, x: any) => s + (Number(x.presentationScore) || 0), 0);
+          const fase2Participation = homeScores.reduce((s: number, x: any) => s + (Number(x.participationScore) || 0), 0);
+          const fase2PeerRating = homeScores.reduce((s: number, x: any) => s + (Number(x.peerRating) || 0), 0);
+          const fase2Raw = fase2Presentation + fase2Participation + fase2PeerRating; // máx 12 brutos
+          // Totais brutos (para exibição detalhada)
+          const totalPresentation = fase1Presentation + fase2Presentation;
+          const totalParticipation = fase1Participation + fase2Participation;
+          const totalPeerRating = fase2PeerRating;
+          // Normalização: F1 -> 0-2 pts, F2 -> 0-5 pts
+          const fase1PF = fase1Raw > 0 ? Math.min(2, (fase1Raw / 7) * 2) : 0;
+          const fase2PF = fase2Raw > 0 ? Math.min(5, (fase2Raw / 12) * 5) : 0;
+          // Fase 3: Casos Clínicos (0-3 pts) - preservar valor existente, não recalcular
+          const existingRecord = await db.select().from(jigsawScores).where(eq(jigsawScores.memberId, input.memberId)).limit(1);
+          const fase3PF = existingRecord.length > 0 ? Math.min(3, Number(existingRecord[0].fase3PF) || 0) : 0;
+          const totalJigsawPF = Math.min(10, fase1PF + fase2PF + fase3PF);
 
           // Update or create score record
-          const existing = await db
-            .select()
-            .from(jigsawScores)
-            .where(eq(jigsawScores.memberId, input.memberId))
-            .limit(1);
-
-          if (existing.length > 0) {
+          if (existingRecord.length > 0) {
             await db
               .update(jigsawScores)
               .set({
                 totalPresentationScore: String(totalPresentation),
                 totalParticipationScore: String(totalParticipation),
                 totalPeerRating: String(totalPeerRating),
-                totalJigsawPF: String(totalJigsawPF),
+                fase1PF: String(fase1PF.toFixed(2)),
+                fase2PF: String(fase2PF.toFixed(2)),
+                fase3PF: String(fase3PF.toFixed(2)),
+                totalJigsawPF: String(totalJigsawPF.toFixed(2)),
               })
               .where(eq(jigsawScores.memberId, input.memberId));
           } else {
@@ -957,11 +959,14 @@ export const jigsawCompleteRouter = router({
               totalPresentationScore: String(totalPresentation),
               totalParticipationScore: String(totalParticipation),
               totalPeerRating: String(totalPeerRating),
-              totalJigsawPF: String(totalJigsawPF),
+              fase1PF: String(fase1PF.toFixed(2)),
+              fase2PF: String(fase2PF.toFixed(2)),
+              fase3PF: String(fase3PF.toFixed(2)),
+              totalJigsawPF: String(totalJigsawPF.toFixed(2)),
             });
           }
 
-          return { success: true, totalJigsawPF };
+          return { success: true, totalJigsawPF, fase1PF, fase2PF, fase3PF };
         } catch (error) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
@@ -1390,22 +1395,35 @@ export const jigsawCompleteRouter = router({
             .from(jigsawHomeMembers)
             .where(eq(jigsawHomeMembers.memberId, m.id));
 
-          const totalPresentation =
-            expertScores.reduce((s: number, x: any) => s + (Number(x.presentationScore) || 0), 0) +
-            homeScores.reduce((s: number, x: any) => s + (Number(x.presentationScore) || 0), 0);
-          const totalParticipation =
-            expertScores.reduce((s: number, x: any) => s + (Number(x.participationScore) || 0), 0) +
-            homeScores.reduce((s: number, x: any) => s + (Number(x.participationScore) || 0), 0);
-          const totalPeerRating = homeScores.reduce((s: number, x: any) => s + (Number(x.peerRating) || 0), 0);
-          const totalJigsawPF = totalPresentation + totalParticipation + totalPeerRating;
-
+          // === NORMALIZAÇÃO DAS NOTAS POR FASE ===
+          // Fase 1: Grupos Especialistas (máx 7 brutos -> normaliza para 0-2 pts)
+          const fase1Pres = expertScores.reduce((s: number, x: any) => s + (Number(x.presentationScore) || 0), 0);
+          const fase1Part = expertScores.reduce((s: number, x: any) => s + (Number(x.participationScore) || 0), 0);
+          const fase1Raw = fase1Pres + fase1Part;
+          // Fase 2: Grupos Mosaico (máx 12 brutos -> normaliza para 0-5 pts)
+          const fase2Pres = homeScores.reduce((s: number, x: any) => s + (Number(x.presentationScore) || 0), 0);
+          const fase2Part = homeScores.reduce((s: number, x: any) => s + (Number(x.participationScore) || 0), 0);
+          const fase2Peer = homeScores.reduce((s: number, x: any) => s + (Number(x.peerRating) || 0), 0);
+          const fase2Raw = fase2Pres + fase2Part + fase2Peer;
+          const totalPresentation = fase1Pres + fase2Pres;
+          const totalParticipation = fase1Part + fase2Part;
+          const totalPeerRating = fase2Peer;
+          const fase1PF = fase1Raw > 0 ? Math.min(2, (fase1Raw / 7) * 2) : 0;
+          const fase2PF = fase2Raw > 0 ? Math.min(5, (fase2Raw / 12) * 5) : 0;
+          // Fase 3: preservar valor existente
           const existing = await db.select().from(jigsawScores).where(eq(jigsawScores.memberId, m.id)).limit(1);
+          const fase3PF = existing.length > 0 ? Math.min(3, Number(existing[0].fase3PF) || 0) : 0;
+          const totalJigsawPF = Math.min(10, fase1PF + fase2PF + fase3PF);
+
           if (existing.length > 0) {
             await db.update(jigsawScores).set({
               totalPresentationScore: String(totalPresentation),
               totalParticipationScore: String(totalParticipation),
               totalPeerRating: String(totalPeerRating),
-              totalJigsawPF: String(totalJigsawPF),
+              fase1PF: String(fase1PF.toFixed(2)),
+              fase2PF: String(fase2PF.toFixed(2)),
+              fase3PF: String(fase3PF.toFixed(2)),
+              totalJigsawPF: String(totalJigsawPF.toFixed(2)),
             }).where(eq(jigsawScores.memberId, m.id));
           } else {
             await db.insert(jigsawScores).values({
@@ -1414,7 +1432,10 @@ export const jigsawCompleteRouter = router({
               totalPresentationScore: String(totalPresentation),
               totalParticipationScore: String(totalParticipation),
               totalPeerRating: String(totalPeerRating),
-              totalJigsawPF: String(totalJigsawPF),
+              fase1PF: String(fase1PF.toFixed(2)),
+              fase2PF: String(fase2PF.toFixed(2)),
+              fase3PF: String(fase3PF.toFixed(2)),
+              totalJigsawPF: String(totalJigsawPF.toFixed(2)),
             });
           }
           updated++;
@@ -1647,6 +1668,112 @@ export const jigsawCompleteRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Erro ao buscar avaliações por pares",
+        });
+      }
+    }),
+
+  /**
+   * ========================================
+   * ADMIN: Set Fase 3 (Casos Clínicos) score for a member (0-3 pts)
+   * ========================================
+   */
+  setFase3PF: publicProcedure
+    .input(z.object({
+      memberId: z.number(),
+      classId: z.number(),
+      fase3PF: z.number().min(0).max(3),
+      sessionToken: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        if (input.sessionToken) {
+          const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+          if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+        }
+        const existing = await db.select().from(jigsawScores).where(eq(jigsawScores.memberId, input.memberId)).limit(1);
+        const fase3PF = Math.min(3, Math.max(0, input.fase3PF));
+        // Recalculate total with new fase3
+        const fase1PF = existing.length > 0 ? Number(existing[0].fase1PF) || 0 : 0;
+        const fase2PF = existing.length > 0 ? Number(existing[0].fase2PF) || 0 : 0;
+        const totalJigsawPF = Math.min(10, fase1PF + fase2PF + fase3PF);
+        if (existing.length > 0) {
+          await db.update(jigsawScores).set({
+            fase3PF: String(fase3PF.toFixed(2)),
+            totalJigsawPF: String(totalJigsawPF.toFixed(2)),
+          }).where(eq(jigsawScores.memberId, input.memberId));
+        } else {
+          await db.insert(jigsawScores).values({
+            classId: input.classId,
+            memberId: input.memberId,
+            totalPresentationScore: "0",
+            totalParticipationScore: "0",
+            totalPeerRating: "0",
+            fase1PF: "0",
+            fase2PF: "0",
+            fase3PF: String(fase3PF.toFixed(2)),
+            totalJigsawPF: String(fase3PF.toFixed(2)),
+          });
+        }
+        return { success: true, fase3PF, totalJigsawPF };
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro ao lançar nota da Fase 3",
+        });
+      }
+    }),
+
+  /**
+   * ADMIN: Set Fase 3 for all members in a class at once
+   */
+  setFase3PFBulk: publicProcedure
+    .input(z.object({
+      classId: z.number(),
+      scores: z.array(z.object({ memberId: z.number(), fase3PF: z.number().min(0).max(3) })),
+      sessionToken: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        if (input.sessionToken) {
+          const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+          if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+        }
+        let updated = 0;
+        for (const s of input.scores) {
+          const fase3PF = Math.min(3, Math.max(0, s.fase3PF));
+          const existing = await db.select().from(jigsawScores).where(eq(jigsawScores.memberId, s.memberId)).limit(1);
+          const fase1PF = existing.length > 0 ? Number(existing[0].fase1PF) || 0 : 0;
+          const fase2PF = existing.length > 0 ? Number(existing[0].fase2PF) || 0 : 0;
+          const totalJigsawPF = Math.min(10, fase1PF + fase2PF + fase3PF);
+          if (existing.length > 0) {
+            await db.update(jigsawScores).set({
+              fase3PF: String(fase3PF.toFixed(2)),
+              totalJigsawPF: String(totalJigsawPF.toFixed(2)),
+            }).where(eq(jigsawScores.memberId, s.memberId));
+          } else {
+            await db.insert(jigsawScores).values({
+              classId: input.classId,
+              memberId: s.memberId,
+              totalPresentationScore: "0",
+              totalParticipationScore: "0",
+              totalPeerRating: "0",
+              fase1PF: "0",
+              fase2PF: "0",
+              fase3PF: String(fase3PF.toFixed(2)),
+              totalJigsawPF: String(fase3PF.toFixed(2)),
+            });
+          }
+          updated++;
+        }
+        return { success: true, updated };
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro ao lançar notas da Fase 3",
         });
       }
     }),

@@ -789,7 +789,11 @@ export const jigsawScores = mysqlTable("jigsawScores", {
   totalPresentationScore: decimal("totalPresentationScore", { precision: 5, scale: 1 }).default("0"),
   totalParticipationScore: decimal("totalParticipationScore", { precision: 5, scale: 1 }).default("0"),
   totalPeerRating: decimal("totalPeerRating", { precision: 5, scale: 1 }).default("0"),
-  totalJigsawPF: decimal("totalJigsawPF", { precision: 6, scale: 1 }).default("0"), // Total PF from Jigsaw
+  // Notas normalizadas por fase (escala 0-10 total)
+  fase1PF: decimal("fase1PF", { precision: 5, scale: 2 }).default("0"),   // Fase 1 normalizada (0-2 pts)
+  fase2PF: decimal("fase2PF", { precision: 5, scale: 2 }).default("0"),   // Fase 2 normalizada (0-5 pts)
+  fase3PF: decimal("fase3PF", { precision: 5, scale: 2 }).default("0"),   // Fase 3 Casos Clínicos (0-3 pts)
+  totalJigsawPF: decimal("totalJigsawPF", { precision: 6, scale: 2 }).default("0"), // Total PF Jigsaw (0-10 pts)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

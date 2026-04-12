@@ -425,26 +425,38 @@ function exportGradesCSV(expertGroups: any[], homeGroups: any[]) {
     });
   });
 
-  // Calculate total PF for each member
-  Object.values(memberMap).forEach((m) => {
-    m.totalPF = m.expertPresentation + m.expertParticipation + m.homePresentation + m.homeParticipation + m.homePeerRating;
-  });
+  // Normalização das notas por fase:
+  // Fase 1: (apres 0-5 + part 0-2 = máx 7 brutos) -> 0-2 pts
+  // Fase 2: (apres 0-5 + part 0-2 + pares 0-5 = máx 12 brutos) -> 0-5 pts
+  // Fase 3: Casos Clínicos (0-3 pts) - lançada separadamente pelo professor
+  const memberMapWithPF = Object.entries(memberMap).reduce((acc, [id, m]) => {
+    const fase1Raw = m.expertPresentation + m.expertParticipation; // máx 7
+    const fase2Raw = m.homePresentation + m.homeParticipation + m.homePeerRating; // máx 12
+    const fase1PF = fase1Raw > 0 ? Math.min(2, (fase1Raw / 7) * 2) : 0;
+    const fase2PF = fase2Raw > 0 ? Math.min(5, (fase2Raw / 12) * 5) : 0;
+    acc[Number(id)] = { ...m, fase1PF, fase2PF, totalPF: fase1PF + fase2PF };
+    return acc;
+  }, {} as Record<number, typeof memberMap[number] & { fase1PF: number; fase2PF: number }>);
 
   const header = [
     "Nome",
     "Grupo Especialista",
     "Tema Especialista",
-    "Apres. Fase 1 (0-5)",
-    "Part. Fase 1 (0-2)",
+    "Apres. Fase 1 (bruto 0-5)",
+    "Part. Fase 1 (bruto 0-2)",
+    "Fase 1 PF (0-2 pts)",
     "Grupo Mosaico",
     "Tema Ensinado",
-    "Apres. Fase 2 (0-5)",
-    "Part. Fase 2 (0-2)",
-    "Aval. Pares (0-5)",
-    "PF Jigsaw Total",
+    "Apres. Fase 2 (bruto 0-5)",
+    "Part. Fase 2 (bruto 0-2)",
+    "Aval. Pares (bruto 0-5)",
+    "Fase 2 PF (0-5 pts)",
+    "PF F1+F2 (sem Fase 3)",
+    "Fase 3 PF (0-3 pts) - lan\u00e7ar separado",
+    "PF Total Jigsaw (0-10 pts)",
   ].join(",");
 
-  const rows = Object.values(memberMap)
+  const rows = Object.values(memberMapWithPF)
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((m) =>
       [
@@ -453,12 +465,16 @@ function exportGradesCSV(expertGroups: any[], homeGroups: any[]) {
         `"${m.expertTopic}"`,
         m.expertPresentation.toFixed(1),
         m.expertParticipation.toFixed(1),
+        m.fase1PF.toFixed(2),
         `"${m.homeGroup}"`,
         `"${m.homeTopic}"`,
         m.homePresentation.toFixed(1),
         m.homeParticipation.toFixed(1),
         m.homePeerRating.toFixed(1),
-        m.totalPF.toFixed(1),
+        m.fase2PF.toFixed(2),
+        m.totalPF.toFixed(2),
+        "0.00",
+        m.totalPF.toFixed(2),
       ].join(",")
     );
 

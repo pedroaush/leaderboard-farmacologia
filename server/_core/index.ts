@@ -401,6 +401,22 @@ async function startServer() {
             console.warn('[Migration] assignedClassId:', err?.message?.substring(0, 80));
           }
         }
+        // Migração: adicionar colunas de PF por fase no jigsawScores (F1=0-2, F2=0-5, F3=0-3, Total=0-10)
+        const jigsawPFMigrations = [
+          `ALTER TABLE jigsawScores ADD COLUMN fase1PF DECIMAL(5,2) NOT NULL DEFAULT 0`,
+          `ALTER TABLE jigsawScores ADD COLUMN fase2PF DECIMAL(5,2) NOT NULL DEFAULT 0`,
+          `ALTER TABLE jigsawScores ADD COLUMN fase3PF DECIMAL(5,2) NOT NULL DEFAULT 0`,
+        ];
+        for (const sql of jigsawPFMigrations) {
+          try {
+            await rawDb.execute(sql);
+            console.log(`[Migration] OK: ${sql.substring(0, 70)}...`);
+          } catch (err: any) {
+            if (err?.code !== 'ER_DUP_FIELDNAME' && !err?.message?.includes('Duplicate column')) {
+              console.warn(`[Migration] jigsawPF: ${err?.message?.substring(0, 80)}`);
+            }
+          }
+        }
 
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
