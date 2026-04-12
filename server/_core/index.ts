@@ -154,6 +154,47 @@ async function startServer() {
   // OAuth callback under /api/oauth/callback (rate limited above)
   registerOAuthRoutes(app);
 
+  // Endpoint temporário de busca de aluno (admin)
+  app.get('/api/admin/search-student', async (req, res) => {
+    try {
+      const { db } = await import('../db');
+      const name = (req.query.name as string) || '';
+      const [members, accounts, teams, classes] = await Promise.all([
+        db.getAllMembers(),
+        db.getAllStudentAccounts(),
+        db.getAllTeams(),
+        db.getAllClasses(),
+      ]);
+      const lowerName = name.toLowerCase();
+      const matchedMembers = members.filter((m: any) => {
+        const cleanName = m.name ? m.name.split('\t').map((p: string) => p.trim()).join(' ') : '';
+        return cleanName.toLowerCase().includes(lowerName);
+      });
+      const results = matchedMembers.map((m: any) => {
+        const account = accounts.find((a: any) => a.memberId === m.id);
+        const team = teams.find((t: any) => t.id === m.teamId);
+        const cls = classes.find((c: any) => c.id === m.classId);
+        const cleanName = m.name ? m.name.split('\t').map((p: string) => p.trim()).join(' ') : m.name;
+        return {
+          memberId: m.id,
+          name: cleanName,
+          classId: m.classId,
+          className: cls?.name || 'Sem turma',
+          teamId: m.teamId,
+          teamName: team?.name || 'Sem equipe',
+          hasAccount: !!account,
+          accountId: account?.id || null,
+          email: account?.email || null,
+          matricula: account?.matricula || null,
+          createdAt: account?.createdAt || null,
+        };
+      });
+      res.json({ total: results.length, results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Debug endpoint para verificar configuração do Cloudinary
   app.get('/api/materials/debug', async (_req, res) => {
     const { ENV } = await import('./env');
