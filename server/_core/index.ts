@@ -157,7 +157,7 @@ async function startServer() {
   // Endpoint temporário de busca de aluno (admin)
   app.get('/api/admin/search-student', async (req, res) => {
     try {
-      const { db } = await import('../db');
+      const db = await import('../db');
       const name = (req.query.name as string) || '';
       const [members, accounts, teams, classes] = await Promise.all([
         db.getAllMembers(),
