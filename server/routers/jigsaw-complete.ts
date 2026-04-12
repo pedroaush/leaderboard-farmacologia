@@ -873,13 +873,16 @@ export const jigsawCompleteRouter = router({
     /**
      * Get Jigsaw scores for all members in a class
      */
-    getByClass: adminProcedure
-      .input(z.object({ classId: z.number() }))
+    getByClass: publicProcedure
+      .input(z.object({ classId: z.number(), sessionToken: z.string().optional() }))
       .query(async ({ input }) => {
         try {
           const db = await getDb();
           if (!db) throw new Error("Database not available");
-          
+          if (input.sessionToken) {
+            const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+            if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+          }
           const scores = await db
             .select()
             .from(jigsawScores)
@@ -887,6 +890,7 @@ export const jigsawCompleteRouter = router({
 
           return scores;
         } catch (error) {
+          if (error instanceof TRPCError) throw error;
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: "Erro ao buscar notas da turma",

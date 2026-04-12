@@ -13,7 +13,7 @@ import {
   Users, ChevronDown, ChevronUp, Save, Loader2,
   Bell, Shuffle, CheckCircle2, BookOpen,
   RefreshCw, Trash2, Eye, EyeOff, Search, FlaskConical,
-  Puzzle, GraduationCap, FileDown, Calculator
+  Puzzle, GraduationCap, FileDown, Calculator, Stethoscope, ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -490,7 +490,7 @@ function exportGradesCSV(expertGroups: any[], homeGroups: any[]) {
 
 // ─── Main Component ───
 export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: string }) {
-  const [activePhase, setActivePhase] = useState<"fase1" | "fase2">("fase1");
+  const [activePhase, setActivePhase] = useState<"fase1" | "fase2" | "fase3">("fase1");
   const [classId, setClassId] = useState<number | null>(null);
 
   // Buscar lista de turmas para seleção
@@ -533,6 +533,30 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
   const calcTotalsMutation = trpc.jigsawComplete.calculateAllTotals.useMutation({
     onSuccess: (data) => toast.success(`PF Jigsaw calculado para ${data.updated} alunos!`),
     onError: (e) => toast.error(e.message || "Erro ao calcular totais"),
+  });
+
+  // ── Fase 3: Casos Clínicos ──
+  const [fase3Scores, setFase3Scores] = useState<Record<number, number>>({});
+  const [fase3Search, setFase3Search] = useState("");
+
+  const { data: classData, isLoading: loadingClassMembers } = trpc.classes.getById.useQuery(
+    { id: classId!, sessionToken: teacherToken || "" },
+    { enabled: classId !== null }
+  );
+  const classMembers: any[] = (classData as any)?.members || [];
+
+  const { data: jigsawScoresByClass = [], refetch: refetchScores } = trpc.jigsawComplete.scores.getByClass.useQuery(
+    { classId: classId!, sessionToken: teacherToken || "" },
+    { enabled: classId !== null }
+  );
+
+  const setFase3BulkMutation = trpc.jigsawComplete.setFase3PFBulk.useMutation({
+    onSuccess: (data) => {
+      toast.success(`✅ Fase 3 salva para ${data.updated} alunos!`);
+      refetchScores();
+      setFase3Scores({});
+    },
+    onError: (e) => toast.error(e.message || "Erro ao salvar notas da Fase 3"),
   });
 
   const completedExpert = expertGroups.filter((g: any) => g.status === "completed").length;
@@ -656,10 +680,11 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
       </div>
 
       {/* Phase tabs */}
-      <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ backgroundColor: "oklch(0.22 0.03 264.052)" }}>
+      <div className="flex gap-1 p-1 rounded-lg w-fit flex-wrap" style={{ backgroundColor: "oklch(0.22 0.03 264.052)" }}>
         {[
           { key: "fase1" as const, label: "Fase 1 — Especialistas", icon: <FlaskConical size={14} /> },
           { key: "fase2" as const, label: "Fase 2 — Mosaico", icon: <Shuffle size={14} /> },
+          { key: "fase3" as const, label: "Fase 3 — Casos Clínicos", icon: <Stethoscope size={14} /> },
         ].map((tab) => (
           <button key={tab.key} onClick={() => setActivePhase(tab.key)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
@@ -695,6 +720,165 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
           )}
         </div>
       )}
+
+      {/* ── FASE 3 ── */}
+      {activePhase === "fase3" && (() => {
+        // Mapa de notas já salvas no banco
+        const savedScoresMap: Record<number, any> = {};
+        (jigsawScoresByClass as any[]).forEach((s: any) => { savedScoresMap[s.memberId] = s; });
+
+        // Filtrar membros por busca
+        const filteredMembers = classMembers.filter((m: any) =>
+          !fase3Search || m.name?.toLowerCase().includes(fase3Search.toLowerCase())
+        );
+
+        // Contar quantos já têm nota lançada
+        const withFase3 = (jigsawScoresByClass as any[]).filter((s: any) => Number(s.fase3PF) > 0).length;
+
+        const handleSaveFase3 = () => {
+          const scores = classMembers.map((m: any) => ({
+            memberId: m.id,
+            fase3PF: fase3Scores[m.id] ?? Number(savedScoresMap[m.id]?.fase3PF) ?? 0,
+          }));
+          setFase3BulkMutation.mutate({ classId: classId!, scores, sessionToken: teacherToken || "" });
+        };
+
+        return (
+          <div className="space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
+                  <Stethoscope size={16} className="text-cyan-400" />
+                  Fase 3 — Casos Clínicos
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Lance a nota de cada aluno de 0 a 3 pontos. {withFase3}/{classMembers.length} alunos com nota lançada.
+                  Após salvar, clique em <strong>Calcular PF</strong> para atualizar o total.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                className="gap-1.5 text-xs"
+                style={{ backgroundColor: "#06b6d4" }}
+                onClick={handleSaveFase3}
+                disabled={setFase3BulkMutation.isPending || classMembers.length === 0}
+              >
+                {setFase3BulkMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                Salvar todas as notas
+              </Button>
+            </div>
+
+            {/* Resumo de pontuação */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Fase 1 (máx. 2 pts)", color: "#10b981" },
+                { label: "Fase 2 (máx. 5 pts)", color: "#ec4899" },
+                { label: "Fase 3 (máx. 3 pts)", color: "#06b6d4" },
+              ].map((f, i) => (
+                <div key={i} className="rounded-lg p-3 border text-center"
+                  style={{ backgroundColor: "oklch(0.195 0.03 264.052)", borderColor: f.color + "44" }}>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{f.label}</div>
+                  <div className="font-mono font-bold text-lg" style={{ color: f.color }}>
+                    {i === 0 ? "0–2" : i === 1 ? "0–5" : "0–3"}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Busca */}
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Buscar aluno..."
+                value={fase3Search}
+                onChange={(e) => setFase3Search(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-cyan-400"
+                style={{ borderColor: "oklch(0.35 0.03 264.052)" }}
+              />
+            </div>
+
+            {/* Lista de alunos */}
+            {loadingClassMembers ? (
+              <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>
+            ) : classMembers.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Users size={32} className="mx-auto mb-3 opacity-40" />
+                <p className="text-sm">Nenhum aluno encontrado nesta turma.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredMembers.map((member: any) => {
+                  const saved = savedScoresMap[member.id];
+                  const currentFase3 = fase3Scores[member.id] ?? Number(saved?.fase3PF ?? 0);
+                  const fase1PF = Number(saved?.fase1PF ?? 0);
+                  const fase2PF = Number(saved?.fase2PF ?? 0);
+                  const totalPF = Math.min(10, fase1PF + fase2PF + currentFase3);
+                  const hasUnsaved = fase3Scores[member.id] !== undefined;
+
+                  return (
+                    <div key={member.id}
+                      className="flex items-center gap-3 p-3 rounded-lg border transition-all"
+                      style={{
+                        backgroundColor: hasUnsaved ? "oklch(0.22 0.05 215 / 0.3)" : "oklch(0.195 0.03 264.052)",
+                        borderColor: hasUnsaved ? "#06b6d4" : "oklch(0.3 0.03 264.052)",
+                      }}
+                    >
+                      {/* Nome */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{member.name}</p>
+                        <div className="flex gap-3 mt-0.5">
+                          <span className="text-[10px] text-muted-foreground">F1: <span style={{ color: "#10b981" }}>{fase1PF.toFixed(2)}</span></span>
+                          <span className="text-[10px] text-muted-foreground">F2: <span style={{ color: "#ec4899" }}>{fase2PF.toFixed(2)}</span></span>
+                          <span className="text-[10px] text-muted-foreground">F3: <span style={{ color: "#06b6d4" }}>{currentFase3.toFixed(2)}</span></span>
+                          <span className="text-[10px] font-bold" style={{ color: totalPF >= 7 ? "#10b981" : totalPF >= 5 ? "#f59e0b" : "#ef4444" }}>
+                            Total: {totalPF.toFixed(2)}/10
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Seletor de nota 0-3 */}
+                      <div className="flex gap-1">
+                        {[0, 0.5, 1, 1.5, 2, 2.5, 3].map((val) => (
+                          <button
+                            key={val}
+                            onClick={() => setFase3Scores(prev => ({ ...prev, [member.id]: val }))}
+                            className="w-8 h-8 rounded text-xs font-mono font-bold transition-all"
+                            style={{
+                              backgroundColor: currentFase3 === val ? "#06b6d4" : "oklch(0.245 0.03 264.052)",
+                              color: currentFase3 === val ? "#fff" : "oklch(0.7 0.02 264)",
+                              border: `1px solid ${currentFase3 === val ? "#06b6d4" : "oklch(0.35 0.03 264.052)"}`,
+                            }}
+                          >
+                            {val}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Botão salvar no final */}
+            {classMembers.length > 0 && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  style={{ backgroundColor: "#06b6d4" }}
+                  onClick={handleSaveFase3}
+                  disabled={setFase3BulkMutation.isPending}
+                >
+                  {setFase3BulkMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Salvar notas da Fase 3
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── FASE 2 ── */}
       {activePhase === "fase2" && (
