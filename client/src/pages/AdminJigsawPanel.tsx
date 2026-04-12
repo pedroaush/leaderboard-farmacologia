@@ -706,7 +706,7 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
               </h3>
               {homeGroups.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Cada grupo reúne 1 especialista de cada tema. Notas: Apresentação (0–5) + Participação (0–2) + Avaliação por Pares (0–5) = máx. 12 PF.
+                  Notas brutas: Apres. (0–5) + Part. (0–2) + Pares (0–5) = máx. 12 brutos → normalizado para <strong>0–5 pts (Fase 2)</strong>. Após lançar, clique em <strong>Calcular PF</strong>.
                 </p>
               )}
             </div>
@@ -734,7 +734,7 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
               <Shuffle size={36} className="mx-auto mb-3 text-muted-foreground opacity-40" />
               <p className="text-sm font-medium text-foreground mb-1">Grupos Mosaico não gerados</p>
               <p className="text-xs text-muted-foreground max-w-sm mx-auto mb-4">
-                Cada grupo mosaico reunirá 1 especialista de cada tema (6 alunos por grupo), criando ~14 grupos.
+                Cada grupo mosaico reúne 1 especialista de cada tema (6 alunos por grupo), criando ~14 grupos. Fase 2 vale <strong>5 pts</strong> (normalizado de máx. 12 brutos).
               </p>
               <Button size="sm" className="gap-2" style={{ backgroundColor: "#ec4899" }}
                 onClick={() => generateHomeMutation.mutate({ classId, sessionToken: teacherToken || "" })} disabled={generateHomeMutation.isPending}>
