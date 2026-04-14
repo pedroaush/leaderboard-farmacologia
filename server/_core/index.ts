@@ -195,6 +195,31 @@ async function startServer() {
     }
   });
 
+  // Endpoint temporário para promover aluno a monitor
+  app.post('/api/admin/promote-to-monitor', async (req, res) => {
+    try {
+      const { accountId, assignedClassId, displayName } = req.body;
+      if (!accountId) return res.status(400).json({ error: 'accountId é obrigatório' });
+      const { getDb } = await import('../db');
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: 'Database unavailable' });
+      const { studentAccounts } = await import('../../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      // Verificar se a conta existe
+      const existing = await db.select().from(studentAccounts).where(eq(studentAccounts.id, accountId)).limit(1);
+      if (!existing.length) return res.status(404).json({ error: 'Conta não encontrada' });
+      // Atualizar para monitor
+      const updateData: any = { accountType: 'monitor' };
+      if (assignedClassId) updateData.assignedClassId = assignedClassId;
+      if (displayName) updateData.displayName = displayName;
+      await db.update(studentAccounts).set(updateData).where(eq(studentAccounts.id, accountId));
+      const updated = await db.select().from(studentAccounts).where(eq(studentAccounts.id, accountId)).limit(1);
+      res.json({ success: true, message: 'Conta atualizada para monitor com sucesso', account: updated[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Endpoint temporário de busca de teacher/monitora (admin)
   app.get('/api/admin/search-teacher', async (req, res) => {
     try {
