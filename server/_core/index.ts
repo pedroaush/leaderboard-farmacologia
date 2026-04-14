@@ -195,6 +195,31 @@ async function startServer() {
     }
   });
 
+  // Endpoint temporário de busca de teacher/monitora (admin)
+  app.get('/api/admin/search-teacher', async (req, res) => {
+    try {
+      const db = await import('../db');
+      const name = (req.query.name as string) || '';
+      const teachers = await db.getAllTeacherAccounts();
+      const lowerName = name.toLowerCase();
+      const matched = name
+        ? teachers.filter((t: any) => t.name?.toLowerCase().includes(lowerName) || t.email?.toLowerCase().includes(lowerName))
+        : teachers;
+      const results = matched.map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        email: t.email,
+        role: t.role,
+        createdAt: t.createdAt,
+        hasSessionToken: !!t.sessionToken,
+        lastLogin: t.updatedAt || null,
+      }));
+      res.json({ total: results.length, results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Debug endpoint para verificar configuração do Cloudinary
   app.get('/api/materials/debug', async (_req, res) => {
     const { ENV } = await import('./env');
