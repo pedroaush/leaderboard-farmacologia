@@ -1088,10 +1088,14 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
   const [selectedMonitorId, setSelectedMonitorId] = useState<number | null>(null);
   const [newMonitor, setNewMonitor] = useState({ email: "", matricula: "", displayName: "", password: "" });
   const [editPassword, setEditPassword] = useState("");
-  const [activeTab, setActiveTab] = useState<"monitors" | "logs">("monitors");
+  const [activeTab, setActiveTab] = useState<"monitors" | "logs" | "notas">("monitors");
   const [logFilterMonitorId, setLogFilterMonitorId] = useState<number | undefined>(undefined);
   const [logDateFrom, setLogDateFrom] = useState<string>("");
   const [logDateTo, setLogDateTo] = useState<string>("");
+  const [notasTypeFilter, setNotasTypeFilter] = useState<"kahoot" | "clinical_case" | undefined>(undefined);
+  const [editingGradeId, setEditingGradeId] = useState<number | null>(null);
+  const [editingGradeValue, setEditingGradeValue] = useState<number>(0);
+  const [editingMaxGrade, setEditingMaxGrade] = useState<number>(10);
 
   const utils = trpc.useUtils();
 
@@ -1115,6 +1119,19 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
     },
     { enabled: !!teacherToken && activeTab === "logs" }
   );
+
+  const { data: adminGrades, refetch: refetchAdminGrades, isLoading: gradesLoading } = trpc.monitors.adminListActivityGrades.useQuery(
+    { teacherSessionToken: teacherToken || "", activityType: notasTypeFilter },
+    { enabled: !!teacherToken && activeTab === "notas" }
+  );
+  const adminUpsertGrade = trpc.monitors.adminUpsertActivityGrade.useMutation({
+    onSuccess: () => { toast.success("Nota salva!"); setEditingGradeId(null); refetchAdminGrades(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const adminDeleteGrade = trpc.monitors.adminDeleteActivityGrade.useMutation({
+    onSuccess: () => { toast.success("Nota excluída!"); refetchAdminGrades(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const registerMutation = trpc.monitors.register.useMutation({
     onSuccess: (data) => {
@@ -1193,8 +1210,8 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-1 p-1 rounded-lg bg-slate-800/60 w-fit">
-        {(["monitors", "logs"] as const).map((tab) => (
+      <div className="flex gap-1 p-1 rounded-lg bg-slate-800/60 w-fit flex-wrap">
+        {(["monitors", "logs", "notas"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1206,8 +1223,10 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
           >
             {tab === "monitors" ? (
               <span className="flex items-center gap-1.5"><Users size={14} /> Monitores ({monitors?.length ?? 0})</span>
-            ) : (
+            ) : tab === "logs" ? (
               <span className="flex items-center gap-1.5"><History size={14} /> Log de Atividades</span>
+            ) : (
+              <span className="flex items-center gap-1.5"><BookOpen size={14} /> Notas dos Monitores</span>
             )}
           </button>
         ))}
@@ -1590,6 +1609,176 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
               <p className="text-xs mt-1">As ações dos monitores aparecerão aqui</p>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* ─── Aba Notas dos Monitores ─── */}
+      {activeTab === "notas" && (
+        <div className="space-y-4">
+          {/* Filtros */}
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="flex items-center gap-2">
+              <label className="text-slate-400 text-xs">Tipo de atividade:</label>
+              <select
+                value={notasTypeFilter ?? ""}
+                onChange={(e) => setNotasTypeFilter(e.target.value ? e.target.value as "kahoot" | "clinical_case" : undefined)}
+                className="px-3 py-1.5 bg-slate-800 border border-slate-600 text-white text-sm rounded-md focus:outline-none"
+              >
+                <option value="">Todos</option>
+                <option value="kahoot">Kahoot</option>
+                <option value="clinical_case">Casos Clínicos</option>
+              </select>
+            </div>
+            <button
+              onClick={() => refetchAdminGrades()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm rounded-md transition-colors"
+            >
+              <Activity size={13} /> Atualizar
+            </button>
+            {adminGrades && (
+              <span className="text-slate-400 text-xs ml-auto">{adminGrades.length} registro(s)</span>
+            )}
+          </div>
+
+          {gradesLoading ? (
+            <div className="flex items-center justify-center py-10 text-slate-400">
+              <Loader2 size={20} className="animate-spin mr-2" /> Carregando notas...
+            </div>
+          ) : !adminGrades || adminGrades.length === 0 ? (
+            <div className="text-center py-10 text-slate-500">
+              <BookOpen size={32} className="mx-auto mb-2 opacity-40" />
+              <p>Nenhuma nota lançada ainda</p>
+              <p className="text-xs mt-1">As notas lançadas pelos monitores aparecerão aqui</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-700">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-800/80 text-slate-400 text-xs uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left">Tipo</th>
+                    <th className="px-4 py-3 text-left">Atividade</th>
+                    <th className="px-4 py-3 text-left">Grupo</th>
+                    <th className="px-4 py-3 text-center">Nota</th>
+                    <th className="px-4 py-3 text-center">Máx.</th>
+                    <th className="px-4 py-3 text-left">Lançado por</th>
+                    <th className="px-4 py-3 text-left">Obs.</th>
+                    <th className="px-4 py-3 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/50">
+                  {adminGrades.map((g) => {
+                    const gradeNum = parseFloat(String(g.grade));
+                    const maxNum = parseFloat(String(g.maxGrade));
+                    const pct = maxNum > 0 ? (gradeNum / maxNum) * 100 : 0;
+                    const color = pct >= 70 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
+                    const isEditing = editingGradeId === g.id;
+                    return (
+                      <tr key={g.id} className={`transition-colors ${
+                        isEditing ? "bg-violet-900/20" : "hover:bg-slate-800/40"
+                      }`}>
+                        <td className="px-4 py-2.5">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            g.activityType === "kahoot"
+                              ? "bg-purple-900/50 text-purple-300"
+                              : "bg-teal-900/50 text-teal-300"
+                          }`}>
+                            {g.activityType === "kahoot" ? "Kahoot" : "Caso Clínico"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-200 font-medium max-w-[160px] truncate">{g.activityName}</td>
+                        <td className="px-4 py-2.5 text-slate-300">{g.groupName}</td>
+                        <td className="px-4 py-2.5 text-center">
+                          {isEditing ? (
+                            <input
+                              type="number" min={0} max={editingMaxGrade} step={0.1}
+                              value={editingGradeValue}
+                              onChange={(e) => setEditingGradeValue(parseFloat(e.target.value) || 0)}
+                              className="w-20 px-2 py-1 rounded border border-violet-500/50 bg-slate-900 text-white text-sm text-center focus:outline-none"
+                            />
+                          ) : (
+                            <span className="font-semibold" style={{ color }}>{gradeNum.toFixed(1)}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {isEditing ? (
+                            <input
+                              type="number" min={0} max={100} step={0.5}
+                              value={editingMaxGrade}
+                              onChange={(e) => setEditingMaxGrade(parseFloat(e.target.value) || 10)}
+                              className="w-16 px-2 py-1 rounded border border-slate-600 bg-slate-900 text-white text-sm text-center focus:outline-none"
+                            />
+                          ) : (
+                            <span className="text-slate-400">{maxNum.toFixed(1)}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-400 text-xs">{g.launchedByName ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-slate-400 text-xs max-w-[120px] truncate">{g.notes ?? "—"}</td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {isEditing ? (
+                              <>
+                                <button
+                                  onClick={() => adminUpsertGrade.mutate({
+                                    teacherSessionToken: teacherToken || "",
+                                    classId: g.classId,
+                                    activityType: g.activityType as "kahoot" | "clinical_case",
+                                    activityName: g.activityName,
+                                    groupName: g.groupName,
+                                    grade: editingGradeValue,
+                                    maxGrade: editingMaxGrade,
+                                    notes: g.notes ?? undefined,
+                                    existingId: g.id,
+                                  })}
+                                  disabled={adminUpsertGrade.isPending}
+                                  className="p-1.5 rounded bg-green-600/20 hover:bg-green-600/40 text-green-400 transition-colors disabled:opacity-50"
+                                  title="Salvar"
+                                >
+                                  <CheckCircle size={14} />
+                                </button>
+                                <button
+                                  onClick={() => setEditingGradeId(null)}
+                                  className="p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-400 transition-colors"
+                                  title="Cancelar"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setEditingGradeId(g.id);
+                                    setEditingGradeValue(gradeNum);
+                                    setEditingMaxGrade(maxNum);
+                                  }}
+                                  className="p-1.5 rounded bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 transition-colors"
+                                  title="Editar nota"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Excluir nota de "${g.groupName}" em "${g.activityName}"?`)) {
+                                      adminDeleteGrade.mutate({ teacherSessionToken: teacherToken || "", gradeId: g.id });
+                                    }
+                                  }}
+                                  disabled={adminDeleteGrade.isPending}
+                                  className="p-1.5 rounded bg-red-600/20 hover:bg-red-600/40 text-red-400 transition-colors disabled:opacity-50"
+                                  title="Excluir nota"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

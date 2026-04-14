@@ -629,4 +629,98 @@ export const monitorsRouter = router({
         .orderBy(groupActivityGrades.activityName);
       return results.map(r => r.activityName);
     }),
+
+  // ─── Endpoints para o ADMIN visualizar e editar notas dos monitores ───
+  adminListActivityGrades: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      classId: z.number().optional(),
+      activityType: z.enum(["kahoot", "clinical_case"]).optional(),
+    }))
+    .query(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      let results;
+      if (input.classId && input.activityType) {
+        results = await db.select().from(groupActivityGrades)
+          .where(and(eq(groupActivityGrades.classId, input.classId), eq(groupActivityGrades.activityType, input.activityType)))
+          .orderBy(groupActivityGrades.activityName, groupActivityGrades.groupName);
+      } else if (input.classId) {
+        results = await db.select().from(groupActivityGrades)
+          .where(eq(groupActivityGrades.classId, input.classId))
+          .orderBy(groupActivityGrades.activityType, groupActivityGrades.activityName, groupActivityGrades.groupName);
+      } else if (input.activityType) {
+        results = await db.select().from(groupActivityGrades)
+          .where(eq(groupActivityGrades.activityType, input.activityType))
+          .orderBy(groupActivityGrades.classId, groupActivityGrades.activityName, groupActivityGrades.groupName);
+      } else {
+        results = await db.select().from(groupActivityGrades)
+          .orderBy(groupActivityGrades.classId, groupActivityGrades.activityType, groupActivityGrades.activityName, groupActivityGrades.groupName);
+      }
+      return results;
+    }),
+
+  adminUpsertActivityGrade: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      classId: z.number(),
+      activityType: z.enum(["kahoot", "clinical_case"]),
+      activityName: z.string().min(1).max(200),
+      homeGroupId: z.number().optional(),
+      groupName: z.string().min(1).max(200),
+      grade: z.number().min(0).max(100),
+      maxGrade: z.number().min(0).max(100).default(10),
+      notes: z.string().optional(),
+      existingId: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const now = new Date();
+      if (input.existingId) {
+        await db
+          .update(groupActivityGrades)
+          .set({
+            grade: String(input.grade),
+            maxGrade: String(input.maxGrade),
+            notes: input.notes,
+            launchedByName: teacher.name + " (admin)",
+            updatedAt: now,
+          })
+          .where(eq(groupActivityGrades.id, input.existingId));
+        return { success: true, message: "Nota atualizada" };
+      }
+      await db.insert(groupActivityGrades).values({
+        classId: input.classId,
+        activityType: input.activityType,
+        activityName: input.activityName,
+        homeGroupId: input.homeGroupId,
+        groupName: input.groupName,
+        grade: String(input.grade),
+        maxGrade: String(input.maxGrade),
+        notes: input.notes,
+        launchedByName: teacher.name + " (admin)",
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { success: true, message: "Nota lançada" };
+    }),
+
+  adminDeleteActivityGrade: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      gradeId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      await db.delete(groupActivityGrades).where(eq(groupActivityGrades.id, input.gradeId));
+      return { success: true, message: "Nota excluída" };
+    }),
 });
