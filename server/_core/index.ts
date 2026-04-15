@@ -230,7 +230,7 @@ async function startServer() {
       if (!db) return res.status(503).json({ error: 'Database unavailable' });
       const { studentAccounts } = await import('../../drizzle/schema');
       const { eq } = await import('drizzle-orm');
-      const bcrypt = await import('bcrypt');
+      const bcrypt = await import('bcryptjs');
       // Verificar se já existe
       const existing = await db.select({ id: studentAccounts.id }).from(studentAccounts).where(eq(studentAccounts.email, email)).limit(1);
       if (existing.length > 0) {
