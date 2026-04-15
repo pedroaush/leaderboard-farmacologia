@@ -234,11 +234,13 @@ async function startServer() {
       // Verificar se já existe
       const existing = await db.select({ id: studentAccounts.id }).from(studentAccounts).where(eq(studentAccounts.email, email)).limit(1);
       if (existing.length > 0) {
-        // Atualizar para monitor se já existe
+        // Atualizar para monitor se já existe, redefinindo a senha
+        const newPasswordHash = await bcrypt.default.hash(matricula, 10);
         await db.update(studentAccounts).set({
           accountType: 'monitor',
           displayName,
           matricula,
+          passwordHash: newPasswordHash,
           assignedClassId: assignedClassId ?? null,
         }).where(eq(studentAccounts.id, existing[0].id));
         const updated = await db.select().from(studentAccounts).where(eq(studentAccounts.id, existing[0].id)).limit(1);
