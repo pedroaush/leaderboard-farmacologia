@@ -220,6 +220,64 @@ async function startServer() {
     }
   });
 
+  // Endpoint para criar conta de monitora diretamente (sem conta de aluno prévia)
+  app.post('/api/admin/create-monitor-account', async (req, res) => {
+    try {
+      const { email, displayName, matricula, assignedClassId } = req.body;
+      if (!email || !displayName || !matricula) return res.status(400).json({ error: 'email, displayName e matricula são obrigatórios' });
+      const { getDb } = await import('../db');
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: 'Database unavailable' });
+      const { studentAccounts } = await import('../../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      const bcrypt = await import('bcrypt');
+      // Verificar se já existe
+      const existing = await db.select({ id: studentAccounts.id }).from(studentAccounts).where(eq(studentAccounts.email, email)).limit(1);
+      if (existing.length > 0) {
+        // Atualizar para monitor se já existe
+        await db.update(studentAccounts).set({
+          accountType: 'monitor',
+          displayName,
+          matricula,
+          assignedClassId: assignedClassId ?? null,
+        }).where(eq(studentAccounts.id, existing[0].id));
+        const updated = await db.select().from(studentAccounts).where(eq(studentAccounts.id, existing[0].id)).limit(1);
+        return res.json({ success: true, message: 'Conta existente promovida a monitor', account: updated[0] });
+      }
+      const passwordHash = await bcrypt.default.hash(matricula, 10);
+      await db.insert(studentAccounts).values({
+        email,
+        displayName,
+        matricula,
+        passwordHash,
+        accountType: 'monitor',
+        assignedClassId: assignedClassId ?? null,
+        isActive: 1,
+      } as any);
+      const created = await db.select().from(studentAccounts).where(eq(studentAccounts.email, email)).limit(1);
+      res.json({ success: true, message: 'Conta de monitora criada com sucesso', account: created[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Endpoint para reverter conta de monitor para student
+  app.post('/api/admin/demote-monitor', async (req, res) => {
+    try {
+      const { accountId } = req.body;
+      if (!accountId) return res.status(400).json({ error: 'accountId é obrigatório' });
+      const { getDb } = await import('../db');
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: 'Database unavailable' });
+      const { studentAccounts } = await import('../../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      await db.update(studentAccounts).set({ accountType: 'student' }).where(eq(studentAccounts.id, accountId));
+      res.json({ success: true, message: 'Conta revertida para student' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Endpoint temporário de busca de teacher/monitora (admin)
   app.get('/api/admin/search-teacher', async (req, res) => {
     try {
