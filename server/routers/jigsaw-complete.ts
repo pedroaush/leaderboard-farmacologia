@@ -86,6 +86,7 @@ const addHomeMemberInput = z.object({
 
 const scoreHomeGroupInput = z.object({
   homeGroupId: z.number(),
+  sessionToken: z.string().optional(),
   scores: z.array(z.object({
     memberId: z.number(),
     presentationScore: z.number().min(0).max(5),
@@ -761,12 +762,16 @@ export const jigsawCompleteRouter = router({
     /**
      * Score home group participation (admin only)
      */
-    scoreParticipation: adminProcedure
+    scoreParticipation: publicProcedure
       .input(scoreHomeGroupInput)
       .mutation(async ({ input }) => {
         try {
           const db = await getDb();
           if (!db) throw new Error("Database not available");
+          if (input.sessionToken) {
+            const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+            if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+          }
           
           for (const score of input.scores) {
             await db
@@ -901,12 +906,16 @@ export const jigsawCompleteRouter = router({
     /**
      * Calculate and update total Jigsaw PF for a member
      */
-    calculateTotal: adminProcedure
-      .input(z.object({ memberId: z.number() }))
+    calculateTotal: publicProcedure
+      .input(z.object({ memberId: z.number(), sessionToken: z.string().optional() }))
       .mutation(async ({ input }) => {
         try {
           const db = await getDb();
           if (!db) throw new Error("Database not available");
+          if (input.sessionToken) {
+            const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+            if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+          }
           
           // Get all expert group scores
           const expertScores = await db
