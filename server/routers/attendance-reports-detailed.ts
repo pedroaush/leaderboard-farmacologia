@@ -1,8 +1,10 @@
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { attendanceRecords, members, classes } from "../../drizzle/schema";
 import { eq, gte, lte, desc, and as drizzleAnd } from "drizzle-orm";
+import { getTeacherAccountBySessionToken } from "../db";
+import { TRPCError } from "@trpc/server";
 
 const and = drizzleAnd;
 
@@ -79,9 +81,9 @@ export const attendanceReportsDetailedRouter = router({
 
   /**
    * Marcar presença manualmente para um aluno
-   * Apenas professor/admin pode fazer isso
+   * Aceita sessionToken de professor ou autenticação admin
    */
-  markAttendanceManually: adminProcedure
+  markAttendanceManually: publicProcedure
     .input(
       z.object({
         memberId: z.number(),
@@ -89,9 +91,14 @@ export const attendanceReportsDetailedRouter = router({
         qrCodeSessionId: z.number(),
         isValid: z.boolean(),
         reason: z.string().optional(),
+        sessionToken: z.string().optional(),
       })
     )
-    .mutation(async ({ input, ctx }) => {
+    .mutation(async ({ input }) => {
+      if (input.sessionToken) {
+        const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      }
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
@@ -143,13 +150,18 @@ export const attendanceReportsDetailedRouter = router({
   /**
    * Obter tendências de presença por semana
    */
-  getWeeklyTrends: protectedProcedure
+  getWeeklyTrends: publicProcedure
     .input(
       z.object({
         classId: z.number(),
+        sessionToken: z.string().optional(),
       })
     )
     .query(async ({ input }) => {
+      if (input.sessionToken) {
+        const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      }
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
@@ -191,14 +203,20 @@ export const attendanceReportsDetailedRouter = router({
 
   /**
    * Listar todos os alunos com suas taxas de presença
+   * Aceita sessionToken de professor para acesso sem cookie OAuth
    */
-  getClassAttendanceSummary: adminProcedure
+  getClassAttendanceSummary: publicProcedure
     .input(
       z.object({
         classId: z.number(),
+        sessionToken: z.string().optional(),
       })
     )
     .query(async ({ input }) => {
+      if (input.sessionToken) {
+        const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      }
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 

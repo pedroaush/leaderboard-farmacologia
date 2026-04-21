@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -14,17 +14,23 @@ export default function AttendanceReports() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedTeam, setSelectedTeam] = useState<string>("all");
   const [selectedClass, setSelectedClass] = useState<number>(1);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem('sessionToken');
+    if (token) setSessionToken(token);
+  }, []);
 
   // Fetch attendance summary
   const { data: attendanceSummary, isLoading: summaryLoading } = trpc.attendanceReportsDetailed.getClassAttendanceSummary.useQuery(
-    { classId: selectedClass },
-    { enabled: !!user && !authLoading }
+    { classId: selectedClass, sessionToken: sessionToken || undefined },
+    { enabled: true }
   );
 
   // Fetch weekly trends
   const { data: weeklyTrends, isLoading: trendsLoading } = trpc.attendanceReportsDetailed.getWeeklyTrends.useQuery(
-    { classId: selectedClass },
-    { enabled: !!user && !authLoading }
+    { classId: selectedClass, sessionToken: sessionToken || undefined },
+    { enabled: true }
   );
 
   // Filter and search

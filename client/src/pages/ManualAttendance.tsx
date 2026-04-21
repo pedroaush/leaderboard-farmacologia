@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -18,11 +18,17 @@ export default function ManualAttendance() {
   const [reason, setReason] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedClass, setSelectedClass] = useState<number>(1);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem('sessionToken');
+    if (token) setSessionToken(token);
+  }, []);
 
   // Fetch students
   const { data: students, isLoading: studentsLoading } = trpc.attendanceReportsDetailed.getClassAttendanceSummary.useQuery(
-    { classId: selectedClass },
-    { enabled: !!user && !authLoading }
+    { classId: selectedClass, sessionToken: sessionToken || undefined },
+    { enabled: true }
   );
 
   // Mutation for marking attendance
@@ -55,6 +61,7 @@ export default function ManualAttendance() {
       qrCodeSessionId: 0, // Placeholder
       isValid: status !== "absent",
       reason: reason || undefined,
+      sessionToken: sessionToken || undefined,
     });
   };
 

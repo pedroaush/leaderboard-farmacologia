@@ -554,7 +554,7 @@ export default function StudentArea() {
                   <Puzzle size={18} style={{ color: "#6366f1" }} />
                   <h3 className="font-bold text-white text-sm">Seminário Jigsaw — Nota Final</h3>
                 </div>
-                {jigsawScoreData && Number(jigsawScoreData.totalJigsawPF) > 0 ? (
+                {jigsawScoreData && (Number(jigsawScoreData.totalJigsawPF) > 0 || Number((jigsawScoreData as any).fase1PF || 0) > 0 || Number((jigsawScoreData as any).fase2PF || 0) > 0 || Number((jigsawScoreData as any).fase3PF || 0) > 0) ? (
                   <div className="space-y-3">
                     {/* Notas por Fase */}
                     <div className="grid grid-cols-3 gap-2">
@@ -627,9 +627,9 @@ export default function StudentArea() {
                       <div className="flex-1">
                         <h3 className="font-bold text-white mb-1">{material.title}</h3>
                         <p className="text-sm text-white/60 mb-3">{material.description}</p>
-                        {material.fileUrl && (
+                        {(material.url || material.fileUrl) && (
                           <a
-                            href={material.fileUrl}
+                            href={material.url || material.fileUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:scale-105"

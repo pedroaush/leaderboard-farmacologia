@@ -182,8 +182,8 @@ function ExpertGroupCard({ group, index, onScoresSaved }: {
 }
 
 // ─── Home Group Card (Fase 2) with scoring ───
-function HomeGroupCard({ group, index, onScoresSaved }: {
-  group: any; index: number; onScoresSaved: () => void;
+function HomeGroupCard({ group, index, onScoresSaved, teacherToken }: {
+  group: any; index: number; onScoresSaved: () => void; teacherToken?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showScoring, setShowScoring] = useState(false);
@@ -212,7 +212,7 @@ function HomeGroupCard({ group, index, onScoresSaved }: {
       peerRating: s.peer,
     }));
     if (arr.length === 0) { toast.error("Preencha ao menos uma nota."); return; }
-    scoreMutation.mutate({ homeGroupId: group.id, scores: arr });
+    scoreMutation.mutate({ homeGroupId: group.id, scores: arr, sessionToken: teacherToken || undefined });
   };
 
   const isCompleted = group.status === "completed";
@@ -931,7 +931,7 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {homeGroups.map((group: any, idx: number) => (
-                <HomeGroupCard key={group.id} group={group} index={idx} onScoresSaved={() => refetchHome()} />
+                <HomeGroupCard key={group.id} group={group} index={idx} onScoresSaved={() => refetchHome()} teacherToken={teacherToken} />
               ))}
             </div>
           )}
