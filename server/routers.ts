@@ -3554,6 +3554,24 @@ export const appRouter = router({
           .where(and(eq(schema.jigsawExpertMembers.expertGroupId, input.expertGroupId), eq(schema.jigsawExpertMembers.memberId, input.memberId)));
         return { rows };
       }),
+    removeHomeMember: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        homeGroupId: z.number(),
+        memberId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        await dbConn.delete(schema.jigsawHomeMembers)
+          .where(and(eq(schema.jigsawHomeMembers.homeGroupId, input.homeGroupId), eq(schema.jigsawHomeMembers.memberId, input.memberId)));
+        return { success: true, homeGroupId: input.homeGroupId, memberId: input.memberId };
+      }),
   }),
 });
 
