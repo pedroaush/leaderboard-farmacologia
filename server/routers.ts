@@ -3406,6 +3406,32 @@ export const appRouter = router({
         }
         return { success: true, topics: Object.keys(topicMap).length, expertGroups: Object.keys(expertGroupMap).length, homeGroups: homeGroupsCreated };
       }),
+    addMember: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        expertGroupId: z.number().optional(),
+        homeGroupId: z.number().optional(),
+        memberId: z.number(),
+        topicId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        if (input.expertGroupId) {
+          const topicId = input.topicId ?? 1;
+          await dbConn.insert(schema.jigsawExpertMembers).values({ expertGroupId: input.expertGroupId, memberId: input.memberId, topicId }).catch(() => {});
+        }
+        if (input.homeGroupId) {
+          const topicId = input.topicId ?? 1;
+          await dbConn.insert(schema.jigsawHomeMembers).values({ homeGroupId: input.homeGroupId, memberId: input.memberId, topicId }).catch(() => {});
+        }
+        return { success: true };
+      }),
     setSettings: publicProcedure
       .input(z.object({
         password: z.string(),
