@@ -1,4 +1,4 @@
-CREATE TABLE `backupRecords` (
+CREATE TABLE IF NOT EXISTS `backupRecords` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`backupName` varchar(255) NOT NULL,
 	`backupType` enum('full','partial','incremental') NOT NULL DEFAULT 'full',
@@ -18,7 +18,7 @@ CREATE TABLE `backupRecords` (
 	CONSTRAINT `backupRecords_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `restoreHistory` (
+CREATE TABLE IF NOT EXISTS `restoreHistory` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`backupId` int NOT NULL,
 	`status` enum('pending','in_progress','completed','failed') NOT NULL DEFAULT 'pending',
@@ -33,7 +33,7 @@ CREATE TABLE `restoreHistory` (
 	CONSTRAINT `restoreHistory_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `systemSettings` (
+CREATE TABLE IF NOT EXISTS `systemSettings` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`courseName` varchar(255) NOT NULL DEFAULT 'Farmacologia I',
 	`semester` varchar(50) NOT NULL DEFAULT '2026.1',

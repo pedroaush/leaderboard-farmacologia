@@ -1,4 +1,4 @@
-CREATE TABLE `assessmentQuestionLinks` (
+CREATE TABLE IF NOT EXISTS `assessmentQuestionLinks` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`assessmentId` int NOT NULL,
 	`questionId` int NOT NULL,
@@ -8,7 +8,7 @@ CREATE TABLE `assessmentQuestionLinks` (
 	CONSTRAINT `assessmentQuestionLinks_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `questionBank` (
+CREATE TABLE IF NOT EXISTS `questionBank` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`createdBy` int NOT NULL,
 	`title` varchar(255) NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE `questionBank` (
 	CONSTRAINT `questionBank_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `questionPerformance` (
+CREATE TABLE IF NOT EXISTS `questionPerformance` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`questionId` int NOT NULL,
 	`assessmentId` int NOT NULL,

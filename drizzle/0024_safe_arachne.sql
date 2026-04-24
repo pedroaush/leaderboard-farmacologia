@@ -1,4 +1,4 @@
-CREATE TABLE `attendanceRecords` (
+CREATE TABLE IF NOT EXISTS `attendanceRecords` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`qrCodeSessionId` int NOT NULL,
 	`memberId` int NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE `attendanceRecords` (
 	CONSTRAINT `attendanceRecords_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `attendanceSummary` (
+CREATE TABLE IF NOT EXISTS `attendanceSummary` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`memberId` int NOT NULL,
 	`classId` int NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE `attendanceSummary` (
 	CONSTRAINT `attendanceSummary_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `qrCodeSessions` (
+CREATE TABLE IF NOT EXISTS `qrCodeSessions` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`classId` int NOT NULL,
 	`teacherId` int NOT NULL,

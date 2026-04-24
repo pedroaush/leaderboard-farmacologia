@@ -134,48 +134,6 @@
       "when": 1772495563403,
       "tag": "0018_slimy_lockjaw",
       "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "5",
-      "when": 1776996321029,
-      "tag": "0019_keen_lethal_legion",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "5",
-      "when": 1776996322029,
-      "tag": "0020_nosy_hercules",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "5",
-      "when": 1776996323029,
-      "tag": "0021_friendly_violations",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "5",
-      "when": 1776996324029,
-      "tag": "0022_familiar_war_machine",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "5",
-      "when": 1776996325029,
-      "tag": "0023_useful_microbe",
-      "breakpoints": true
-    },
-    {
-      "idx": 24,
-      "version": "5",
-      "when": 1776996326029,
-      "tag": "0024_safe_arachne",
-      "breakpoints": true
     }
   ]
 }

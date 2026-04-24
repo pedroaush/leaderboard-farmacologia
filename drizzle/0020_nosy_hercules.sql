@@ -1,4 +1,4 @@
-CREATE TABLE `jigsawExpertGroups` (
+CREATE TABLE IF NOT EXISTS `jigsawExpertGroups` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`classId` int NOT NULL,
 	`topicId` int NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE `jigsawExpertGroups` (
 	CONSTRAINT `jigsawExpertGroups_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `jigsawExpertMembers` (
+CREATE TABLE IF NOT EXISTS `jigsawExpertMembers` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`expertGroupId` int NOT NULL,
 	`memberId` int NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE `jigsawExpertMembers` (
 	CONSTRAINT `jigsawExpertMembers_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `jigsawHomeGroups` (
+CREATE TABLE IF NOT EXISTS `jigsawHomeGroups` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`classId` int NOT NULL,
 	`name` varchar(200) NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE `jigsawHomeGroups` (
 	CONSTRAINT `jigsawHomeGroups_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `jigsawHomeMembers` (
+CREATE TABLE IF NOT EXISTS `jigsawHomeMembers` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`homeGroupId` int NOT NULL,
 	`memberId` int NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE `jigsawHomeMembers` (
 	CONSTRAINT `jigsawHomeMembers_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `jigsawScores` (
+CREATE TABLE IF NOT EXISTS `jigsawScores` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`memberId` int NOT NULL,
 	`classId` int NOT NULL,
@@ -67,7 +67,7 @@ CREATE TABLE `jigsawScores` (
 	CONSTRAINT `jigsawScores_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `jigsawTopics` (
+CREATE TABLE IF NOT EXISTS `jigsawTopics` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`name` varchar(100) NOT NULL,
 	`description` text,

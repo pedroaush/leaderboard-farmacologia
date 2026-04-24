@@ -1,4 +1,4 @@
-CREATE TABLE `assessmentAnswers` (
+CREATE TABLE IF NOT EXISTS `assessmentAnswers` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`submissionId` int NOT NULL,
 	`questionId` int NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE `assessmentAnswers` (
 	CONSTRAINT `assessmentAnswers_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `assessmentIPBlocks` (
+CREATE TABLE IF NOT EXISTS `assessmentIPBlocks` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`assessmentId` int NOT NULL,
 	`ipAddress` varchar(45) NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE `assessmentIPBlocks` (
 	CONSTRAINT `assessmentIPBlocks_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `assessmentLogs` (
+CREATE TABLE IF NOT EXISTS `assessmentLogs` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`submissionId` int NOT NULL,
 	`eventType` enum('focus_lost','focus_regained','tab_switched','window_minimized','copy_attempt','right_click','keyboard_shortcut','network_issue','suspicious_activity','question_answered','time_warning','submission_started','submission_completed') NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE `assessmentLogs` (
 	CONSTRAINT `assessmentLogs_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `assessmentQuestions` (
+CREATE TABLE IF NOT EXISTS `assessmentQuestions` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`assessmentId` int NOT NULL,
 	`questionNumber` int NOT NULL,
@@ -48,7 +48,7 @@ CREATE TABLE `assessmentQuestions` (
 	CONSTRAINT `assessmentQuestions_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `assessmentSubmissions` (
+CREATE TABLE IF NOT EXISTS `assessmentSubmissions` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`assessmentId` int NOT NULL,
 	`memberId` int NOT NULL,
@@ -66,7 +66,7 @@ CREATE TABLE `assessmentSubmissions` (
 	CONSTRAINT `assessmentSubmissions_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `assessments` (
+CREATE TABLE IF NOT EXISTS `assessments` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`classId` int NOT NULL,
 	`title` varchar(200) NOT NULL,
