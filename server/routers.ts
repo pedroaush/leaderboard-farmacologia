@@ -3422,13 +3422,20 @@ export const appRouter = router({
         const dbMod = await import("./db.js");
         const dbConn = await dbMod.getDb();
         if (!dbConn) throw new Error("Database not available");
+        // Get a valid topicId if not provided
+        let resolvedTopicId = input.topicId;
+        if (!resolvedTopicId) {
+          const allTopics = await dbConn.select().from(schema.jigsawTopics).limit(1);
+          resolvedTopicId = allTopics[0]?.id ?? 1;
+        }
         if (input.expertGroupId) {
-          const topicId = input.topicId ?? 1;
+          // Get the topicId from the expert group
+          const egData = await dbConn.select().from(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.id, input.expertGroupId)).limit(1);
+          const topicId = egData[0]?.topicId ?? resolvedTopicId;
           await dbConn.insert(schema.jigsawExpertMembers).values({ expertGroupId: input.expertGroupId, memberId: input.memberId, topicId }).catch(() => {});
         }
         if (input.homeGroupId) {
-          const topicId = input.topicId ?? 1;
-          await dbConn.insert(schema.jigsawHomeMembers).values({ homeGroupId: input.homeGroupId, memberId: input.memberId, topicId }).catch(() => {});
+          await dbConn.insert(schema.jigsawHomeMembers).values({ homeGroupId: input.homeGroupId, memberId: input.memberId, topicId: resolvedTopicId }).catch(() => {});
         }
         return { success: true };
       }),
