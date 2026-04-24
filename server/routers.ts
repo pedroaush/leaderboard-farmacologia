@@ -3345,13 +3345,13 @@ export const appRouter = router({
         const dbMod = await import("./db.js");
         const dbConn = await dbMod.getDb();
         if (!dbConn) throw new Error("Database not available");
-        // Create topics
+        // Create topics (jigsawTopics has no classId - it's global)
         const topicMap: Record<string, number> = {};
         for (const t of input.topics) {
-          const existing = await dbConn.select().from(schema.jigsawTopics).where(eq(schema.jigsawTopics.classId, input.classId));
+          const existing = await dbConn.select().from(schema.jigsawTopics);
           const found = existing.find((e: any) => e.name === t.name);
           if (found) { topicMap[t.name] = found.id; continue; }
-          const res = await dbConn.insert(schema.jigsawTopics).values({ classId: input.classId, name: t.name, description: t.description, status: 'active' });
+          const res = await dbConn.insert(schema.jigsawTopics).values({ name: t.name, description: t.description });
           topicMap[t.name] = (res as any)[0]?.insertId ?? (res as any).insertId;
         }
         // Create expert groups with members
