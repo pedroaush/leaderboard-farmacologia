@@ -624,6 +624,34 @@ async function startServer() {
     } catch (err) {
       console.warn('[Migration] Could not run geo migration:', err);
     }
+
+    // === BACKUP AUTOMÁTICO DIÁRIO ===
+    try {
+      const { createFullBackup } = await import('../backup-restore');
+      const { getDb } = await import('../db');
+      const { teacherAccounts } = await import('../../drizzle/schema');
+      const { desc } = await import('drizzle-orm');
+
+      async function runAutoBackup() {
+        try {
+          const db = await getDb();
+          if (!db) return;
+          const admins = await db.select().from(teacherAccounts).orderBy(desc(teacherAccounts.id)).limit(1);
+          const adminId = admins[0]?.id || 1;
+          const adminName = admins[0]?.name || 'Sistema';
+          await createFullBackup(adminId, adminName, 'Backup automático diário');
+          console.log('[AutoBackup] ✓ Backup automático concluído');
+        } catch (err: any) {
+          console.warn('[AutoBackup] Erro:', err?.message?.substring(0, 100));
+        }
+      }
+
+      // Backup a cada 24 horas
+      setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
+      console.log('[AutoBackup] Backup automático agendado (a cada 24h)');
+    } catch (err) {
+      console.warn('[AutoBackup] Não foi possível iniciar backup automático:', err);
+    }
   });
 }
 

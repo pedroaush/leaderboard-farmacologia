@@ -9,6 +9,7 @@ import {
   getRestoreHistory,
   createRestoreRecord,
 } from "../db";
+import { createFullBackup, restoreFromBackupData, getBackupContent, listBackups, deleteBackupById } from "../backup-restore";
 import { TRPCError } from "@trpc/server";
 
 export const settingsRouter = router({
@@ -57,39 +58,103 @@ export const settingsRouter = router({
 
   // Backup
   getBackupHistory: adminProcedure.query(async () => {
-    return await getBackupRecords(20);
+    return await listBackups(20);
   }),
 
+  // Criar backup completo real (exporta todos os dados para S3)
   createBackup: adminProcedure
     .input(
       z.object({
-        backupType: z.enum(["full", "partial", "incremental"]),
         notes: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        const backupId = await createBackupRecord({
-          backupName: `backup-${new Date().toISOString()}`,
-          backupType: input.backupType,
-          status: "pending",
-          createdBy: ctx.user.id,
-          createdByName: ctx.user.name,
-          notes: input.notes,
-          totalRecords: 0,
-        });
-
+        const result = await createFullBackup(
+          ctx.user.id,
+          ctx.user.name,
+          input.notes
+        );
         return {
           success: true,
-          backupId,
-          message: "Backup iniciado com sucesso",
+          backupId: result.backupId,
+          url: result.url,
+          fileSize: result.fileSize,
+          totalRecords: result.totalRecords,
+          message: `Backup completo criado com sucesso! ${result.totalRecords} registros salvos.`,
         };
-      } catch (error) {
+      } catch (error: any) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Falha ao criar backup",
+          message: `Falha ao criar backup: ${error.message}`,
         });
       }
+    }),
+
+  // Deletar backup
+  deleteBackup: adminProcedure
+    .input(z.object({ backupId: z.number() }))
+    .mutation(async ({ input }) => {
+      await deleteBackupById(input.backupId);
+      return { success: true };
+    }),
+
+  // Restore
+  getRestoreHistory: adminProcedure.query(async () => {
+    return await getRestoreHistory(20);
+  }),
+
+  // Restaurar a partir de backup existente no S3
+  restoreFromBackup: adminProcedure
+    .input(
+      z.object({
+        backupId: z.number(),
+        fileKey: z.string(),
+        tables: z.array(z.string()).optional(),
+        dryRun: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const backupData = await getBackupContent(input.fileKey);
+        const result = await restoreFromBackupData(
+          backupData,
+          input.backupId,
+          ctx.user.id,
+          ctx.user.name,
+          { tables: input.tables, dryRun: input.dryRun }
+        );
+        return {
+          success: result.success,
+          recordsRestored: result.recordsRestored,
+          errors: result.errors,
+          details: result.details,
+          message: result.success
+            ? `Restauração concluída! ${result.recordsRestored} registros restaurados.`
+            : `Restauração com erros: ${result.errors.slice(0, 3).join('; ')}`,
+        };
+      } catch (error: any) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Falha na restauração: ${error.message}`,
+        });
+      }
+    }),
+
+  // Compat legado
+  createRestore: adminProcedure
+    .input(z.object({ backupId: z.number(), notes: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const restoreId = await createRestoreRecord({
+        backupId: input.backupId,
+        status: "pending",
+        recordsRestored: 0,
+        recordsFailed: 0,
+        restoredBy: ctx.user.id,
+        restoredByName: ctx.user.name,
+        notes: input.notes,
+      });
+      return { success: true, restoreId, message: "Restauração iniciada" };
     }),
 
   updateBackupStatus: adminProcedure
@@ -111,43 +176,6 @@ export const settingsRouter = router({
         completedAt: data.status === "completed" ? new Date() : undefined,
       });
       return { success: true };
-    }),
-
-  // Restore
-  getRestoreHistory: adminProcedure.query(async () => {
-    return await getRestoreHistory(20);
-  }),
-
-  createRestore: adminProcedure
-    .input(
-      z.object({
-        backupId: z.number(),
-        notes: z.string().optional(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      try {
-        const restoreId = await createRestoreRecord({
-          backupId: input.backupId,
-          status: "pending",
-          recordsRestored: 0,
-          recordsFailed: 0,
-          restoredBy: ctx.user.id,
-          restoredByName: ctx.user.name,
-          notes: input.notes,
-        });
-
-        return {
-          success: true,
-          restoreId,
-          message: "Restauração iniciada com sucesso",
-        };
-      } catch (error) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Falha ao iniciar restauração",
-        });
-      }
     }),
 
   // Segurança
