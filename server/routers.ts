@@ -3516,6 +3516,44 @@ export const appRouter = router({
         }
         return { success: true, updated };
       }),
+    deleteExpertMemberRows: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        rowIds: z.array(z.number()),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq, inArray } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        let deleted = 0;
+        for (const rowId of input.rowIds) {
+          await dbConn.delete(schema.jigsawExpertMembers).where(eq(schema.jigsawExpertMembers.id, rowId)).catch(() => {});
+          deleted++;
+        }
+        return { success: true, deleted };
+      }),
+    getExpertMemberRows: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        expertGroupId: z.number(),
+        memberId: z.number(),
+      }))
+      .query(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const rows = await dbConn.select().from(schema.jigsawExpertMembers)
+          .where(and(eq(schema.jigsawExpertMembers.expertGroupId, input.expertGroupId), eq(schema.jigsawExpertMembers.memberId, input.memberId)));
+        return { rows };
+      }),
   }),
 });
 
