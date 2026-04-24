@@ -3406,62 +3406,13 @@ export const appRouter = router({
         }
         return { success: true, topics: Object.keys(topicMap).length, expertGroups: Object.keys(expertGroupMap).length, homeGroups: homeGroupsCreated };
       }),
-    addMember: publicProcedure
-      .input(z.object({
-        password: z.string(),
-        expertGroupId: z.number().optional(),
-        homeGroupId: z.number().optional(),
-        memberId: z.number(),
-        topicId: z.number().optional(),
-      }))
-      .mutation(async ({ input }) => {
-        const valid = await verifyAdminPassword(input.password);
-        if (!valid) throw new Error("Senha incorreta");
-        const schema = await import("../drizzle/schema.js");
-        const { eq } = await import("drizzle-orm");
-        const dbMod = await import("./db.js");
-        const dbConn = await dbMod.getDb();
-        if (!dbConn) throw new Error("Database not available");
-        // Get a valid topicId if not provided
-        let resolvedTopicId = input.topicId;
-        if (!resolvedTopicId) {
-          const allTopics = await dbConn.select().from(schema.jigsawTopics).limit(1);
-          resolvedTopicId = allTopics[0]?.id ?? 1;
-        }
-        if (input.expertGroupId) {
-          // Get the topicId from the expert group
-          const egData = await dbConn.select().from(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.id, input.expertGroupId)).limit(1);
-          const topicId = egData[0]?.topicId ?? resolvedTopicId;
-          await dbConn.insert(schema.jigsawExpertMembers).values({ expertGroupId: input.expertGroupId, memberId: input.memberId, topicId }).catch(() => {});
-        }
-        if (input.homeGroupId) {
-          await dbConn.insert(schema.jigsawHomeMembers).values({ homeGroupId: input.homeGroupId, memberId: input.memberId, topicId: resolvedTopicId }).catch(() => {});
-        }
-        return { success: true };
-      }),
-    setSettings: publicProcedure
-      .input(z.object({
-        password: z.string(),
-        settings: z.array(z.object({ key: z.string(), value: z.string() })),
-      }))
-      .mutation(async ({ input }) => {
-        const valid = await verifyAdminPassword(input.password);
-        if (!valid) throw new Error("Senha incorreta");
-        for (const s of input.settings) {
-          await db.upsertSetting(s.key, s.value);
-        }
-        return { success: true, count: input.settings.length };
-      }),
-    setExpertScores: publicProcedure
+    cleanupExtras: publicProcedure
       .input(z.object({
         password: z.string(),
         classId: z.number(),
-        scores: z.array(z.object({
-          expertGroupId: z.number(),
-          memberId: z.number(),
-          presentationScore: z.number().min(0).max(5),
-          participationScore: z.number().min(0).max(2),
-        })),
+        expertGroupFixes: z.array(z.object({ groupId: z.number(), keepMemberIds: z.array(z.number()) })).optional(),
+        homeGroupFixes: z.array(z.object({ groupId: z.number(), keepMemberIds: z.array(z.number()) })).optional(),
+        deleteTeacherIds: z.array(z.number()).optional(),
       }))
       .mutation(async ({ input }) => {
         const valid = await verifyAdminPassword(input.password);
@@ -3471,65 +3422,30 @@ export const appRouter = router({
         const dbMod = await import("./db.js");
         const dbConn = await dbMod.getDb();
         if (!dbConn) throw new Error("Database not available");
-        let updated = 0;
-        for (const score of input.scores) {
-          await dbConn.update(schema.jigsawExpertMembers)
-            .set({ presentationScore: String(score.presentationScore), participationScore: String(score.participationScore) })
-            .where(and(eq(schema.jigsawExpertMembers.expertGroupId, score.expertGroupId), eq(schema.jigsawExpertMembers.memberId, score.memberId)))
-            .catch(() => {});
-          updated++;
-        }
-        // Mark all expert groups as completed
-        const expertGroups = await dbConn.select().from(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.classId, input.classId));
-        for (const eg of expertGroups) {
-          await dbConn.update(schema.jigsawExpertGroups).set({ status: 'completed' }).where(eq(schema.jigsawExpertGroups.id, eg.id)).catch(() => {});
-        }
-        return { success: true, updated };
-      }),
-    removeDuplicates: publicProcedure
-      .input(z.object({
-        password: z.string(),
-        classId: z.number(),
-      }))
-      .mutation(async ({ input }) => {
-        const valid = await verifyAdminPassword(input.password);
-        if (!valid) throw new Error("Senha incorreta");
-        const schema = await import("../drizzle/schema.js");
-        const { eq, sql: sqlOp } = await import("drizzle-orm");
-        const dbMod = await import("./db.js");
-        const dbConn = await dbMod.getDb();
-        if (!dbConn) throw new Error("Database not available");
-        let removedExpert = 0, removedHome = 0;
-        // Remove duplicate expert members (keep lowest id)
-        const expertGroups = await dbConn.select().from(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.classId, input.classId));
-        for (const eg of expertGroups) {
-          const members = await dbConn.select().from(schema.jigsawExpertMembers).where(eq(schema.jigsawExpertMembers.expertGroupId, eg.id));
-          const seen = new Map<number, number>(); // memberId -> first record id
-          for (const m of members) {
-            if (seen.has(m.memberId)) {
-              // duplicate - remove this one (keep the first)
-              await dbConn.execute(sqlOp`DELETE FROM jigsawExpertMembers WHERE id = ${m.id}`);
-              removedExpert++;
-            } else {
-              seen.set(m.memberId, m.id);
-            }
+        let removedExpert = 0, removedHome = 0, removedTeachers = 0;
+        for (const fix of (input.expertGroupFixes || [])) {
+          if (fix.keepMemberIds.length === 0) continue;
+          const members = await dbConn.select().from(schema.jigsawExpertMembers).where(eq(schema.jigsawExpertMembers.expertGroupId, fix.groupId));
+          const toRemove = members.filter((m: any) => !fix.keepMemberIds.includes(m.memberId));
+          for (const m of toRemove) {
+            await dbConn.delete(schema.jigsawExpertMembers).where(and(eq(schema.jigsawExpertMembers.expertGroupId, fix.groupId), eq(schema.jigsawExpertMembers.memberId, m.memberId))).catch(() => {});
+            removedExpert++;
           }
         }
-        // Remove duplicate home members (keep lowest id)
-        const homeGroups = await dbConn.select().from(schema.jigsawHomeGroups).where(eq(schema.jigsawHomeGroups.classId, input.classId));
-        for (const hg of homeGroups) {
-          const members = await dbConn.select().from(schema.jigsawHomeMembers).where(eq(schema.jigsawHomeMembers.homeGroupId, hg.id));
-          const seen = new Map<number, number>();
-          for (const m of members) {
-            if (seen.has(m.memberId)) {
-              await dbConn.execute(sqlOp`DELETE FROM jigsawHomeMembers WHERE id = ${m.id}`);
-              removedHome++;
-            } else {
-              seen.set(m.memberId, m.id);
-            }
+        for (const fix of (input.homeGroupFixes || [])) {
+          if (fix.keepMemberIds.length === 0) continue;
+          const members = await dbConn.select().from(schema.jigsawHomeMembers).where(eq(schema.jigsawHomeMembers.homeGroupId, fix.groupId));
+          const toRemove = members.filter((m: any) => !fix.keepMemberIds.includes(m.memberId));
+          for (const m of toRemove) {
+            await dbConn.delete(schema.jigsawHomeMembers).where(and(eq(schema.jigsawHomeMembers.homeGroupId, fix.groupId), eq(schema.jigsawHomeMembers.memberId, m.memberId))).catch(() => {});
+            removedHome++;
           }
         }
-        return { success: true, removedExpert, removedHome };
+        for (const tid of (input.deleteTeacherIds || [])) {
+          await dbConn.delete(schema.teacherAccounts).where(eq(schema.teacherAccounts.id, tid)).catch(() => {});
+          removedTeachers++;
+        }
+        return { success: true, removedExpert, removedHome, removedTeachers };
       }),
   }),
 
