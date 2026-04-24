@@ -2306,7 +2306,7 @@ export const appRouter = router({
     // Register a new student account
     register: publicProcedure
       .input(z.object({
-        email: z.string().email().refine(e => e.endsWith("@edu.unirio.br"), { message: "Email deve ser @edu.unirio.br" }),
+        email: z.string().email(),
         name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
         matricula: z.string().min(5, "Matrícula deve ter pelo menos 5 caracteres"),
         password: z.string().min(5, "Senha deve ter pelo menos 5 caracteres"),
