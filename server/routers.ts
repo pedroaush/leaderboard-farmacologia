@@ -3486,6 +3486,51 @@ export const appRouter = router({
         }
         return { success: true, updated };
       }),
+    removeDuplicates: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        classId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq, sql: sqlOp } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        let removedExpert = 0, removedHome = 0;
+        // Remove duplicate expert members (keep lowest id)
+        const expertGroups = await dbConn.select().from(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.classId, input.classId));
+        for (const eg of expertGroups) {
+          const members = await dbConn.select().from(schema.jigsawExpertMembers).where(eq(schema.jigsawExpertMembers.expertGroupId, eg.id));
+          const seen = new Map<number, number>(); // memberId -> first record id
+          for (const m of members) {
+            if (seen.has(m.memberId)) {
+              // duplicate - remove this one (keep the first)
+              await dbConn.execute(sqlOp`DELETE FROM jigsawExpertMembers WHERE id = ${m.id}`);
+              removedExpert++;
+            } else {
+              seen.set(m.memberId, m.id);
+            }
+          }
+        }
+        // Remove duplicate home members (keep lowest id)
+        const homeGroups = await dbConn.select().from(schema.jigsawHomeGroups).where(eq(schema.jigsawHomeGroups.classId, input.classId));
+        for (const hg of homeGroups) {
+          const members = await dbConn.select().from(schema.jigsawHomeMembers).where(eq(schema.jigsawHomeMembers.homeGroupId, hg.id));
+          const seen = new Map<number, number>();
+          for (const m of members) {
+            if (seen.has(m.memberId)) {
+              await dbConn.execute(sqlOp`DELETE FROM jigsawHomeMembers WHERE id = ${m.id}`);
+              removedHome++;
+            } else {
+              seen.set(m.memberId, m.id);
+            }
+          }
+        }
+        return { success: true, removedExpert, removedHome };
+      }),
   }),
 
 });
