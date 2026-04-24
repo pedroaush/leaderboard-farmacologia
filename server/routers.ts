@@ -3329,6 +3329,32 @@ export const appRouter = router({
 
   // Temporary seed endpoint for Jigsaw data restoration
   jigsawSeed: router({
+    deleteAll: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        classId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const homeGroups = await dbConn.select().from(schema.jigsawHomeGroups).where(eq(schema.jigsawHomeGroups.classId, input.classId));
+        for (const hg of homeGroups) {
+          await dbConn.delete(schema.jigsawHomeMembers).where(eq(schema.jigsawHomeMembers.homeGroupId, hg.id)).catch(() => {});
+        }
+        await dbConn.delete(schema.jigsawHomeGroups).where(eq(schema.jigsawHomeGroups.classId, input.classId)).catch(() => {});
+        const expertGroups = await dbConn.select().from(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.classId, input.classId));
+        for (const eg of expertGroups) {
+          await dbConn.delete(schema.jigsawExpertMembers).where(eq(schema.jigsawExpertMembers.expertGroupId, eg.id)).catch(() => {});
+        }
+        await dbConn.delete(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.classId, input.classId)).catch(() => {});
+        await dbConn.delete(schema.jigsawTopics).catch(() => {});
+        return { success: true, message: "All Jigsaw data deleted for class " + input.classId };
+      }),
     createAll: publicProcedure
       .input(z.object({
         password: z.string(),
