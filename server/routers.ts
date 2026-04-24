@@ -3327,6 +3327,61 @@ export const appRouter = router({
   studentActivities: studentActivitiesRouter,
   chat: chatRouter,
 
+  // Temporary seed endpoint for Jigsaw data restoration
+  jigsawSeed: router({
+    createAll: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        classId: z.number(),
+        topics: z.array(z.object({ name: z.string(), description: z.string() })),
+        expertGroups: z.array(z.object({ name: z.string(), topicName: z.string(), memberIds: z.array(z.number()) })),
+        homeGroups: z.array(z.object({ name: z.string(), memberIds: z.array(z.number()) })),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        // Create topics
+        const topicMap: Record<string, number> = {};
+        for (const t of input.topics) {
+          const existing = await dbConn.select().from(schema.jigsawTopics).where(eq(schema.jigsawTopics.classId, input.classId));
+          const found = existing.find((e: any) => e.name === t.name);
+          if (found) { topicMap[t.name] = found.id; continue; }
+          const res = await dbConn.insert(schema.jigsawTopics).values({ classId: input.classId, name: t.name, description: t.description, status: 'active' });
+          topicMap[t.name] = (res as any)[0]?.insertId ?? (res as any).insertId;
+        }
+        // Create expert groups with members
+        const expertGroupMap: Record<string, number> = {};
+        for (const eg of input.expertGroups) {
+          const topicId = topicMap[eg.topicName];
+          if (!topicId) continue;
+          const res = await dbConn.insert(schema.jigsawExpertGroups).values({ classId: input.classId, name: eg.name, topicId, description: eg.name, status: 'active' });
+          const egId = (res as any)[0]?.insertId ?? (res as any).insertId;
+          expertGroupMap[eg.name] = egId;
+          for (const memberId of eg.memberIds) {
+            await dbConn.insert(schema.jigsawExpertMembers).values({ expertGroupId: egId, memberId, topicId }).catch(() => {});
+          }
+        }
+        // Create home groups with members
+        let homeGroupsCreated = 0;
+        for (const hg of input.homeGroups) {
+          const res = await dbConn.insert(schema.jigsawHomeGroups).values({ classId: input.classId, name: hg.name, description: hg.name, meetingNumber: 1, status: 'forming' });
+          const hgId = (res as any)[0]?.insertId ?? (res as any).insertId;
+          homeGroupsCreated++;
+          for (const memberId of hg.memberIds) {
+            const expertMemberships = await dbConn.select().from(schema.jigsawExpertMembers).where(eq(schema.jigsawExpertMembers.memberId, memberId));
+            const topicId = expertMemberships[0]?.topicId ?? Object.values(topicMap)[0] ?? 1;
+            await dbConn.insert(schema.jigsawHomeMembers).values({ homeGroupId: hgId, memberId, topicId }).catch(() => {});
+          }
+        }
+        return { success: true, topics: Object.keys(topicMap).length, expertGroups: Object.keys(expertGroupMap).length, homeGroups: homeGroupsCreated };
+      }),
+  }),
+
 });
 
 // Haversine formula to calculate distance between two coordinates in meters
