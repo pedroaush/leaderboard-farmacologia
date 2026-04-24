@@ -3445,10 +3445,38 @@ export const appRouter = router({
           await dbConn.delete(schema.teacherAccounts).where(eq(schema.teacherAccounts.id, tid)).catch(() => {});
           removedTeachers++;
         }
-        return { success: true, removedExpert, removedHome, removedTeachers };
+         return { success: true, removedExpert, removedHome, removedTeachers };
+      }),
+    addMember: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        groupType: z.enum(['expert', 'home']),
+        groupId: z.number(),
+        memberId: z.number(),
+        classId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        if (input.groupType === 'expert') {
+          const topics = await dbConn.select().from(schema.jigsawTopics).limit(1);
+          const topicId = topics[0]?.id ?? 1;
+          await dbConn.insert(schema.jigsawExpertMembers).values({ expertGroupId: input.groupId, memberId: input.memberId, topicId });
+          return { success: true, type: 'expert', groupId: input.groupId, memberId: input.memberId };
+        } else {
+          const expertMemberships = await dbConn.select().from(schema.jigsawExpertMembers).where(eq(schema.jigsawExpertMembers.memberId, input.memberId));
+          const topics = await dbConn.select().from(schema.jigsawTopics).limit(1);
+          const topicId = expertMemberships[0]?.topicId ?? topics[0]?.id ?? 1;
+          await dbConn.insert(schema.jigsawHomeMembers).values({ homeGroupId: input.groupId, memberId: input.memberId, topicId });
+          return { success: true, type: 'home', groupId: input.groupId, memberId: input.memberId };
+        }
       }),
   }),
-
 });
 
 // Haversine formula to calculate distance between two coordinates in meters
