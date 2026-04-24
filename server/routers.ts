@@ -3406,6 +3406,19 @@ export const appRouter = router({
         }
         return { success: true, topics: Object.keys(topicMap).length, expertGroups: Object.keys(expertGroupMap).length, homeGroups: homeGroupsCreated };
       }),
+    setSettings: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        settings: z.array(z.object({ key: z.string(), value: z.string() })),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        for (const s of input.settings) {
+          await db.upsertSetting(s.key, s.value);
+        }
+        return { success: true, count: input.settings.length };
+      }),
     setExpertScores: publicProcedure
       .input(z.object({
         password: z.string(),
