@@ -2314,28 +2314,26 @@ export const appRouter = router({
         inviteCode: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
+        // SECURITY: Only registered members (in the members table) can create accounts
+        // This prevents unauthorized access from people not enrolled in the course
+        if (!input.memberId) {
+          return { success: false, message: "Acesso restrito: apenas alunos matriculados podem criar conta. Verifique com seu professor se você está cadastrado no sistema." } as const;
+        }
+        // Verify the memberId actually exists in the database
+        const allMembers = await db.getAllMembers();
+        const memberExists = allMembers.find(m => m.id === input.memberId);
+        if (!memberExists) {
+          return { success: false, message: "Aluno não encontrado no sistema. Verifique com seu professor se você está cadastrado." } as const;
+        }
+        // Check if member already has an account
+        const existingMember = await db.getStudentAccountByMemberId(input.memberId);
+        if (existingMember) return { success: false, message: "Este aluno já possui uma conta cadastrada" } as const;
         // Check if email already registered
         const existingEmail = await db.getStudentAccountByEmail(input.email);
         if (existingEmail) return { success: false, message: "Este email já está cadastrado" } as const;
         // Check if matricula already registered
         const existingMatricula = await db.getStudentAccountByMatricula(input.matricula);
         if (existingMatricula) return { success: false, message: "Esta matrícula já está cadastrada" } as const;
-        // If no memberId (external/monitor), validate invite code
-        if (!input.memberId) {
-          if (!input.inviteCode) return { success: false, message: "Código de convite obrigatório para monitores/externos" } as const;
-          const code = await db.getInviteCodeByCode(input.inviteCode);
-          if (!code) return { success: false, message: "Código de convite inválido" } as const;
-          if (!code.isActive) return { success: false, message: "Código de convite desativado" } as const;
-          if (code.expiresAt && new Date(code.expiresAt) < new Date()) return { success: false, message: "Código de convite expirado" } as const;
-          if (code.usedCount >= code.maxUses) return { success: false, message: "Código de convite já atingiu o limite de usos" } as const;
-          // Increment usage
-          await db.incrementInviteCodeUsage(code.id);
-        }
-        // Check if member already has an account (only if memberId provided)
-        if (input.memberId) {
-          const existingMember = await db.getStudentAccountByMemberId(input.memberId);
-          if (existingMember) return { success: false, message: "Este aluno já possui uma conta cadastrada" } as const;
-        }
         // Hash password
         const passwordHash = await bcrypt.hash(input.password, 10);
         // Create session token

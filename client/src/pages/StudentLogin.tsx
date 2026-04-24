@@ -155,28 +155,16 @@ export default function StudentLogin() {
     setError("");
     setSuccess("");
 
-    if (!email.endsWith("@edu.unirio.br")) {
-      setError("O email deve ser institucional (@edu.unirio.br)");
-      return;
-    }
     if (password.length < 5) {
-      setError("A matrícula deve ter pelo menos 5 caracteres");
+      setError("A senha deve ter pelo menos 5 caracteres");
       return;
     }
     if (password !== confirmPassword) {
-      setError("As matrículas não coincidem");
+      setError("As senhas não coincidem");
       return;
     }
-    if (registerType === "turma" && !selectedMemberId) {
+    if (!selectedMemberId) {
       setError("Selecione seu nome na lista de alunos");
-      return;
-    }
-    if (registerType === "externo" && studentName.trim().length < 2) {
-      setError("Digite seu nome completo");
-      return;
-    }
-    if (registerType === "externo" && inviteCode.trim().length < 4) {
-      setError("Digite o código de convite fornecido pelo professor");
       return;
     }
     if (matricula.length < 5) {
@@ -184,10 +172,8 @@ export default function StudentLogin() {
       return;
     }
 
-    // Determine name: from selected member or typed name
-    const nameToSend = registerType === "turma" && selectedMemberId
-      ? (availableMembers?.find(m => m.id === selectedMemberId)?.name || studentName)
-      : studentName;
+    // Get name from selected member
+    const nameToSend = availableMembers?.find(m => m.id === selectedMemberId)?.name || studentName;
 
     setIsSubmitting(true);
     try {
@@ -196,8 +182,7 @@ export default function StudentLogin() {
         name: nameToSend,
         matricula,
         password,
-        ...(registerType === "turma" && selectedMemberId ? { memberId: selectedMemberId } : {}),
-        ...(registerType === "externo" ? { inviteCode: inviteCode.trim() } : {}),
+        memberId: selectedMemberId!,
       });
       if (result.success && "sessionToken" in result) {
         setStudentSession(result.sessionToken);
@@ -275,8 +260,8 @@ export default function StudentLogin() {
             </h1>
             <p className="text-sm mt-2" style={{ color: "rgba(255,255,255,0.5)" }}>
               {mode === "login"
-                ? "Use seu email institucional @edu.unirio.br"
-                : "Cadastre-se com seu email institucional"}
+                ? "Use seu email e matrícula como senha"
+                : "Cadastre-se com seu email e matrícula"}
             </p>
           </div>
 
@@ -429,38 +414,7 @@ export default function StudentLogin() {
                 onSubmit={handleRegister}
                 className="space-y-4"
               >
-                {/* Register Type Selector */}
-                <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.6)" }}>
-                    Tipo de Cadastro
-                  </label>
-                  <div className="flex gap-1 p-1 rounded-lg mb-3" style={{ backgroundColor: "rgba(255,255,255,0.06)" }}>
-                    <button
-                      type="button"
-                      onClick={() => { setRegisterType("turma"); setError(""); }}
-                      className="flex-1 py-2 rounded-md text-xs font-medium transition-all"
-                      style={{
-                        backgroundColor: registerType === "turma" ? "rgba(247,148,29,0.2)" : "transparent",
-                        color: registerType === "turma" ? ORANGE : "rgba(255,255,255,0.5)",
-                        border: registerType === "turma" ? `1px solid ${ORANGE}40` : "1px solid transparent",
-                      }}
-                    >
-                      🏫 Aluno da Turma
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setRegisterType("externo"); setError(""); }}
-                      className="flex-1 py-2 rounded-md text-xs font-medium transition-all"
-                      style={{
-                        backgroundColor: registerType === "externo" ? "rgba(247,148,29,0.2)" : "transparent",
-                        color: registerType === "externo" ? ORANGE : "rgba(255,255,255,0.5)",
-                        border: registerType === "externo" ? `1px solid ${ORANGE}40` : "1px solid transparent",
-                      }}
-                    >
-                      🎓 Monitor / Externo
-                    </button>
-                  </div>
-                </div>
+
 
                 {/* Select Student Name (turma) or Type Name (externo) */}
                 {registerType === "turma" ? (
