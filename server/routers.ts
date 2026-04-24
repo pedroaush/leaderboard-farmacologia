@@ -3476,6 +3476,46 @@ export const appRouter = router({
           return { success: true, type: 'home', groupId: input.groupId, memberId: input.memberId };
         }
       }),
+    setExpertScores: publicProcedure
+      .input(z.object({
+        password: z.string(),
+        classId: z.number(),
+        scores: z.array(z.object({
+          expertGroupId: z.number().optional(),
+          memberId: z.number(),
+          presentationScore: z.number().min(0).max(5),
+          participationScore: z.number().min(0).max(2),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Senha incorreta");
+        const schema = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbMod = await import("./db.js");
+        const dbConn = await dbMod.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        let updated = 0;
+        for (const score of input.scores) {
+          if (score.expertGroupId) {
+            await dbConn.update(schema.jigsawExpertMembers)
+              .set({ presentationScore: String(score.presentationScore), participationScore: String(score.participationScore) })
+              .where(and(eq(schema.jigsawExpertMembers.expertGroupId, score.expertGroupId), eq(schema.jigsawExpertMembers.memberId, score.memberId)))
+              .catch(() => {});
+          } else {
+            await dbConn.update(schema.jigsawExpertMembers)
+              .set({ presentationScore: String(score.presentationScore), participationScore: String(score.participationScore) })
+              .where(eq(schema.jigsawExpertMembers.memberId, score.memberId))
+              .catch(() => {});
+          }
+          updated++;
+        }
+        const expertGroups = await dbConn.select().from(schema.jigsawExpertGroups).where(eq(schema.jigsawExpertGroups.classId, input.classId));
+        for (const eg of expertGroups) {
+          await dbConn.update(schema.jigsawExpertGroups).set({ status: 'completed' }).where(eq(schema.jigsawExpertGroups.id, eg.id)).catch(() => {});
+        }
+        return { success: true, updated };
+      }),
   }),
 });
 
