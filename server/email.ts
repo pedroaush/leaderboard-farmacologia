@@ -188,3 +188,83 @@ Conexão em Farmacologia — UNIRIO`;
     text,
   });
 }
+
+
+// Send grades report email to professor with CSV attachment
+export async function sendGradesReportEmail(options: {
+  to: string;
+  professorName: string;
+  className: string;
+  csvContent: string;
+  totalStudents: number;
+  timestamp: string;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background-color:#0A1628;font-family:sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0A1628;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0">
+        <tr><td align="center" style="padding-bottom:32px;">
+          <img src="https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png" alt="Logo" width="64" height="64" style="display:block;margin-bottom:16px;" />
+          <h1 style="color:#ffffff;font-size:24px;margin:0;">Conexao em Farmacologia</h1>
+          <p style="color:rgba(255,255,255,0.5);font-size:14px;margin:8px 0 0;">UNIRIO</p>
+        </td></tr>
+        <tr><td style="background-color:#0D1B2A;border-radius:12px;padding:40px 32px;border:1px solid rgba(255,255,255,0.1);">
+          <h2 style="color:#ffffff;font-size:22px;margin:0 0 8px;">Relatorio de Notas</h2>
+          <p style="color:rgba(255,255,255,0.6);font-size:14px;margin:0 0 24px;line-height:1.6;">
+            Ola, <strong style="color:#ffffff;">${options.professorName}</strong>!
+          </p>
+          <p style="color:rgba(255,255,255,0.6);font-size:14px;margin:0 0 24px;line-height:1.6;">
+            Segue em anexo o relatorio de notas da turma <strong style="color:#F7941D;">${options.className}</strong>.
+          </p>
+          <div style="background-color:rgba(247,148,29,0.1);border:1px solid rgba(247,148,29,0.2);border-radius:8px;padding:16px;margin-bottom:24px;">
+            <p style="color:#F7941D;font-size:13px;margin:0;line-height:1.5;">
+              Turma: ${options.className}<br>
+              Total de alunos: ${options.totalStudents}<br>
+              Data de geracao: ${options.timestamp}
+            </p>
+          </div>
+          <p style="color:rgba(255,255,255,0.4);font-size:12px;margin:0;">
+            O arquivo CSV esta anexado. Abra com Excel ou Google Sheets.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const text = `Relatorio de notas da turma ${options.className}. Total: ${options.totalStudents} alunos. Data: ${options.timestamp}`;
+
+  const transporter = createTransporter();
+  if (!transporter) {
+    console.warn("[Email] SMTP not configured, skipping grades report email");
+    return { success: false, error: "SMTP nao configurado" };
+  }
+
+  try {
+    const safeClass = options.className.replace(/\s+/g, "_");
+    const safeDate = options.timestamp.replace(/[/:]/g, "-");
+    const info = await transporter.sendMail({
+      from: `"Conexao em Farmacologia" <${SMTP_FROM}>`,
+      to: options.to,
+      subject: `Relatorio de Notas - ${options.className} - ${options.timestamp}`,
+      html,
+      text,
+      attachments: [
+        {
+          filename: `notas_${safeClass}_${safeDate}.csv`,
+          content: options.csvContent,
+          contentType: "text/csv; charset=utf-8",
+        },
+      ],
+    });
+    console.log(`[Email] Grades report sent to ${options.to}: ${info.messageId}`);
+    return { success: true, messageId: info.messageId };
+  } catch (err: any) {
+    console.error("[Email] Failed to send grades report:", err.message);
+    return { success: false, error: err.message };
+  }
+}

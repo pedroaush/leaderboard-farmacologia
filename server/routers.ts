@@ -7,7 +7,7 @@ import * as db from "./db";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { notifyOwner } from "./_core/notification";
-import { sendPasswordResetEmail, isSmtpConfigured } from "./email";
+import { sendPasswordResetEmail, isSmtpConfigured, sendGradesReportEmail } from "./email";
 import { analyticsRouter } from "./routers/analytics";
 import { jigsawRouter } from "./routers/jigsaw";
 import { jigsawCompleteRouter } from "./routers/jigsaw-complete";
@@ -635,6 +635,38 @@ export const appRouter = router({
         } catch (error) {
           console.error("[Profile] Photo upload error:", error);
           return { success: false, message: "Erro ao enviar foto" } as const;
+        }
+      }),
+
+    // Send grades report by email
+    sendGradesReport: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        csvContent: z.string(),
+        className: z.string().default("Farmacologia I - Medicina"),
+        totalStudents: z.number(),
+        recipientEmail: z.string().email().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) return { success: false, message: "Sessão inválida" } as const;
+
+        const toEmail = input.recipientEmail || teacher.email;
+        const timestamp = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+        const result = await sendGradesReportEmail({
+          to: toEmail,
+          professorName: teacher.name || teacher.email,
+          className: input.className,
+          csvContent: input.csvContent,
+          totalStudents: input.totalStudents,
+          timestamp,
+        });
+
+        if (result.success) {
+          return { success: true, message: `Relatório enviado para ${toEmail}` } as const;
+        } else {
+          return { success: false, message: result.error || "Erro ao enviar email" } as const;
         }
       }),
   }),
