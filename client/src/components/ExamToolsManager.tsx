@@ -14,10 +14,10 @@
  * - Total: 10,0 pt | Aprovado ≥ 5,0
  */
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Printer, CheckCircle, XCircle, Download, RefreshCw, Users, BookOpen, ChevronDown, ChevronUp, Save, Loader2, AlertTriangle } from "lucide-react";
+import { Printer, CheckCircle, Download, RefreshCw, Users, ChevronDown, ChevronUp, Save, Loader2, AlertTriangle, Camera, BarChart2, Database } from "lucide-react";
 
 // ─── Tipos ───
 type Difficulty = "facil" | "intermediario" | "dificil";
@@ -114,7 +114,122 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
   const [turmaName, setTurmaName] = useState("");
   const [examDate, setExamDate] = useState(() => new Date().toISOString().split("T")[0]);
 
+  // Gabarito fixo no banco
+  const [savingGabarito, setSavingGabarito] = useState(false);
+  const [loadingGabarito, setLoadingGabarito] = useState(false);
+
+  // OCR
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
+
   const utils = trpc.useUtils();
+
+  // ─── Salvar gabarito no banco ───
+  async function saveGabaritoToDB() {
+    if (!selectedClassId) { toast.error("Selecione uma turma para salvar o gabarito."); return; }
+    const filled = gabarito.filter(Boolean).length;
+    if (filled < 25) { toast.error(`Preencha todas as 25 questões. Faltam ${25 - filled}.`); return; }
+    setSavingGabarito(true);
+    try {
+      await utils.client.teacherAuth.saveGabarito.mutate({
+        sessionToken: teacherToken,
+        classId: selectedClassId,
+        provaType,
+        answers: gabarito,
+        difficulties: difficulties,
+        examDate,
+      });
+      toast.success("Gabarito salvo no banco de dados!");
+      setGabaritoConfirmed(true);
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao salvar gabarito.");
+    } finally {
+      setSavingGabarito(false);
+    }
+  }
+
+  // ─── Carregar gabarito do banco ───
+  async function loadGabaritoFromDB() {
+    if (!selectedClassId) { toast.error("Selecione uma turma."); return; }
+    setLoadingGabarito(true);
+    try {
+      const data = await utils.client.teacherAuth.getGabarito.query({
+        sessionToken: teacherToken,
+        classId: selectedClassId,
+        provaType,
+      });
+      if (data) {
+        setGabarito(data.answers as Answer[]);
+        setDifficulties(data.difficulties as Difficulty[]);
+        if (data.examDate) setExamDate(data.examDate);
+        setGabaritoConfirmed(true);
+        toast.success("Gabarito carregado do banco!");
+      } else {
+        toast.error("Nenhum gabarito salvo para esta turma/prova.");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao carregar gabarito.");
+    } finally {
+      setLoadingGabarito(false);
+    }
+  }
+
+  // ─── OCR: ler cartão resposta via foto ───
+  async function handleOCR(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOcrLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const base64 = (ev.target?.result as string).split(",")[1];
+        try {
+            // Usar a API de visão (Forge/GPT-4o) para extrair respostas do cartão
+          const forgeApiUrl = import.meta.env.VITE_FRONTEND_FORGE_API_URL;
+          const forgeApiKey = import.meta.env.VITE_FRONTEND_FORGE_API_KEY;
+          const visionRes = await fetch(`${forgeApiUrl}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${forgeApiKey}` },
+            body: JSON.stringify({
+              model: "gpt-4o",
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "text", text: "Este é um cartão resposta de prova com 25 questões (Q1 a Q25). Cada questão tem alternativas A, B, C, D, E. Identifique qual alternativa está marcada em cada questão. Responda APENAS com um JSON no formato: {\"answers\": [\"A\", \"B\", null, ...]} onde null significa questão em branco. Não inclua mais nada na resposta." },
+                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64}` } }
+                ]
+              }],
+              max_tokens: 500,
+            }),
+          });
+          const visionData = await visionRes.json();
+          const content = visionData?.choices?.[0]?.message?.content || "";
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            const answers = parsed.answers as Answer[];
+            if (answers && answers.length === 25) {
+              setStudentAnswers(answers);
+              toast.success("Respostas extraídas com sucesso! Verifique antes de corrigir.");
+            } else {
+              toast.error("Não foi possível identificar todas as respostas. Preencha manualmente.");
+            }
+          } else {
+            toast.error("Não foi possível ler o cartão. Tente uma foto mais nítida.");
+          }
+        } catch {
+          toast.error("Erro ao processar a imagem. Tente novamente.");
+        } finally {
+          setOcrLoading(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      setOcrLoading(false);
+    }
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
   // ─── Confirmar gabarito ───
   function confirmGabarito() {
@@ -587,18 +702,30 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
     { id: "gabarito", label: "📋 Gabarito" },
     { id: "correcao", label: "✏️ Correção" },
     { id: "turma", label: `👥 Turma (${classResults.length})` },
+    { id: "relatorio", label: "📊 Relatório" },
     { id: "imprimir", label: "🖨️ Imprimir" },
   ] as const;
 
   return (
     <div className="space-y-6">
+      {/* Hidden file input for OCR */}
+      <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handleOCR} className="hidden" />
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-bold text-foreground">Ferramentas de Prova</h2>
-          <p className="text-sm text-muted-foreground">Cartão resposta, correção em turma e integração de notas</p>
+          <p className="text-sm text-muted-foreground">Gabarito fixo, correção em turma, OCR e relatórios</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={selectedClassId || ""}
+            onChange={e => { setSelectedClassId(Number(e.target.value) || null); setTurmaName(classes.find(c => c.id === Number(e.target.value))?.name || ""); }}
+            className="px-3 py-1.5 rounded-lg border border-border bg-card text-sm text-foreground"
+          >
+            <option value="">Turma...</option>
+            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
           <select
             value={provaType}
             onChange={e => setProvaType(e.target.value as "P1" | "P2")}
@@ -607,6 +734,14 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
             <option value="P1">Prova P1</option>
             <option value="P2">Prova P2</option>
           </select>
+          <button
+            onClick={loadGabaritoFromDB}
+            disabled={loadingGabarito || !selectedClassId}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-sm text-foreground hover:bg-muted/50 disabled:opacity-50 transition-colors"
+          >
+            {loadingGabarito ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
+            Carregar Gabarito
+          </button>
           <input
             type="date"
             value={examDate}
@@ -713,7 +848,15 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
                 );
               })}
             </div>
-            <div className="px-4 py-3 border-t border-border bg-card/50 flex justify-end">
+            <div className="px-4 py-3 border-t border-border bg-card/50 flex justify-between items-center gap-3">
+              <button
+                onClick={saveGabaritoToDB}
+                disabled={savingGabarito}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-sm text-foreground hover:bg-muted/50 disabled:opacity-50 transition-colors"
+              >
+                {savingGabarito ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Salvar no Banco
+              </button>
               <button
                 onClick={confirmGabarito}
                 className="px-6 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
@@ -815,6 +958,15 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
                   {studentAnswers.filter(Boolean).length}/25 respondidas
                 </span>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={ocrLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                    title="Fotografar cartão resposta e extrair respostas automaticamente"
+                  >
+                    {ocrLoading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                    {ocrLoading ? "Processando..." : "OCR"}
+                  </button>
                   <button
                     onClick={() => { setStudentAnswers(Array(25).fill(null)); setCurrentResult(null); }}
                     className="px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -992,7 +1144,133 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
         </div>
       )}
 
-      {/* ─── TAB: IMPRIMIR ─── */}
+      {/* ─── TAB: RELATÓRIO ─── */}
+      {tab === "relatorio" && (
+        <div className="space-y-4">
+          {classResults.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              <BarChart2 size={40} className="mx-auto mb-3 opacity-30" />
+              <p>Corrija pelo menos um aluno para ver o relatório.</p>
+              <p className="text-xs mt-1">Use a aba "Turma" para corrigir em sequência.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Cards de resumo */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: "Total", value: classResults.length, color: "text-blue-400" },
+                  { label: "Média", value: (classResults.reduce((s, r) => s + r.score, 0) / classResults.length).toFixed(2), color: "text-amber-400" },
+                  { label: "Aprovados", value: `${classResults.filter(r => r.approved).length} (${Math.round(classResults.filter(r => r.approved).length / classResults.length * 100)}%)`, color: "text-green-400" },
+                  { label: "Reprovados", value: `${classResults.filter(r => !r.approved).length} (${Math.round(classResults.filter(r => !r.approved).length / classResults.length * 100)}%)`, color: "text-red-400" },
+                ].map(stat => (
+                  <div key={stat.label} className="border border-border rounded-lg p-3 text-center">
+                    <div className={`text-xl font-bold ${stat.color}`}>{stat.value}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Distribuição de notas */}
+              <div className="border border-border rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-foreground mb-3">Distribuição de Notas</h4>
+                {[
+                  { range: "9,0 – 10,0", min: 9, max: 10, color: "#22c55e" },
+                  { range: "7,0 – 8,9", min: 7, max: 8.99, color: "#86efac" },
+                  { range: "5,0 – 6,9", min: 5, max: 6.99, color: "#f59e0b" },
+                  { range: "3,0 – 4,9", min: 3, max: 4.99, color: "#f97316" },
+                  { range: "0,0 – 2,9", min: 0, max: 2.99, color: "#ef4444" },
+                ].map(band => {
+                  const count = classResults.filter(r => r.score >= band.min && r.score <= band.max).length;
+                  const pct = classResults.length > 0 ? (count / classResults.length) * 100 : 0;
+                  return (
+                    <div key={band.range} className="flex items-center gap-3 mb-2">
+                      <span className="text-xs font-medium w-20 text-right" style={{ color: band.color }}>{band.range}</span>
+                      <div className="flex-1 bg-muted/30 rounded-full h-4 overflow-hidden">
+                        <div
+                          className="h-4 rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%`, backgroundColor: band.color }}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground w-8 text-right">{count}</span>
+                      <span className="text-xs text-muted-foreground w-10 text-right">{pct.toFixed(0)}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desempenho por nível de dificuldade */}
+              <div className="border border-border rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-foreground mb-3">Desempenho por Nível</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  {(["facil", "intermediario", "dificil"] as Difficulty[]).map(d => {
+                    const cfg = DIFFICULTY_CONFIG[d];
+                    const avgCorrect = classResults.reduce((s, r) => s + r.byDifficulty[d].correct, 0) / classResults.length;
+                    const pct = (avgCorrect / cfg.range[1] - cfg.range[0] + 1) * 100;
+                    const totalQ = d === "facil" ? 10 : d === "intermediario" ? 10 : 5;
+                    const avgPct = (avgCorrect / totalQ) * 100;
+                    return (
+                      <div key={d} className="rounded-lg p-3 text-center" style={{ backgroundColor: cfg.color + "15", border: `1px solid ${cfg.color}40` }}>
+                        <div className="text-lg font-bold" style={{ color: cfg.color }}>{avgCorrect.toFixed(1)}/{totalQ}</div>
+                        <div className="text-xs font-semibold mb-2" style={{ color: cfg.color }}>{cfg.label}</div>
+                        <div className="bg-muted/30 rounded-full h-2 overflow-hidden">
+                          <div className="h-2 rounded-full" style={{ width: `${avgPct}%`, backgroundColor: cfg.color }} />
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{avgPct.toFixed(0)}% de acerto</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Tabela completa */}
+              <div className="border border-border rounded-lg overflow-hidden">
+                <div className="px-4 py-3 bg-card border-b border-border flex items-center justify-between">
+                  <span className="font-semibold text-foreground text-sm">Resultados Individuais</span>
+                  <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors">
+                    <Download size={12} />Exportar CSV
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-card/50 border-b border-border">
+                        <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">#</th>
+                        <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">Aluno</th>
+                        <th className="text-center px-3 py-2 text-xs font-semibold text-muted-foreground">Nota</th>
+                        <th className="text-center px-3 py-2 text-xs font-semibold text-muted-foreground">Acertos</th>
+                        <th className="text-center px-3 py-2 text-xs font-semibold text-green-400">Fácil</th>
+                        <th className="text-center px-3 py-2 text-xs font-semibold text-amber-400">Interm.</th>
+                        <th className="text-center px-3 py-2 text-xs font-semibold text-red-400">Difícil</th>
+                        <th className="text-center px-3 py-2 text-xs font-semibold text-muted-foreground">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...classResults].sort((a, b) => b.score - a.score).map((r, i) => (
+                        <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2 text-xs text-muted-foreground">{i + 1}</td>
+                          <td className="px-4 py-2 font-medium text-foreground">{r.name}</td>
+                          <td className="px-3 py-2 text-center font-bold" style={{ color: r.approved ? "#22c55e" : "#ef4444" }}>{r.score.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-center text-muted-foreground">{r.correctCount}/25</td>
+                          <td className="px-3 py-2 text-center text-green-400">{r.byDifficulty.facil.correct}/10</td>
+                          <td className="px-3 py-2 text-center text-amber-400">{r.byDifficulty.intermediario.correct}/10</td>
+                          <td className="px-3 py-2 text-center text-red-400">{r.byDifficulty.dificil.correct}/5</td>
+                          <td className="px-3 py-2 text-center">
+                            {r.approved
+                              ? <span className="text-green-400 text-xs font-semibold">✓ APR</span>
+                              : <span className="text-red-400 text-xs font-semibold">✗ REP</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── TAB: IMPRIMIR ─── */
       {tab === "imprimir" && (
         <div className="space-y-4">
           <div className="border border-border rounded-lg p-6 space-y-4">

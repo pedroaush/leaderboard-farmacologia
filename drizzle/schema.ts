@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean, uniqueIndex } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -1606,3 +1606,42 @@ export const groupActivityGrades = mysqlTable("groupActivityGrades", {
 });
 export type GroupActivityGrade = typeof groupActivityGrades.$inferSelect;
 export type InsertGroupActivityGrade = typeof groupActivityGrades.$inferInsert;
+
+/**
+ * Exam Gabaritos - Gabaritos salvos para P1/P2 por turma
+ */
+export const examGabaritos = mysqlTable("examGabaritos", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  provaType: mysqlEnum("provaType", ["P1", "P2"]).notNull(),
+  answers: text("answers").notNull(), // JSON: ["A","B","C",...] 25 respostas
+  difficulties: text("difficulties").notNull(), // JSON: ["facil","intermediario",...] 25 dificuldades
+  examDate: varchar("examDate", { length: 20 }),
+  createdByName: varchar("createdByName", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uniqueClassProva: uniqueIndex("examGabaritos_classId_provaType").on(t.classId, t.provaType),
+}));
+export type ExamGabarito = typeof examGabaritos.$inferSelect;
+export type InsertExamGabarito = typeof examGabaritos.$inferInsert;
+
+/**
+ * Exam Student Grades - Notas individuais de alunos nas provas P1/P2
+ */
+export const examStudentGrades = mysqlTable("examStudentGrades", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  memberId: int("memberId").notNull(),
+  memberName: varchar("memberName", { length: 200 }).notNull(),
+  provaType: mysqlEnum("provaType", ["P1", "P2"]).notNull(),
+  answers: text("answers").notNull(), // JSON: ["A","B",null,...] 25 respostas
+  score: decimal("score", { precision: 5, scale: 2 }).notNull().default("0"),
+  correctCount: int("correctCount").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uniqueMemberProva: uniqueIndex("examStudentGrades_memberId_provaType").on(t.memberId, t.provaType),
+}));
+export type ExamStudentGrade = typeof examStudentGrades.$inferSelect;
+export type InsertExamStudentGrade = typeof examStudentGrades.$inferInsert;

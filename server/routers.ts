@@ -699,10 +699,96 @@ export const appRouter = router({
           "📧 Email em Massa Enviado",
           `${teacher.name} enviou email para ${result.sent} alunos. Falhas: ${result.failed}`
         );
-        return { success: true, sent: result.sent, failed: result.failed, errors: result.errors } as const;
+         return { success: true, sent: result.sent, failed: result.failed, errors: result.errors } as const;
+      }),
+    // ─── Exam Gabaritos ───
+    saveGabarito: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        provaType: z.enum(["P1", "P2"]),
+        answers: z.array(z.string().nullable()).length(25),
+        difficulties: z.array(z.enum(["facil", "intermediario", "dificil"])).length(25),
+        examDate: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        await db.upsertExamGabarito({
+          classId: input.classId,
+          provaType: input.provaType,
+          answers: JSON.stringify(input.answers),
+          difficulties: JSON.stringify(input.difficulties),
+          examDate: input.examDate,
+          createdByName: teacher.name,
+        });
+        return { success: true };
+      }),
+    getGabarito: publicProcedure
+      .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: z.enum(["P1", "P2"]) }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const g = await db.getExamGabarito(input.classId, input.provaType);
+        if (!g) return null;
+        return {
+          ...g,
+          answers: JSON.parse(g.answers) as (string | null)[],
+          difficulties: JSON.parse(g.difficulties) as string[],
+        };
+      }),
+    saveStudentGrade: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        memberId: z.number(),
+        memberName: z.string(),
+        provaType: z.enum(["P1", "P2"]),
+        answers: z.array(z.string().nullable()).length(25),
+        score: z.number(),
+        correctCount: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        await db.upsertExamStudentGrade({
+          classId: input.classId,
+          memberId: input.memberId,
+          memberName: input.memberName,
+          provaType: input.provaType,
+          answers: JSON.stringify(input.answers),
+          score: input.score.toFixed(2),
+          correctCount: input.correctCount,
+        });
+        return { success: true };
+      }),
+    getClassGrades: publicProcedure
+      .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: z.enum(["P1", "P2"]) }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const grades = await db.getExamStudentGradesByClass(input.classId, input.provaType);
+        return grades.map(g => ({
+          ...g,
+          answers: JSON.parse(g.answers) as (string | null)[],
+          score: parseFloat(g.score.toString()),
+        }));
+      }),
+    getAllGradesReport: publicProcedure
+      .input(z.object({ sessionToken: z.string(), provaType: z.enum(["P1", "P2"]) }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const grades = await db.getExamStudentGradesByAllClasses(input.provaType);
+        const allClasses = await db.getAllClasses();
+        const classMap = new Map(allClasses.map((c: any) => [c.id, c.name]));
+        return grades.map(g => ({
+          ...g,
+          className: classMap.get(g.classId) || `Turma ${g.classId}`,
+          score: parseFloat(g.score.toString()),
+        }));
       }),
   }),
-
   // ─── Super Admin Profile & Stats ───
   superAdmin: router({
     // Get system statistics (super admin only)

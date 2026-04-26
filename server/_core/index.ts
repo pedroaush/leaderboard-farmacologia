@@ -528,6 +528,48 @@ async function startServer() {
           }
         }
 
+        // Migração: criar tabela examGabaritos se não existir
+        try {
+          await rawDb.execute(`
+            CREATE TABLE IF NOT EXISTS examGabaritos (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              classId INT NOT NULL,
+              provaType ENUM('P1', 'P2') NOT NULL,
+              answers TEXT NOT NULL,
+              difficulties TEXT NOT NULL,
+              examDate VARCHAR(20),
+              createdByName VARCHAR(200),
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY examGabaritos_classId_provaType (classId, provaType)
+            )
+          `);
+          console.log('[Migration] OK: examGabaritos table created/verified');
+        } catch (err: any) {
+          console.warn('[Migration] examGabaritos:', err?.message?.substring(0, 80));
+        }
+        // Migração: criar tabela examStudentGrades se não existir
+        try {
+          await rawDb.execute(`
+            CREATE TABLE IF NOT EXISTS examStudentGrades (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              classId INT NOT NULL,
+              memberId INT NOT NULL,
+              memberName VARCHAR(200) NOT NULL,
+              provaType ENUM('P1', 'P2') NOT NULL,
+              answers TEXT NOT NULL,
+              score DECIMAL(5,2) NOT NULL DEFAULT 0,
+              correctCount INT NOT NULL DEFAULT 0,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY examStudentGrades_memberId_provaType (memberId, provaType)
+            )
+          `);
+          console.log('[Migration] OK: examStudentGrades table created/verified');
+        } catch (err: any) {
+          console.warn('[Migration] examStudentGrades:', err?.message?.substring(0, 80));
+        }
+
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
           try {

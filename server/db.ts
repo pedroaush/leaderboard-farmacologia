@@ -39,6 +39,8 @@ import {
   activitySubmissions, InsertActivitySubmission,
   chatMessages, InsertChatMessage,
   chatConversations, InsertChatConversation,
+  examGabaritos, InsertExamGabarito,
+  examStudentGrades, InsertExamStudentGrade,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1903,4 +1905,65 @@ export async function getUnreadMessageCount(conversationId: number, userId: numb
   );
   
   return result.length;
+}
+
+// ─── Exam Gabaritos ───
+
+export async function getExamGabarito(classId: number, provaType: "P1" | "P2") {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(examGabaritos)
+    .where(and(eq(examGabaritos.classId, classId), eq(examGabaritos.provaType, provaType)))
+    .limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function upsertExamGabarito(data: InsertExamGabarito) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(examGabaritos).values(data).onDuplicateKeyUpdate({
+    set: {
+      answers: data.answers,
+      difficulties: data.difficulties,
+      examDate: data.examDate,
+      createdByName: data.createdByName,
+    }
+  });
+}
+
+export async function getAllExamGabaritos() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(examGabaritos).orderBy(asc(examGabaritos.classId), asc(examGabaritos.provaType));
+}
+
+// ─── Exam Student Grades ───
+
+export async function upsertExamStudentGrade(data: InsertExamStudentGrade) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(examStudentGrades).values(data).onDuplicateKeyUpdate({
+    set: {
+      answers: data.answers,
+      score: data.score,
+      correctCount: data.correctCount,
+      memberName: data.memberName,
+    }
+  });
+}
+
+export async function getExamStudentGradesByClass(classId: number, provaType: "P1" | "P2") {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(examStudentGrades)
+    .where(and(eq(examStudentGrades.classId, classId), eq(examStudentGrades.provaType, provaType)))
+    .orderBy(asc(examStudentGrades.memberName));
+}
+
+export async function getExamStudentGradesByAllClasses(provaType: "P1" | "P2") {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(examStudentGrades)
+    .where(eq(examStudentGrades.provaType, provaType))
+    .orderBy(asc(examStudentGrades.classId), asc(examStudentGrades.memberName));
 }
