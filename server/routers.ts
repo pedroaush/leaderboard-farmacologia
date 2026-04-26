@@ -7,7 +7,7 @@ import * as db from "./db";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { notifyOwner } from "./_core/notification";
-import { sendPasswordResetEmail, isSmtpConfigured, sendGradesReportEmail } from "./email";
+import { sendPasswordResetEmail, isSmtpConfigured, sendGradesReportEmail, sendBulkEmail } from "./email";
 import { analyticsRouter } from "./routers/analytics";
 import { jigsawRouter } from "./routers/jigsaw";
 import { jigsawCompleteRouter } from "./routers/jigsaw-complete";
@@ -668,6 +668,38 @@ export const appRouter = router({
         } else {
           return { success: false, message: result.error || "Erro ao enviar email" } as const;
         }
+      }),
+
+    // Send bulk email to all students
+    sendBulkEmail: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        subject: z.string().min(1),
+        htmlTemplate: z.string().min(1),
+        textTemplate: z.string().min(1),
+        recipients: z.array(z.object({
+          email: z.string().email(),
+          name: z.string(),
+        })).min(1).max(500),
+        delayMs: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher || (teacher.role !== "super_admin" && teacher.role !== "coordenador")) {
+          return { success: false, message: "Acesso negado" } as const;
+        }
+        const result = await sendBulkEmail({
+          recipients: input.recipients,
+          subject: input.subject,
+          htmlTemplate: input.htmlTemplate,
+          textTemplate: input.textTemplate,
+          delayMs: input.delayMs,
+        });
+        sendNotificationAsync(
+          "📧 Email em Massa Enviado",
+          `${teacher.name} enviou email para ${result.sent} alunos. Falhas: ${result.failed}`
+        );
+        return { success: true, sent: result.sent, failed: result.failed, errors: result.errors } as const;
       }),
   }),
 

@@ -268,3 +268,45 @@ export async function sendGradesReportEmail(options: {
     return { success: false, error: err.message };
   }
 }
+
+// Send bulk email to multiple recipients
+export async function sendBulkEmail(options: {
+  recipients: Array<{ email: string; name: string }>;
+  subject: string;
+  htmlTemplate: string; // Use {{name}} as placeholder for recipient name
+  textTemplate: string;
+  delayMs?: number;
+}): Promise<{ sent: number; failed: number; errors: string[] }> {
+  const transporter = createTransporter();
+  if (!transporter) {
+    console.warn("[Email] SMTP not configured, skipping bulk email");
+    return { sent: 0, failed: options.recipients.length, errors: ["SMTP não configurado"] };
+  }
+  let sent = 0;
+  let failed = 0;
+  const errors: string[] = [];
+  const delay = options.delayMs ?? 300;
+  for (const recipient of options.recipients) {
+    try {
+      const html = options.htmlTemplate.replace(/\{\{name\}\}/g, recipient.name);
+      const text = options.textTemplate.replace(/\{\{name\}\}/g, recipient.name);
+      const info = await transporter.sendMail({
+        from: `"Conexão em Farmacologia" <${SMTP_FROM}>`,
+        to: recipient.email,
+        subject: options.subject,
+        html,
+        text,
+      });
+      console.log(`[BulkEmail] Sent to ${recipient.email}: ${info.messageId}`);
+      sent++;
+    } catch (err: any) {
+      console.error(`[BulkEmail] Failed to send to ${recipient.email}: ${err.message}`);
+      failed++;
+      errors.push(`${recipient.email}: ${err.message}`);
+    }
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  return { sent, failed, errors };
+}
