@@ -346,16 +346,16 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
       for (const result of classResults) {
         if (!result.memberId) { errors++; continue; }
         try {
-          // Salva como nota de atividade especial no banco
-          await utils.client.monitors.adminUpsertActivityGrade.mutate({
-            teacherSessionToken: teacherToken,
+          // Salva na tabela dedicada de notas de prova
+          await utils.client.teacherAuth.saveStudentGrade.mutate({
+            sessionToken: teacherToken,
             classId: selectedClassId || 22,
-            activityType: "kahoot" as any,
-            activityName: `${provaType} - Prova Individual`,
-            groupName: result.name,
-            grade: result.score,
-            maxGrade: 10,
-            notes: `Cartão resposta: ${result.correctCount}/25 acertos`,
+            memberId: result.memberId,
+            memberName: result.name,
+            provaType: provaType,
+            answers: result.answers,
+            score: result.score,
+            correctCount: result.correctCount,
           });
           saved++;
         } catch {
