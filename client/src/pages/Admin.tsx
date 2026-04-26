@@ -15,6 +15,7 @@ import { FileDropZone } from "@/components/FileDropZone";
 import { PDFPreview, usePDFPreview } from "@/components/PDFPreview";
 import { TagInput, TagDisplay, type Tag } from "@/components/TagInput";
 import JigsawRebalancingManager from "./AdminJigsawRebalancing";
+import ExamToolsManager from "@/components/ExamToolsManager";
 import AdminJigsawPanel from "./AdminJigsawPanel";
 import AttendanceQRCodeManager from "./AdminAttendanceQRCode";
 import {
@@ -23,7 +24,7 @@ import {
   FlaskConical, ArrowLeft, KeyRound, Bell, AlertTriangle, Clock,
   FileText, Link2, MessageSquare, Upload, Eye, EyeOff, Paperclip,
   Award, Star, Medal, MapPin, CheckCircle, XCircle, UserCheck, Search, Download,
-  Youtube, Play, Video, GripVertical, Target, LogIn, Calendar, Shuffle, QrCode, Gamepad2, User, GraduationCap, BookOpen, History, Loader2
+  Youtube, Play, Video, GripVertical, Target, LogIn, Calendar, Shuffle, QrCode, Gamepad2, User, GraduationCap, BookOpen, History, Loader2, Printer
 } from "lucide-react";
 
 // ─── Login Screen ───
@@ -4762,7 +4763,7 @@ export default function Admin() {
     const token = localStorage.getItem("teacherSessionToken") || localStorage.getItem("sessionToken");
     return token ? "__loading__" : null;
   });
-  const [activeSection, setActiveSection] = useState<"jogo" | "turmas" | "teams" | "xp" | "activities" | "highlights" | "recursos" | "badges" | "attendance" | "professores" | "jigsaw" | "settings" | "rebalanceamento" | "qr-code" | "monitores" | "cronograma" | "qr-acesso">("turmas");
+  const [activeSection, setActiveSection] = useState<"jogo" | "turmas" | "teams" | "xp" | "activities" | "highlights" | "recursos" | "badges" | "attendance" | "professores" | "jigsaw" | "settings" | "rebalanceamento" | "qr-code" | "monitores" | "cronograma" | "qr-acesso" | "provas">("turmas");
   const [, setLocation] = useState("/");
   
   // Check teacher authentication - read synchronously to prevent redirect loop
@@ -4849,6 +4850,7 @@ export default function Admin() {
     { key: "rebalanceamento" as const, label: "Rebalanceamento", icon: <Shuffle size={16} /> },
     { key: "qr-code" as const, label: "QR Code Presença", icon: <QrCode size={16} /> },
     { key: "settings" as const, label: "Configurações", icon: <Settings size={16} /> },
+    { key: "provas" as const, label: "🖨️ Provas", icon: <Printer size={16} /> },
   ];
 
   return (
@@ -4929,6 +4931,20 @@ export default function Admin() {
         {activeSection === "rebalanceamento" && teacherToken && <JigsawRebalancingManager />}
         {activeSection === "qr-code" && <AttendanceQRCodeManager />}
         {activeSection === "settings" && password && <SettingsManager password={password} />}
+        {activeSection === "provas" && teacherToken && (
+          <ExamToolsManager
+            teacherToken={teacherToken}
+            classes={[
+              { id: 22, name: "Farmacologia 1 - Medicina" },
+              { id: 23, name: "Farmacologia 1 - Nutrição" },
+              { id: 24, name: "Farmacologia 1 - Biomedicina 1" },
+              { id: 25, name: "Farmacologia 1 - Biomedicina 2" },
+              { id: 26, name: "Farmacologia 1 - Enfermagem" },
+              { id: 27, name: "Farmacologia 1 - Medicina 2" },
+              { id: 28, name: "Farmacologia 1 - Nutrição Noturno" },
+            ]}
+          />
+        )}
       </div>
     </div>
   );
