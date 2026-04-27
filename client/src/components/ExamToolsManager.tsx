@@ -1270,7 +1270,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
         </div>
       )}
 
-      {/* ─── TAB: IMPRIMIR ─── */
+      {/* ─── TAB: IMPRIMIR ─── */}
       {tab === "imprimir" && (
         <div className="space-y-4">
           <div className="border border-border rounded-lg p-6 space-y-4">

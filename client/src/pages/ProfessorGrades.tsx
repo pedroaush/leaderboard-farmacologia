@@ -26,7 +26,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import { gradeToPF } from "./MonitorGrades";
+
+// ─── Helper importado localmente ────────────────────────────────────────────
+function gradeToPF(grade: number): number {
+  if (grade >= 2.5) return 10;
+  if (grade >= 2.0) return 8;
+  if (grade >= 1.5) return 6;
+  if (grade > 0) return Math.round((grade / 2.5) * 6 * 10) / 10;
+  return 0;
+}
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 const BASE_URL = "https://2026.conexaofarmacologia.com.br/api/trpc";
