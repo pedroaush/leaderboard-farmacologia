@@ -1338,6 +1338,73 @@ export default function ExamTools() {
               />
             )}
 
+            {/* ── Gabaritos para Download ─────────────────────────────── */}
+            <div className="bg-[#0D1B2A] border border-white/10 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-white/10 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-semibold text-white">Provas P1 — Gabaritos e Downloads</span>
+                <span className="ml-auto text-xs text-white/30">1º Semestre 2026 · Farmacologia I</span>
+              </div>
+              <div className="p-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {([
+                  { versao: 'A', cor: '#1a3a5c', corTexto: '#60a5fa', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/OxQHVQtiUVRYRQWa.pdf' },
+                  { versao: 'B', cor: '#1a5c2e', corTexto: '#4ade80', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/YKHYuOjhgIKPIgiz.pdf' },
+                  { versao: 'C', cor: '#5c1a1a', corTexto: '#f87171', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/kGekZNgQLzZqQtsl.pdf' },
+                  { versao: 'D', cor: '#3d1a5c', corTexto: '#c084fc', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/NmmQsXcvYrxJnrBe.pdf' },
+                ] as const).map(({ versao, cor, corTexto, url }) => (
+                  <a
+                    key={versao}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 rounded-lg border p-3 hover:opacity-90 transition-opacity cursor-pointer"
+                    style={{ backgroundColor: cor + '33', borderColor: cor + '88' }}
+                  >
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg shrink-0" style={{ backgroundColor: cor, color: corTexto }}>
+                      {versao}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">Versão {versao}</p>
+                      <p className="text-xs text-white/40">25 questões · PDF</p>
+                    </div>
+                    <Download className="w-4 h-4 ml-auto shrink-0" style={{ color: corTexto }} />
+                  </a>
+                ))}
+              </div>
+              <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <a
+                  href="https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/dTzzaKFuvhAFTqdo.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 hover:bg-yellow-500/20 transition-colors cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-yellow-600 flex items-center justify-center shrink-0">
+                    <FileText className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-yellow-300">Gabarito Consolidado A/B/C/D</p>
+                    <p className="text-xs text-white/40">Tabela comparativa das 4 versões · PDF</p>
+                  </div>
+                  <Download className="w-4 h-4 ml-auto text-yellow-400 shrink-0" />
+                </a>
+                <a
+                  href="https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/YuhRnCWeEMLOQYka.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/10 p-3 hover:bg-green-500/20 transition-colors cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-green-700 flex items-center justify-center shrink-0">
+                    <BookOpen className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-green-300">Gabarito Comentado</p>
+                    <p className="text-xs text-white/40">Com justificativas farmacológicas · PDF</p>
+                  </div>
+                  <Download className="w-4 h-4 ml-auto text-green-400 shrink-0" />
+                </a>
+              </div>
+            </div>
+
             {/* Empty state */}
             {!gabaritoLocked && (
               <div className="bg-[#0D1B2A] border border-white/10 rounded-xl p-12 text-center">
