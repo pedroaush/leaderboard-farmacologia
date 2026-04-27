@@ -617,10 +617,10 @@ export default function ProfessorGrades() {
           </div>
           <div className="p-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
             {([
-              { versao: 'A', cor: '#1a3a5c', corTexto: '#60a5fa', url: '/manus-storage/prova_p1_versao_A_v8_e0cd39e0.pdf' },
-              { versao: 'B', cor: '#1a5c2e', corTexto: '#4ade80', url: '/manus-storage/prova_p1_versao_B_v8_a4860899.pdf' },
-              { versao: 'C', cor: '#5c1a1a', corTexto: '#f87171', url: '/manus-storage/prova_p1_versao_C_v8_557cabc6.pdf' },
-              { versao: 'D', cor: '#3d1a5c', corTexto: '#c084fc', url: '/manus-storage/prova_p1_versao_D_v8_b4cc9880.pdf' },
+              { versao: 'A', cor: '#1a3a5c', corTexto: '#60a5fa', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/OxQHVQtiUVRYRQWa.pdf' },
+              { versao: 'B', cor: '#1a5c2e', corTexto: '#4ade80', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/YKHYuOjhgIKPIgiz.pdf' },
+              { versao: 'C', cor: '#5c1a1a', corTexto: '#f87171', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/kGekZNgQLzZqQtsl.pdf' },
+              { versao: 'D', cor: '#3d1a5c', corTexto: '#c084fc', url: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/NmmQsXcvYrxJnrBe.pdf' },
             ] as const).map(({ versao, cor, corTexto, url }) => (
               <a
                 key={versao}
@@ -643,7 +643,7 @@ export default function ProfessorGrades() {
           </div>
           <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <a
-              href="/manus-storage/gabarito_consolidado_p1_v8_8b5a279e.pdf"
+              href="https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/dTzzaKFuvhAFTqdo.pdf"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 hover:bg-yellow-500/20 transition-colors cursor-pointer"
@@ -658,7 +658,7 @@ export default function ProfessorGrades() {
               <Download className="w-4 h-4 ml-auto text-yellow-400 shrink-0" />
             </a>
             <a
-              href="/manus-storage/gabarito_comentado_p1_v8_7fa543d9.pdf"
+              href="https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/YuhRnCWeEMLOQYka.pdf"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/10 p-3 hover:bg-green-500/20 transition-colors cursor-pointer"
