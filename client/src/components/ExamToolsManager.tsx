@@ -174,6 +174,56 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
     }
   }
 
+  // ─── Carregar notas do banco ───
+  const [loadingGradesDB, setLoadingGradesDB] = useState(false);
+  async function loadGradesFromDB() {
+    if (!selectedClassId) { toast.error("Selecione uma turma."); return; }
+    setLoadingGradesDB(true);
+    try {
+      const grades = await utils.client.teacherAuth.getClassGrades.query({
+        sessionToken: teacherToken,
+        classId: selectedClassId,
+        provaType,
+      });
+      if (!grades || grades.length === 0) {
+        toast.error("Nenhuma nota encontrada no banco para esta turma/prova.");
+        return;
+      }
+      const results: StudentResult[] = grades.map((g: any) => {
+        const answers = (g.answers || Array(25).fill(null)) as Answer[];
+        const byDifficulty: Record<Difficulty, { correct: number; total: number; points: number }> = {
+          facil: { correct: 0, total: 10, points: 0 },
+          intermediario: { correct: 0, total: 10, points: 0 },
+          dificil: { correct: 0, total: 5, points: 0 },
+        };
+        if (gabarito.some(Boolean)) {
+          for (let i = 0; i < 25; i++) {
+            const d = getDifficulty(i + 1);
+            if (answers[i] && gabarito[i] && answers[i] === gabarito[i]) {
+              byDifficulty[d].correct++;
+              byDifficulty[d].points += DIFFICULTY_CONFIG[d].points;
+            }
+          }
+        }
+        return {
+          name: g.memberName,
+          memberId: g.memberId,
+          answers,
+          score: g.score,
+          approved: g.score >= 5.0,
+          correctCount: g.correctCount,
+          byDifficulty,
+        };
+      });
+      setClassResults(results);
+      toast.success(`${results.length} nota(s) carregada(s) do banco!`);
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao carregar notas.");
+    } finally {
+      setLoadingGradesDB(false);
+    }
+  }
+
   // ─── OCR: ler cartão resposta via foto ───
   async function handleOCR(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -1147,11 +1197,25 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
       {/* ─── TAB: RELATÓRIO ─── */}
       {tab === "relatorio" && (
         <div className="space-y-4">
+          {/* Botão carregar do banco */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-muted-foreground">
+              {classResults.length > 0 ? `${classResults.length} aluno(s) no relatório` : "Nenhuma nota carregada"}
+            </p>
+            <button
+              onClick={loadGradesFromDB}
+              disabled={loadingGradesDB || !selectedClassId}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-colors"
+            >
+              {loadingGradesDB ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
+              {loadingGradesDB ? "Carregando..." : "Carregar Notas do Banco"}
+            </button>
+          </div>
           {classResults.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground text-sm">
               <BarChart2 size={40} className="mx-auto mb-3 opacity-30" />
-              <p>Corrija pelo menos um aluno para ver o relatório.</p>
-              <p className="text-xs mt-1">Use a aba "Turma" para corrigir em sequência.</p>
+              <p>Clique em <strong>"Carregar Notas do Banco"</strong> para ver o relatório.</p>
+              <p className="text-xs mt-1">Selecione a turma e o tipo de prova antes de carregar.</p>
             </div>
           ) : (
             <div className="space-y-4">
