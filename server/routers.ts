@@ -707,6 +707,7 @@ export const appRouter = router({
         sessionToken: z.string(),
         classId: z.number(),
         provaType: z.enum(["P1", "P2"]),
+        examVersion: z.string().max(1).optional().default("A"),
         answers: z.array(z.string().nullable()).length(25),
         difficulties: z.array(z.enum(["facil", "intermediario", "dificil"])).length(25),
         examDate: z.string().optional(),
@@ -717,6 +718,7 @@ export const appRouter = router({
         await db.upsertExamGabarito({
           classId: input.classId,
           provaType: input.provaType,
+          examVersion: input.examVersion || "A",
           answers: JSON.stringify(input.answers),
           difficulties: JSON.stringify(input.difficulties),
           examDate: input.examDate,
@@ -725,17 +727,29 @@ export const appRouter = router({
         return { success: true };
       }),
     getGabarito: publicProcedure
-      .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: z.enum(["P1", "P2"]) }))
+      .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: z.enum(["P1", "P2"]), examVersion: z.string().max(1).optional().default("A") }))
       .query(async ({ input }) => {
         const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
         if (!teacher) throw new Error("Não autorizado");
-        const g = await db.getExamGabarito(input.classId, input.provaType);
+        const g = await db.getExamGabarito(input.classId, input.provaType, input.examVersion || "A");
         if (!g) return null;
         return {
           ...g,
           answers: JSON.parse(g.answers) as (string | null)[],
           difficulties: JSON.parse(g.difficulties) as string[],
         };
+      }),
+    getAllGabaritos: publicProcedure
+      .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: z.enum(["P1", "P2"]) }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const gabaritos = await db.getAllExamGabaritosByClassProva(input.classId, input.provaType);
+        return gabaritos.map(g => ({
+          ...g,
+          answers: JSON.parse(g.answers) as (string | null)[],
+          difficulties: JSON.parse(g.difficulties) as string[],
+        }));
       }),
     saveStudentGrade: publicProcedure
       .input(z.object({
@@ -744,6 +758,7 @@ export const appRouter = router({
         memberId: z.number(),
         memberName: z.string(),
         provaType: z.enum(["P1", "P2"]),
+        examVersion: z.string().max(1).optional().default("A"),
         answers: z.array(z.string().nullable()).length(25),
         score: z.number(),
         correctCount: z.number(),
@@ -756,6 +771,7 @@ export const appRouter = router({
           memberId: input.memberId,
           memberName: input.memberName,
           provaType: input.provaType,
+          examVersion: input.examVersion || "A",
           answers: JSON.stringify(input.answers),
           score: input.score.toFixed(2),
           correctCount: input.correctCount,

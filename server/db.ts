@@ -1909,13 +1909,22 @@ export async function getUnreadMessageCount(conversationId: number, userId: numb
 
 // ─── Exam Gabaritos ───
 
-export async function getExamGabarito(classId: number, provaType: "P1" | "P2") {
+export async function getExamGabarito(classId: number, provaType: "P1" | "P2", examVersion?: string) {
   const db = await getDb();
   if (!db) return null;
+  const version = examVersion || "A";
   const result = await db.select().from(examGabaritos)
-    .where(and(eq(examGabaritos.classId, classId), eq(examGabaritos.provaType, provaType)))
+    .where(and(eq(examGabaritos.classId, classId), eq(examGabaritos.provaType, provaType), eq(examGabaritos.examVersion, version)))
     .limit(1);
   return result.length > 0 ? result[0] : null;
+}
+
+export async function getAllExamGabaritosByClassProva(classId: number, provaType: "P1" | "P2") {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(examGabaritos)
+    .where(and(eq(examGabaritos.classId, classId), eq(examGabaritos.provaType, provaType)))
+    .orderBy(asc(examGabaritos.examVersion));
 }
 
 export async function upsertExamGabarito(data: InsertExamGabarito) {
@@ -1934,7 +1943,7 @@ export async function upsertExamGabarito(data: InsertExamGabarito) {
 export async function getAllExamGabaritos() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(examGabaritos).orderBy(asc(examGabaritos.classId), asc(examGabaritos.provaType));
+  return db.select().from(examGabaritos).orderBy(asc(examGabaritos.classId), asc(examGabaritos.provaType), asc(examGabaritos.examVersion));
 }
 
 // ─── Exam Student Grades ───

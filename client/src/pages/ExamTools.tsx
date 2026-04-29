@@ -583,6 +583,16 @@ function ExamCover({ config, version }: { config: ExamConfig; version: ExamVersi
 const API_BASE = "https://2026.conexaofarmacologia.com.br/api/trpc";
 const TEACHER_TOKEN_KEY = "prof_grades_teacher_token";
 const CLASS_ID_MEDICINA = 22;
+// Mapeamento de nome de turma para classId
+const TURMA_CLASS_IDS: Record<string, number> = {
+  "Farmacologia 1 - Medicina": 22,
+  "Farmacologia 1 - Medicina 2": 23,
+  "Farmacologia 1 - Nutrição": 24,
+  "Farmacologia 1 - Biomedicina 1": 25,
+  "Farmacologia 1 - Biomedicina 2": 26,
+  "Farmacologia 1 - Enfermagem": 27,
+  "Farmacologia 1 - Nutrição Noturno": 28,
+};
 
 async function apiQuery(path: string, input: object) {
   const p = encodeURIComponent(JSON.stringify({ json: input }));
@@ -603,7 +613,7 @@ async function apiMutation(path: string, input: object) {
 }
 
 // ─── LaunchP1Panel ────────────────────────────────────────────────────────────
-function LaunchP1Panel({ students, prova }: { students: StudentResult[]; prova: string }) {
+function LaunchP1Panel({ students, prova, classId: classIdProp, turmaName }: { students: StudentResult[]; prova: string; classId?: number; turmaName?: string }) {
   const [token, setToken] = useState(() => localStorage.getItem(TEACHER_TOKEN_KEY) || "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -613,6 +623,7 @@ function LaunchP1Panel({ students, prova }: { students: StudentResult[]; prova: 
   const [showLogin, setShowLogin] = useState(!token);
   const [members, setMembers] = useState<{ id: number; name: string; teamId: number }[]>([]);
   const [membersLoaded, setMembersLoaded] = useState(false);
+  const effectiveClassId = classIdProp ?? CLASS_ID_MEDICINA;
 
   // Carregar lista de membros ao ter token
   useEffect(() => {
@@ -680,10 +691,21 @@ function LaunchP1Panel({ students, prova }: { students: StudentResult[]; prova: 
         continue;
       }
       try {
-        // Usar activityType "prova" e activityName "P1" (ou P2 etc.)
+        // Salvar via exams.saveStudentGrade (tabela de notas P1/P2)
+        await apiMutation("exams.saveStudentGrade", {
+          sessionToken: token,
+          classId: effectiveClassId,
+          memberId: member.id,
+          memberName: member.name,
+          provaType: (prova === "P1" || prova === "P2") ? prova : "P1",
+          answers: st.answers,
+          score: st.totalPoints,
+          correctCount: st.correct,
+        });
+        // Também lançar na tabela de atividades para aparecer no portal do professor
         await apiMutation("monitors.adminUpsertActivityGrade", {
           teacherSessionToken: token,
-          classId: CLASS_ID_MEDICINA,
+          classId: effectiveClassId,
           activityType: "prova",
           activityName: prova,
           homeGroupId: member.teamId,
@@ -691,7 +713,7 @@ function LaunchP1Panel({ students, prova }: { students: StudentResult[]; prova: 
           grade: st.totalPoints,
           maxGrade: 10,
           memberId: member.id,
-        });
+        }).catch(() => null);
         results[st.id] = "ok";
       } catch {
         results[st.id] = "error";
@@ -809,7 +831,7 @@ function LaunchP1Panel({ students, prova }: { students: StudentResult[]; prova: 
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function ExamTools() {
-  const [activeTab, setActiveTab] = useState<"cover" | "correction">("correction");
+  const [activeTab, setActiveTab] = useState<"cover" | "correction" | "launch">("correction");
   const [examConfig, setExamConfig] = useState<ExamConfig>({
     disciplina: "Farmacologia I",
     turma: TURMAS[0],
@@ -1070,6 +1092,13 @@ export default function ExamTools() {
             >
               <ClipboardList className="w-3.5 h-3.5 mr-1" /> Correção
             </Button>
+            <Button
+              variant="ghost" size="sm"
+              onClick={() => setActiveTab("launch")}
+              className={activeTab === "launch" ? "bg-purple-600 text-white" : "text-purple-400 hover:text-white hover:bg-purple-600/30"}
+            >
+              <Send className="w-3.5 h-3.5 mr-1" /> Lançar Notas
+            </Button>
           </div>
         </div>
       </div>
@@ -1158,9 +1187,16 @@ export default function ExamTools() {
               </div>
             </div>
           </div>
+        )}        {/* ── TAB: LANÇAR NOTAS ──────────────────────────────────────────────── */}
+        {activeTab === "launch" && (
+          <LaunchNotasTab
+            examConfig={examConfig}
+            setExamConfig={setExamConfig}
+            studentResults={studentResults}
+          />
         )}
 
-        {/* ── TAB: CORREÇÃO ─────────────────────────────────────────────────── */}
+        {/* ── TAB: CORREÇÃO ───────────────────────────────────────────────────── */}
         {activeTab === "correction" && (
           <div className="space-y-6">
 

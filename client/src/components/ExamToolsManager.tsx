@@ -73,6 +73,7 @@ function Bubble({ letter, selected, correct, wrong, onClick }: {
 interface StudentResult {
   name: string;
   memberId?: number;
+  examVersion?: string;
   answers: Answer[];
   score: number;
   approved: boolean;
@@ -109,8 +110,9 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
   const [turmaMode, setTurmaMode] = useState(false);
   const [savingGrades, setSavingGrades] = useState(false);
 
-  // Prova (P1 ou P2)
+  // Prova (P1 ou P2) e versão (A/B/C/D)
   const [provaType, setProvaType] = useState<"P1" | "P2">("P1");
+  const [examVersion, setExamVersion] = useState<"A" | "B" | "C" | "D">("A");
   const [turmaName, setTurmaName] = useState("");
   const [examDate, setExamDate] = useState(() => new Date().toISOString().split("T")[0]);
 
@@ -133,12 +135,13 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
     }
   }, [classes]);
 
-  // ─── Carregar gabarito automaticamente ao selecionar turma ───
+  // ─── Carregar gabarito automaticamente ao selecionar turma/versão ───
   useEffect(() => {
-    if (selectedClassId && !gabaritoConfirmed) {
+    if (selectedClassId) {
+      setGabaritoConfirmed(false);
       loadGabaritoFromDB();
     }
-  }, [selectedClassId, provaType]);
+  }, [selectedClassId, provaType, examVersion]);
 
   // ─── Carregar notas automaticamente ao entrar na aba relatório ───
   useEffect(() => {
@@ -158,6 +161,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
         sessionToken: teacherToken,
         classId: selectedClassId,
         provaType,
+        examVersion,
         answers: gabarito,
         difficulties: difficulties,
         examDate,
@@ -180,6 +184,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
         sessionToken: teacherToken,
         classId: selectedClassId,
         provaType,
+        examVersion,
       });
       if (data) {
         setGabarito(data.answers as Answer[]);
@@ -333,7 +338,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
         byDifficulty[d].points += DIFFICULTY_CONFIG[d].points;
       }
     }
-    return { name, memberId, answers, score, approved, correctCount, byDifficulty };
+    return { name, memberId, examVersion, answers, score, approved, correctCount, byDifficulty };
   }
 
   // ─── Corrigir aluno atual ───
@@ -426,6 +431,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
             memberId: result.memberId,
             memberName: result.name,
             provaType: provaType,
+            examVersion: result.examVersion || examVersion,
             answers: result.answers,
             score: result.score,
             correctCount: result.correctCount,
@@ -807,6 +813,21 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
             <option value="P1">Prova P1</option>
             <option value="P2">Prova P2</option>
           </select>
+          <select
+            value={examVersion}
+            onChange={e => {
+              setExamVersion(e.target.value as "A" | "B" | "C" | "D");
+              setGabaritoConfirmed(false);
+              setGabarito(Array(25).fill(null));
+            }}
+            className="px-3 py-1.5 rounded-lg border border-amber-500/50 bg-amber-500/10 text-sm text-amber-300 font-bold"
+            title="Versão do gabarito (A, B, C ou D)"
+          >
+            <option value="A">Versão A</option>
+            <option value="B">Versão B</option>
+            <option value="C">Versão C</option>
+            <option value="D">Versão D</option>
+          </select>
           <button
             onClick={loadGabaritoFromDB}
             disabled={loadingGabarito || !selectedClassId}
@@ -890,7 +911,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
           {/* Cartão gabarito */}
           <div className="border border-border rounded-lg overflow-hidden">
             <div className="px-4 py-3 bg-card border-b border-border flex items-center justify-between">
-              <span className="font-semibold text-foreground text-sm">Gabarito — {provaType}</span>
+              <span className="font-semibold text-foreground text-sm">Gabarito — {provaType} • Versão <span className="text-amber-400">{examVersion}</span></span>
               <span className="text-xs text-muted-foreground">{gabarito.filter(Boolean).length}/25 preenchidas</span>
             </div>
             <div className="p-4 space-y-2">
@@ -1177,6 +1198,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
                   <thead>
                     <tr className="bg-card border-b border-border">
                       <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">Aluno</th>
+                      <th className="text-center px-3 py-2 text-xs font-semibold text-amber-400">Versão</th>
                       <th className="text-center px-3 py-2 text-xs font-semibold text-muted-foreground">Nota</th>
                       <th className="text-center px-3 py-2 text-xs font-semibold text-muted-foreground">Acertos</th>
                       <th className="text-center px-3 py-2 text-xs font-semibold text-muted-foreground">Fácil</th>
@@ -1189,6 +1211,9 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
                     {classResults.map((r, i) => (
                       <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                         <td className="px-4 py-2 font-medium text-foreground">{r.name}</td>
+                        <td className="px-3 py-2 text-center">
+                          <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">{r.examVersion || examVersion}</span>
+                        </td>
                         <td className="px-3 py-2 text-center font-bold text-foreground">{r.score.toFixed(2)}</td>
                         <td className="px-3 py-2 text-center text-muted-foreground">{r.correctCount}/25</td>
                         <td className="px-3 py-2 text-center text-green-400">{r.byDifficulty.facil.correct}/10</td>

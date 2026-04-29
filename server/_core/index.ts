@@ -570,6 +570,40 @@ async function startServer() {
           console.warn('[Migration] examStudentGrades:', err?.message?.substring(0, 80));
         }
 
+        // Migração: adicionar coluna examVersion em examGabaritos
+        try {
+          await rawDb.execute(`ALTER TABLE examGabaritos ADD COLUMN examVersion VARCHAR(1) NOT NULL DEFAULT 'A'`);
+          console.log('[Migration] OK: examGabaritos.examVersion column added');
+        } catch (err: any) {
+          if (!err?.message?.includes('Duplicate column')) {
+            console.warn('[Migration] examGabaritos.examVersion:', err?.message?.substring(0, 80));
+          }
+        }
+        // Migração: atualizar chave única de examGabaritos para incluir examVersion
+        try {
+          await rawDb.execute(`ALTER TABLE examGabaritos DROP INDEX examGabaritos_classId_provaType`);
+          console.log('[Migration] OK: dropped old examGabaritos unique index');
+        } catch (err: any) {
+          // Índice pode já ter sido removido
+        }
+        try {
+          await rawDb.execute(`ALTER TABLE examGabaritos ADD UNIQUE KEY examGabaritos_classId_provaType_version (classId, provaType, examVersion)`);
+          console.log('[Migration] OK: examGabaritos new unique index created');
+        } catch (err: any) {
+          if (!err?.message?.includes('Duplicate key name')) {
+            console.warn('[Migration] examGabaritos index:', err?.message?.substring(0, 80));
+          }
+        }
+        // Migração: adicionar coluna examVersion em examStudentGrades
+        try {
+          await rawDb.execute(`ALTER TABLE examStudentGrades ADD COLUMN examVersion VARCHAR(1) NOT NULL DEFAULT 'A'`);
+          console.log('[Migration] OK: examStudentGrades.examVersion column added');
+        } catch (err: any) {
+          if (!err?.message?.includes('Duplicate column')) {
+            console.warn('[Migration] examStudentGrades.examVersion:', err?.message?.substring(0, 80));
+          }
+        }
+
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
           try {

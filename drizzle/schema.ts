@@ -1614,6 +1614,7 @@ export const examGabaritos = mysqlTable("examGabaritos", {
   id: int("id").autoincrement().primaryKey(),
   classId: int("classId").notNull(),
   provaType: mysqlEnum("provaType", ["P1", "P2"]).notNull(),
+  examVersion: varchar("examVersion", { length: 1 }).default("A"), // Versão A, B, C ou D
   answers: text("answers").notNull(), // JSON: ["A","B","C",...] 25 respostas
   difficulties: text("difficulties").notNull(), // JSON: ["facil","intermediario",...] 25 dificuldades
   examDate: varchar("examDate", { length: 20 }),
@@ -1621,7 +1622,7 @@ export const examGabaritos = mysqlTable("examGabaritos", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => ({
-  uniqueClassProva: uniqueIndex("examGabaritos_classId_provaType").on(t.classId, t.provaType),
+  uniqueClassProvaVersion: uniqueIndex("examGabaritos_classId_provaType_version").on(t.classId, t.provaType, t.examVersion),
 }));
 export type ExamGabarito = typeof examGabaritos.$inferSelect;
 export type InsertExamGabarito = typeof examGabaritos.$inferInsert;
@@ -1635,6 +1636,7 @@ export const examStudentGrades = mysqlTable("examStudentGrades", {
   memberId: int("memberId").notNull(),
   memberName: varchar("memberName", { length: 200 }).notNull(),
   provaType: mysqlEnum("provaType", ["P1", "P2"]).notNull(),
+  examVersion: varchar("examVersion", { length: 1 }).default("A"), // Versão A, B, C ou D
   answers: text("answers").notNull(), // JSON: ["A","B",null,...] 25 respostas
   score: decimal("score", { precision: 5, scale: 2 }).notNull().default("0"),
   correctCount: int("correctCount").notNull().default(0),
