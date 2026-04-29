@@ -14,7 +14,7 @@
  * - Total: 10,0 pt | Aprovado ≥ 5,0
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Printer, CheckCircle, Download, RefreshCw, Users, ChevronDown, ChevronUp, Save, Loader2, AlertTriangle, Camera, BarChart2, Database } from "lucide-react";
@@ -123,6 +123,29 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
   const [ocrLoading, setOcrLoading] = useState(false);
 
   const utils = trpc.useUtils();
+
+  // ─── Pré-selecionar primeira turma ao montar ───
+  useEffect(() => {
+    if (classes.length > 0 && !selectedClassId) {
+      const first = classes[0];
+      setSelectedClassId(first.id);
+      setTurmaName(first.name);
+    }
+  }, [classes]);
+
+  // ─── Carregar gabarito automaticamente ao selecionar turma ───
+  useEffect(() => {
+    if (selectedClassId && !gabaritoConfirmed) {
+      loadGabaritoFromDB();
+    }
+  }, [selectedClassId, provaType]);
+
+  // ─── Carregar notas automaticamente ao entrar na aba relatório ───
+  useEffect(() => {
+    if (tab === "relatorio" && selectedClassId && classResults.length === 0) {
+      loadGradesFromDB();
+    }
+  }, [tab, selectedClassId]);
 
   // ─── Salvar gabarito no banco ───
   async function saveGabaritoToDB() {
