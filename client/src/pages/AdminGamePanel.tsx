@@ -34,15 +34,15 @@ const WEEK_TITLES: Record<number, string> = {
   17: "Revisão Geral — Boss Final",
 };
 
-// Turmas do semestre 2026.1
+// Turmas do semestre 2026.1 (IDs reais do banco de dados)
 const TURMAS = [
-  { id: 26, name: "Medicina I" },
+  { id: 22, name: "Medicina I" },
   { id: 27, name: "Medicina II" },
-  { id: 28, name: "Biomedicina" },
-  { id: 29, name: "Biomedicina II" },
-  { id: 30, name: "Enfermagem" },
-  { id: 31, name: "Nutrição Integral" },
-  { id: 32, name: "Nutrição Noturno" },
+  { id: 24, name: "Biomedicina" },
+  { id: 25, name: "Biomedicina II" },
+  { id: 26, name: "Enfermagem" },
+  { id: 23, name: "Nutrição Integral" },
+  { id: 28, name: "Nutrição Noturno" },
 ];
 
 type Tab = "overview" | "releases" | "students" | "reports" | "bosses";
@@ -54,7 +54,7 @@ export default function AdminGamePanel() {
   const [respondingReport, setRespondingReport] = useState<number | null>(null);
   const [responseText, setResponseText] = useState("");
   const [scheduleDates, setScheduleDates] = useState<Record<number, string>>({});
-  const [classId, setClassId] = useState<number>(26); // Padrão: Medicina I
+  const [classId, setClassId] = useState<number>(22); // Padrão: Medicina I (classId=22)
 
   // Queries
   const { data: stats } = trpc.game.getClassStats.useQuery({ classId });
