@@ -206,6 +206,15 @@ export default function GamePortal() {
       setReviewWeek({ weekNumber, weekTitle: boss?.name || `Semana ${weekNumber}` });
       return;
     }
+    // Sequential unlock check: block access if previous quest not completed
+    if (!isQuestUnlocked.has(quest.id)) {
+      const qInWeek = quest.questionInWeek || 1;
+      const prevQuest = (availableQuests || []).find(
+        (q: any) => q.weekNumber === quest.weekNumber && q.questionInWeek === qInWeek - 1
+      );
+      toast.error(`🔒 Complete "${prevQuest?.title || 'a missão anterior'}" primeiro!`);
+      return;
+    }
     setSelectedQuest(quest);
     setSelectedAnswer(null);
     setTimeLeft(60);
@@ -346,6 +355,33 @@ export default function GamePortal() {
 
   const completedSet = useMemo(() => new Set(completedQuestIds || []), [completedQuestIds]);
 
+  // Sequential unlock: quest N is unlocked only if quest N-1 (same week) is completed
+  // First quest of each week (questionInWeek === 1) is always available if the week is released
+  const isQuestUnlocked = useMemo(() => {
+    const unlocked = new Set<number>();
+    (availableQuests || []).forEach((quest: any) => {
+      if (completedSet.has(quest.id)) {
+        // Completed quests are always accessible (for review)
+        unlocked.add(quest.id);
+        return;
+      }
+      const qInWeek = quest.questionInWeek || 1;
+      if (qInWeek === 1) {
+        // First quest of the week: always unlocked if week is released
+        unlocked.add(quest.id);
+      } else {
+        // Quest N: unlocked only if quest N-1 (previous in same week) is completed
+        const prevQuest = (availableQuests || []).find(
+          (q: any) => q.weekNumber === quest.weekNumber && q.questionInWeek === qInWeek - 1
+        );
+        if (prevQuest && completedSet.has(prevQuest.id)) {
+          unlocked.add(quest.id);
+        }
+      }
+    });
+    return unlocked;
+  }, [availableQuests, completedSet]);
+
   // Build boss status map
   const bossStatusMap = useMemo(() => {
     const map: Record<number, { available: boolean; defeated: boolean; attempts: number }> = {};
@@ -465,6 +501,8 @@ export default function GamePortal() {
               const pos = QUEST_POSITIONS[quest.id] || { x: 50, y: 50 };
               const isCompleted = completedSet.has(quest.id);
               const isBoss = quest.npcType === "boss";
+              const isUnlocked = isQuestUnlocked.has(quest.id);
+              const isLocked = !isUnlocked && !isCompleted;
 
               return (
                 <button
@@ -478,13 +516,17 @@ export default function GamePortal() {
                     transition-all duration-300 hover:scale-125
                     ${isCompleted
                       ? "bg-emerald-500 shadow-lg shadow-emerald-500/50"
-                      : isBoss
-                        ? "bg-red-500 shadow-lg shadow-red-500/50 animate-pulse"
-                        : "bg-amber-500 shadow-lg shadow-amber-500/50"
+                      : isLocked
+                        ? "bg-gray-700 shadow-lg shadow-gray-700/50 opacity-60"
+                        : isBoss
+                          ? "bg-red-500 shadow-lg shadow-red-500/50 animate-pulse"
+                          : "bg-amber-500 shadow-lg shadow-amber-500/50"
                     }
                   `}>
                     {isCompleted ? (
                       <CheckCircle2 size={20} className="text-white" />
+                    ) : isLocked ? (
+                      <span className="text-white text-base">🔒</span>
                     ) : isBoss ? (
                       <Shield size={20} className="text-white" />
                     ) : (
@@ -499,6 +541,9 @@ export default function GamePortal() {
                       <p className="text-[10px] text-gray-400">{quest.npcName} • +{quest.farmacologiaPointsReward} PF</p>
                       {isCompleted && (
                         <p className="text-[10px] text-blue-400 mt-0.5">📖 Clique para revisar</p>
+                      )}
+                      {isLocked && (
+                        <p className="text-[10px] text-gray-500 mt-0.5">🔒 Complete a missão anterior primeiro</p>
                       )}
                     </div>
                   </div>
@@ -628,6 +673,8 @@ export default function GamePortal() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {(availableQuests || []).map((quest: any) => {
                 const isCompleted = completedSet.has(quest.id);
+                const isUnlocked = isQuestUnlocked.has(quest.id);
+                const isLocked = !isUnlocked && !isCompleted;
                 return (
                   <button
                     key={quest.id}
@@ -636,28 +683,35 @@ export default function GamePortal() {
                       flex items-center gap-3 p-3 rounded-xl border transition-all text-left
                       ${isCompleted
                         ? "bg-emerald-500/5 border-emerald-500/20 opacity-70"
-                        : "bg-white/5 border-white/10 hover:border-amber-500/40 hover:bg-amber-500/5"
+                        : isLocked
+                          ? "bg-gray-800/50 border-gray-700/30 opacity-50 cursor-not-allowed"
+                          : "bg-white/5 border-white/10 hover:border-amber-500/40 hover:bg-amber-500/5"
                       }
                     `}
                   >
                     <div className={`
                       w-10 h-10 rounded-full flex items-center justify-center shrink-0
-                      ${isCompleted ? "bg-emerald-500/20" : "bg-amber-500/20"}
+                      ${isCompleted ? "bg-emerald-500/20" : isLocked ? "bg-gray-700/40" : "bg-amber-500/20"}
                     `}>
                       {isCompleted ? (
                         <CheckCircle2 size={18} className="text-emerald-400" />
+                      ) : isLocked ? (
+                        <span className="text-gray-500 text-base">🔒</span>
                       ) : (
                         <Sword size={18} className="text-amber-400" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white truncate">{quest.title}</p>
-                      <p className="text-xs text-gray-400">{quest.npcName} • Nível {quest.level} • {quest.difficulty}</p>
+                      <p className={`text-sm font-semibold truncate ${isLocked ? "text-gray-500" : "text-white"}`}>{quest.title}</p>
+                      <p className="text-xs text-gray-500">{quest.npcName} • Nível {quest.level} • {quest.difficulty}</p>
+                      {isLocked && (
+                        <p className="text-[10px] text-gray-600 mt-0.5">🔒 Complete a missão anterior para desbloquear</p>
+                      )}
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-mono font-bold text-amber-400">+{quest.farmacologiaPointsReward} PF</p>
+                      <p className={`text-sm font-mono font-bold ${isLocked ? "text-gray-600" : "text-amber-400"}`}>+{quest.farmacologiaPointsReward} PF</p>
                     </div>
-                    <ChevronRight size={16} className="text-gray-500 shrink-0" />
+                    {!isLocked && <ChevronRight size={16} className="text-gray-500 shrink-0" />}
                   </button>
                 );
               })}
