@@ -76,7 +76,7 @@ function GradeCell({
 }
 
 export default function MonitorGrades() {
-  const sessionToken = localStorage.getItem(MONITOR_SESSION_KEY) || "";
+  const [sessionToken, setSessionToken] = useState<string>(() => localStorage.getItem(MONITOR_SESSION_KEY) || "");
 
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<ActivityType>("kahoot");
@@ -93,11 +93,40 @@ export default function MonitorGrades() {
   });
   const [isSaving, setIsSaving] = useState(false);
 
-  // Queries
-  const { data: classesList, isLoading: loadingClasses } = trpc.monitors.listClasses.useQuery(
-    { monitorSessionToken: sessionToken },
-    { enabled: !!sessionToken }
+  // Validate session token on mount
+  const { data: monitorMe, isError: isSessionError } = trpc.monitors.me.useQuery(
+    { sessionToken: sessionToken },
+    { enabled: !!sessionToken, retry: false }
   );
+
+  // If session is invalid, clear token and redirect to login
+  useEffect(() => {
+    if (sessionToken && isSessionError) {
+      localStorage.removeItem(MONITOR_SESSION_KEY);
+      setSessionToken("");
+      toast.error("Sessão expirada. Por favor, faça login novamente.");
+    }
+    if (sessionToken && monitorMe === null) {
+      localStorage.removeItem(MONITOR_SESSION_KEY);
+      setSessionToken("");
+      toast.error("Sessão inválida. Por favor, faça login novamente.");
+    }
+  }, [monitorMe, isSessionError, sessionToken]);
+
+  // Queries
+  const { data: classesList, isLoading: loadingClasses, isError: isClassesError } = trpc.monitors.listClasses.useQuery(
+    { monitorSessionToken: sessionToken },
+    { enabled: !!sessionToken && monitorMe !== undefined && monitorMe !== null, retry: false }
+  );
+
+  // Handle classes error (session might have expired)
+  useEffect(() => {
+    if (isClassesError && sessionToken) {
+      localStorage.removeItem(MONITOR_SESSION_KEY);
+      setSessionToken("");
+      toast.error("Sessão expirada. Por favor, faça login novamente.");
+    }
+  }, [isClassesError, sessionToken]);
 
   const { data: homeGroups, isLoading: loadingGroups } = trpc.monitors.listHomeGroups.useQuery(
     { monitorSessionToken: sessionToken, classId: selectedClassId! },
@@ -135,9 +164,18 @@ export default function MonitorGrades() {
     onError: (err) => toast.error("Erro ao remover: " + err.message),
   });
 
-  // Auto-select first class
+  // Auto-select class from URL param or first class
   useEffect(() => {
     if (classesList?.length && !selectedClassId) {
+      const params = new URLSearchParams(window.location.search);
+      const urlClassId = params.get("classId");
+      if (urlClassId) {
+        const found = classesList.find((c) => c.id === parseInt(urlClassId));
+        if (found) {
+          setSelectedClassId(found.id);
+          return;
+        }
+      }
       setSelectedClassId(classesList[0].id);
     }
   }, [classesList]);
@@ -240,9 +278,16 @@ export default function MonitorGrades() {
   if (!sessionToken) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <p className="text-muted-foreground mb-4">Você precisa estar logado como monitor.</p>
-          <Link href="/monitor" className="text-primary hover:underline">
+        <div className="text-center space-y-4">
+          <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto">
+            <GraduationCap size={24} className="text-amber-400" />
+          </div>
+          <p className="text-foreground font-medium">Sessão expirada ou inválida</p>
+          <p className="text-muted-foreground text-sm">Você precisa fazer login novamente para acessar a planilha de notas.</p>
+          <Link
+            href="/monitor"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
             Ir para o login
           </Link>
         </div>
@@ -291,7 +336,7 @@ export default function MonitorGrades() {
           <label className="block text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
             Turma
           </label>
-          {loadingClasses ? (
+          {(loadingClasses || (!!sessionToken && monitorMe === undefined)) ? (
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Loader2 size={14} className="animate-spin" /> Carregando turmas...
             </div>
