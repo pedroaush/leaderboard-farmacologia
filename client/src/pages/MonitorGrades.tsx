@@ -30,6 +30,13 @@ interface GradeRow {
   isNew?: boolean;
 }
 
+/** Converte string com ponto ou vírgula para número */
+function parseGrade(raw: string): number {
+  const normalized = raw.replace(",", ".").trim();
+  const n = parseFloat(normalized);
+  return isNaN(n) ? 0 : n;
+}
+
 function GradeCell({
   value,
   maxGrade,
@@ -41,18 +48,37 @@ function GradeCell({
   isEditing: boolean;
   onChange: (v: number) => void;
 }) {
+  const [rawInput, setRawInput] = useState(String(value));
+
+  // Sync rawInput when value changes from outside (e.g. on row open)
+  useEffect(() => {
+    if (!isEditing) setRawInput(String(value));
+  }, [value, isEditing]);
+
   const pct = maxGrade > 0 ? (value / maxGrade) * 100 : 0;
   const color = pct >= 70 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
 
   if (isEditing) {
     return (
       <input
-        type="number"
-        min={0}
-        max={maxGrade}
-        step={0.1}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        type="text"
+        inputMode="decimal"
+        value={rawInput}
+        onChange={(e) => {
+          const raw = e.target.value;
+          // Allow typing: digits, comma, period, minus
+          if (/^[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") {
+            setRawInput(raw);
+            onChange(parseGrade(raw));
+          }
+        }}
+        onBlur={() => {
+          // Normalize on blur: replace comma with period
+          const n = parseGrade(rawInput);
+          setRawInput(String(n));
+          onChange(n);
+        }}
+        placeholder="0,0"
         className="w-20 px-2 py-1 rounded border border-primary/50 bg-background text-foreground text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/50"
         onClick={(e) => e.stopPropagation()}
       />
@@ -83,12 +109,23 @@ export default function MonitorGrades() {
   const [activityFilter, setActivityFilter] = useState<string>("all");
   const [editingRows, setEditingRows] = useState<Record<string, GradeRow>>({});
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newActivity, setNewActivity] = useState({
+  const [newActivity, setNewActivity] = useState<{
+    activityName: string;
+    homeGroupId: number | undefined;
+    groupName: string;
+    grade: number;
+    gradeRaw?: string;
+    maxGrade: number;
+    maxGradeRaw?: string;
+    notes: string;
+  }>({
     activityName: "",
-    homeGroupId: undefined as number | undefined,
+    homeGroupId: undefined,
     groupName: "",
     grade: 0,
+    gradeRaw: "0",
     maxGrade: 10,
+    maxGradeRaw: "10",
     notes: "",
   });
   const [isSaving, setIsSaving] = useState(false);
@@ -248,7 +285,7 @@ export default function MonitorGrades() {
       maxGrade: newActivity.maxGrade,
       notes: newActivity.notes || undefined,
     });
-    setNewActivity({ activityName: "", homeGroupId: undefined, groupName: "", grade: 0, maxGrade: 10, notes: "" });
+    setNewActivity({ activityName: "", homeGroupId: undefined, groupName: "", grade: 0, gradeRaw: "0", maxGrade: 10, maxGradeRaw: "10", notes: "" });
     setShowAddForm(false);
   };
 
@@ -530,22 +567,38 @@ export default function MonitorGrades() {
                         </label>
                         <div className="flex gap-2 items-center">
                           <input
-                            type="number"
-                            min={0}
-                            max={newActivity.maxGrade}
-                            step={0.1}
-                            value={newActivity.grade}
-                            onChange={(e) => setNewActivity((p) => ({ ...p, grade: parseFloat(e.target.value) || 0 }))}
+                            type="text"
+                            inputMode="decimal"
+                            value={newActivity.gradeRaw ?? String(newActivity.grade)}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (/^[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") {
+                                setNewActivity((p) => ({ ...p, gradeRaw: raw, grade: parseGrade(raw) }));
+                              }
+                            }}
+                            onBlur={() => {
+                              const n = parseGrade(newActivity.gradeRaw ?? String(newActivity.grade));
+                              setNewActivity((p) => ({ ...p, gradeRaw: String(n), grade: n }));
+                            }}
+                            placeholder="0,0"
                             className="w-24 px-3 py-2 rounded-lg border border-border bg-background/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                           />
                           <span className="text-muted-foreground text-sm">/</span>
                           <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            step={0.5}
-                            value={newActivity.maxGrade}
-                            onChange={(e) => setNewActivity((p) => ({ ...p, maxGrade: parseFloat(e.target.value) || 10 }))}
+                            type="text"
+                            inputMode="decimal"
+                            value={newActivity.maxGradeRaw ?? String(newActivity.maxGrade)}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (/^[0-9]*[.,]?[0-9]*$/.test(raw) || raw === "") {
+                                setNewActivity((p) => ({ ...p, maxGradeRaw: raw, maxGrade: parseGrade(raw) || 10 }));
+                              }
+                            }}
+                            onBlur={() => {
+                              const n = parseGrade(newActivity.maxGradeRaw ?? String(newActivity.maxGrade)) || 10;
+                              setNewActivity((p) => ({ ...p, maxGradeRaw: String(n), maxGrade: n }));
+                            }}
+                            placeholder="10"
                             className="w-20 px-3 py-2 rounded-lg border border-border bg-background/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                           />
                         </div>
