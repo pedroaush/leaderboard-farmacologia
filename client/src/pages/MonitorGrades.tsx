@@ -165,7 +165,7 @@ export default function MonitorGrades() {
     }
   }, [isClassesError, sessionToken]);
 
-  const { data: homeGroups, isLoading: loadingGroups } = trpc.monitors.listHomeGroups.useQuery(
+  const { data: homeGroups, isLoading: loadingGroups } = trpc.monitors.listExpertGroups.useQuery(
     { monitorSessionToken: sessionToken, classId: selectedClassId! },
     { enabled: !!sessionToken && !!selectedClassId }
   );
@@ -439,10 +439,10 @@ export default function MonitorGrades() {
               >
                 <Users size={15} className="text-amber-400 mt-0.5 shrink-0" />
                 <p className="text-xs text-muted-foreground">
-                  Os grupos de Kahoot são os <strong className="text-foreground">grupos mosaico da fase 2 do Jigsaw</strong> desta turma.
+                  Os grupos de Kahoot são os <strong className="text-foreground">grupos de seminário (grupos experts do Jigsaw)</strong> desta turma.
                   {homeGroups?.length
-                    ? ` Foram encontrados ${homeGroups.length} grupos mosaico.`
-                    : " Nenhum grupo mosaico encontrado — os grupos serão criados manualmente."}
+                    ? ` Foram encontrados ${homeGroups.length} grupos de seminário.`
+                    : " Nenhum grupo de seminário encontrado — os grupos serão criados manualmente."}
                 </p>
               </div>
             )}
@@ -543,7 +543,7 @@ export default function MonitorGrades() {
                             }}
                             className="w-full px-3 py-2 rounded-lg border border-border bg-background/50 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                           >
-                            <option value="">Selecione o grupo mosaico...</option>
+                            <option value="">Selecione o grupo de seminário...</option>
                             {homeGroups.map((g) => (
                               <option key={g.id} value={g.id}>
                                 {g.name} ({g.membersList?.length || 0} membros)

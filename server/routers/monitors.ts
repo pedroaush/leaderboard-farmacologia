@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../_core/trpc";
 import { getDb, getTeacherAccountBySessionToken } from "../db";
-import { studentAccounts, monitorActivityLogs, classes, jigsawHomeGroups, jigsawHomeMembers, members, groupActivityGrades } from "../../drizzle/schema";
+import { studentAccounts, monitorActivityLogs, classes, jigsawHomeGroups, jigsawHomeMembers, jigsawExpertGroups, jigsawExpertMembers, members, groupActivityGrades } from "../../drizzle/schema";
 import { eq, and, desc, gte, lte } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
@@ -495,6 +495,42 @@ export const monitorsRouter = router({
             .from(jigsawHomeMembers)
             .leftJoin(members, eq(jigsawHomeMembers.memberId, members.id))
             .where(eq(jigsawHomeMembers.homeGroupId, group.id));
+          return { ...group, membersList: groupMembers };
+        })
+      );
+      return groupsWithMembers;
+    }),
+
+  // Listar grupos experts (grupos de seminário/Kahoot) de uma turma com seus membros
+  listExpertGroups: publicProcedure
+    .input(z.object({
+      monitorSessionToken: z.string(),
+      classId: z.number(),
+    }))
+    .query(async ({ input }) => {
+      const monitor = await getMonitorByToken(input.monitorSessionToken);
+      if (!monitor) throw new Error("Acesso negado");
+      if (monitor.assignedClassId && monitor.assignedClassId !== input.classId) {
+        throw new Error("Acesso negado: você só pode acessar dados da sua turma.");
+      }
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const groups = await db
+        .select()
+        .from(jigsawExpertGroups)
+        .where(eq(jigsawExpertGroups.classId, input.classId))
+        .orderBy(jigsawExpertGroups.name);
+      const groupsWithMembers = await Promise.all(
+        groups.map(async (group) => {
+          const groupMembers = await db
+            .select({
+              id: jigsawExpertMembers.id,
+              memberId: jigsawExpertMembers.memberId,
+              memberName: members.name,
+            })
+            .from(jigsawExpertMembers)
+            .leftJoin(members, eq(jigsawExpertMembers.memberId, members.id))
+            .where(eq(jigsawExpertMembers.expertGroupId, group.id));
           return { ...group, membersList: groupMembers };
         })
       );
