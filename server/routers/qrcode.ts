@@ -5,6 +5,7 @@ import {
   qrCodeSessions,
   attendanceRecords,
   attendanceSummary,
+  attendanceManualRequests,
   members,
   teams,
 } from "../../drizzle/schema";
@@ -843,6 +844,113 @@ export const qrcodeRouter = router({
           checkedInAt: r.checkedInAt,
         })),
       };
+    }),
+
+  /**
+   * Aluno solicita confirmacao manual de presenca quando GPS falha
+   */
+  requestManualAttendance: publicProcedure
+    .input(
+      z.object({
+        qrCodeSessionId: z.number(),
+        memberId: z.number(),
+        classId: z.number(),
+        reason: z.enum(["gps_failed", "gps_out_of_range", "other"]).default("gps_failed"),
+        reasonNote: z.string().optional(),
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+        distanceMeters: z.number().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const memberRows = await db.select({ name: members.name }).from(members).where(eq(members.id, input.memberId)).limit(1);
+      const memberName = memberRows[0]?.name || "Aluno";
+      // Verificar se ja existe solicitacao para esta sessao e aluno
+      const existing = await db.select({ id: attendanceManualRequests.id, status: attendanceManualRequests.status })
+        .from(attendanceManualRequests)
+        .where(and(eq(attendanceManualRequests.memberId, input.memberId), eq(attendanceManualRequests.qrCodeSessionId, input.qrCodeSessionId)))
+        .limit(1);
+      if (existing.length > 0) {
+        if (existing[0].status === "approved") throw new Error("Presenca ja confirmada para esta sessao");
+        if (existing[0].status === "pending") throw new Error("Solicitacao ja enviada. Aguarde a aprovacao do professor");
+      }
+      // Verificar se ja fez check-in normal
+      const checkedIn = await db.select({ id: attendanceRecords.id })
+        .from(attendanceRecords)
+        .where(and(eq(attendanceRecords.memberId, input.memberId), eq(attendanceRecords.qrCodeSessionId, input.qrCodeSessionId)))
+        .limit(1);
+      if (checkedIn.length > 0) throw new Error("Presenca ja registrada via QR Code para esta sessao");
+      await db.insert(attendanceManualRequests).values({
+        qrCodeSessionId: input.qrCodeSessionId,
+        memberId: input.memberId,
+        classId: input.classId,
+        memberName,
+        reason: input.reason,
+        reasonNote: input.reasonNote,
+        latitude: input.latitude !== undefined ? String(input.latitude) : undefined,
+        longitude: input.longitude !== undefined ? String(input.longitude) : undefined,
+        distanceMeters: input.distanceMeters !== undefined ? String(input.distanceMeters) : undefined,
+        status: "pending",
+      });
+      return { success: true, message: "Solicitacao enviada. Aguarde a confirmacao do professor" };
+    }),
+
+  /**
+   * Professor/monitor lista solicitacoes manuais de uma turma
+   */
+  listManualRequests: publicProcedure
+    .input(z.object({ classId: z.number(), status: z.enum(["pending", "approved", "rejected", "all"]).default("pending") }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const conditions: any[] = [eq(attendanceManualRequests.classId, input.classId)];
+      if (input.status !== "all") conditions.push(eq(attendanceManualRequests.status, input.status as any));
+      const rows = await db.select().from(attendanceManualRequests).where(and(...conditions)).orderBy(desc(attendanceManualRequests.requestedAt));
+      return rows;
+    }),
+
+  /**
+   * Professor/monitor aprova ou rejeita solicitacao manual
+   */
+  reviewManualRequest: publicProcedure
+    .input(z.object({
+      requestId: z.number(),
+      action: z.enum(["approve", "reject"]),
+      reviewedByName: z.string().default("Professor"),
+      reviewNote: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const req = await db.select().from(attendanceManualRequests).where(eq(attendanceManualRequests.id, input.requestId)).limit(1);
+      if (!req.length) throw new Error("Solicitacao nao encontrada");
+      const request = req[0];
+      if (request.status !== "pending") throw new Error("Solicitacao ja foi processada");
+      const newStatus = input.action === "approve" ? "approved" : "rejected";
+      await db.update(attendanceManualRequests).set({
+        status: newStatus,
+        reviewedByName: input.reviewedByName,
+        reviewedAt: new Date(),
+        reviewNote: input.reviewNote,
+      }).where(eq(attendanceManualRequests.id, input.requestId));
+      if (input.action === "approve") {
+        await db.insert(attendanceRecords).values({
+          qrCodeSessionId: request.qrCodeSessionId,
+          memberId: request.memberId,
+          classId: request.classId,
+          memberName: request.memberName,
+          isValid: true,
+          validationNotes: `Confirmacao manual por ${input.reviewedByName}`,
+          latitude: request.latitude,
+          longitude: request.longitude,
+          distanceMeters: request.distanceMeters,
+          geoStatus: "no_gps",
+        });
+        await updateAttendanceSummary(request.memberId, request.classId);
+      }
+      return { success: true, status: newStatus };
     }),
 });
 

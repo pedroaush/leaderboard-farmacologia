@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { QrCode, Copy, Download, RefreshCw } from "lucide-react";
+import { QrCode, Copy, Download, RefreshCw, AlertCircle, CheckCircle, XCircle, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 
 // Turmas do semestre 2026.1
@@ -27,6 +27,20 @@ export default function AttendanceQRCodeManager() {
   } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+
+  // Solicitações manuais pendentes
+  const { data: manualRequests, refetch: refetchRequests } = trpc.qrcode.listManualRequests.useQuery(
+    { classId: selectedClassId, status: "pending" },
+    { refetchInterval: 15000 } // Atualiza a cada 15 segundos
+  );
+
+  const reviewMutation = trpc.qrcode.reviewManualRequest.useMutation({
+    onSuccess: () => {
+      setReviewingId(null);
+      refetchRequests();
+    },
+  });
 
   // Pegar sessionToken do localStorage
   const sessionToken = localStorage.getItem("teacherSessionToken") || localStorage.getItem("sessionToken") || "";
@@ -231,6 +245,69 @@ export default function AttendanceQRCodeManager() {
                   <li>O QR code expira em 4 horas</li>
                 </ul>
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Solicitações Manuais Pendentes */}
+      {manualRequests && manualRequests.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="border-orange-200 bg-orange-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2 text-orange-800">
+                <AlertCircle size={18} className="text-orange-500" />
+                Solicitações de Confirmação Manual
+                <Badge variant="destructive" className="ml-auto">{manualRequests.length}</Badge>
+              </CardTitle>
+              <CardDescription className="text-orange-700">
+                Alunos com GPS indisponível aguardando confirmação de presença
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {manualRequests.map((req: any) => (
+                <div key={req.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-100 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center">
+                      <Clock size={16} className="text-orange-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{req.memberName}</p>
+                      <p className="text-xs text-gray-500">
+                        {req.reason === "gps_failed" ? "GPS indisponível" : req.reason === "gps_out_of_range" ? "Fora do raio GPS" : "Outro motivo"}
+                        {req.distanceMeters && ` • ${parseFloat(req.distanceMeters).toFixed(0)}m da sala`}
+                        {" • "}{new Date(req.requestedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-green-300 text-green-700 hover:bg-green-50"
+                      disabled={reviewingId === req.id}
+                      onClick={() => {
+                        setReviewingId(req.id);
+                        reviewMutation.mutate({ requestId: req.id, action: "approve", reviewedByName: "Professor" });
+                      }}
+                    >
+                      <CheckCircle size={14} className="mr-1" /> Aprovar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      disabled={reviewingId === req.id}
+                      onClick={() => {
+                        setReviewingId(req.id);
+                        reviewMutation.mutate({ requestId: req.id, action: "reject", reviewedByName: "Professor" });
+                      }}
+                    >
+                      <XCircle size={14} className="mr-1" /> Rejeitar
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </motion.div>

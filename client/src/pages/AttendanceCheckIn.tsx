@@ -72,6 +72,8 @@ export default function AttendanceCheckIn() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<"idle" | "acquiring" | "acquired" | "error">("idle");
   const [gpsCoords, setGpsCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showManualRequest, setShowManualRequest] = useState(false);
+  const [manualRequestSent, setManualRequestSent] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -102,6 +104,16 @@ export default function AttendanceCheckIn() {
   }, [isLoading, isAuthenticated, setLocation]);
 
   // Check-in mutation
+  const requestManualMutation = trpc.qrcode.requestManualAttendance.useMutation({
+    onSuccess: () => {
+      setManualRequestSent(true);
+      setShowManualRequest(false);
+    },
+    onError: (error) => {
+      alert(error.message || "Erro ao enviar solicitação");
+    },
+  });
+
   const checkInMutation = trpc.qrcode.checkIn.useMutation({
     onSuccess: (data) => {
       setResult({
@@ -411,18 +423,30 @@ export default function AttendanceCheckIn() {
                 </button>
               )}
               {!result.success && (
-                <button
-                  onClick={() => {
-                    setResult(null);
-                    setScanStatus("idle");
-                    setGpsStatus("idle");
-                    setGpsCoords(null);
-                  }}
-                  className="mt-4 px-6 py-2 rounded-lg text-sm font-medium text-white"
-                  style={{ backgroundColor: "rgba(255,255,255,0.1)" }}
-                >
-                  Tentar Novamente
-                </button>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => {
+                      setResult(null);
+                      setScanStatus("idle");
+                      setGpsStatus("idle");
+                      setGpsCoords(null);
+                    }}
+                    className="px-6 py-2 rounded-lg text-sm font-medium text-white"
+                    style={{ backgroundColor: "rgba(255,255,255,0.1)" }}
+                  >
+                    Tentar Novamente
+                  </button>
+                  {sessionId && classId && (
+                    <button
+                      onClick={() => setShowManualRequest(true)}
+                      className="px-6 py-2 rounded-lg text-sm font-medium text-white flex items-center justify-center gap-2"
+                      style={{ backgroundColor: "rgba(247,148,29,0.15)", border: "1px solid rgba(247,148,29,0.3)" }}
+                    >
+                      <AlertCircle size={16} style={{ color: ORANGE }} />
+                      <span style={{ color: ORANGE }}>Solicitar Confirmação Manual</span>
+                    </button>
+                  )}
+                </div>
               )}
             </motion.div>
           )}
@@ -648,7 +672,93 @@ export default function AttendanceCheckIn() {
             </div>
           </>
         )}
+
+        {/* Banner: Solicitação manual enviada */}
+        {manualRequestSent && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-4 rounded-xl p-5 text-center"
+            style={{ backgroundColor: "rgba(247,148,29,0.1)", border: "1px solid rgba(247,148,29,0.3)" }}
+          >
+            <AlertCircle size={40} className="mx-auto mb-3" style={{ color: ORANGE }} />
+            <p className="text-base font-bold text-white mb-1">Solicitação Enviada!</p>
+            <p className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
+              Sua solicitação de confirmação manual foi enviada ao professor.<br />
+              Aguarde a aprovação para que sua presença seja registrada.
+            </p>
+          </motion.div>
+        )}
       </div>
+
+      {/* Modal: Solicitação de confirmação manual */}
+      <AnimatePresence>
+        {showManualRequest && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end justify-center"
+            style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
+            onClick={() => setShowManualRequest(false)}
+          >
+            <motion.div
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              className="w-full max-w-lg rounded-t-2xl p-6"
+              style={{ backgroundColor: "#0D1B2A", border: "1px solid rgba(255,255,255,0.1)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 rounded-full mx-auto mb-5" style={{ backgroundColor: "rgba(255,255,255,0.2)" }} />
+              <h3 className="text-lg font-bold text-white mb-1">Solicitar Confirmação Manual</h3>
+              <p className="text-sm mb-5" style={{ color: "rgba(255,255,255,0.5)" }}>
+                Use esta opção quando o GPS não estiver funcionando. O professor receberá sua solicitação e poderá confirmar sua presença manualmente.
+              </p>
+              <div className="rounded-xl p-4 mb-5" style={{ backgroundColor: "rgba(247,148,29,0.08)", border: "1px solid rgba(247,148,29,0.2)" }}>
+                <p className="text-xs font-semibold mb-1" style={{ color: ORANGE }}>Motivo da solicitação</p>
+                <p className="text-sm text-white">GPS não disponível ou fora do raio permitido</p>
+                {gpsCoords && (
+                  <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+                    Coordenadas: {gpsCoords.latitude.toFixed(5)}, {gpsCoords.longitude.toFixed(5)}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  if (!student || !sessionId || !classId) return;
+                  requestManualMutation.mutate({
+                    qrCodeSessionId: parseInt(sessionId),
+                    memberId: student.memberId,
+                    classId: parseInt(classId),
+                    reason: gpsStatus === "error" ? "gps_failed" : "gps_out_of_range",
+                    latitude: gpsCoords?.latitude,
+                    longitude: gpsCoords?.longitude,
+                  });
+                }}
+                disabled={requestManualMutation.isPending}
+                className="w-full py-4 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: ORANGE }}
+              >
+                {requestManualMutation.isPending ? (
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
+                    <FlaskConical size={20} />
+                  </motion.div>
+                ) : (
+                  <><AlertCircle size={18} /> Enviar Solicitação ao Professor</>
+                )}
+              </button>
+              <button
+                onClick={() => setShowManualRequest(false)}
+                className="w-full mt-3 py-3 rounded-xl text-sm font-medium"
+                style={{ color: "rgba(255,255,255,0.4)" }}
+              >
+                Cancelar
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

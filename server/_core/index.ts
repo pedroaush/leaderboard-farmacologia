@@ -604,6 +604,34 @@ async function startServer() {
           }
         }
 
+        // Migracao: criar tabela attendanceManualRequests se nao existir
+        try {
+          await rawDb.execute(`
+            CREATE TABLE IF NOT EXISTS attendanceManualRequests (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              qrCodeSessionId INT NOT NULL,
+              memberId INT NOT NULL,
+              classId INT NOT NULL,
+              memberName VARCHAR(200) NOT NULL,
+              reason ENUM('gps_failed', 'gps_out_of_range', 'other') NOT NULL DEFAULT 'gps_failed',
+              reasonNote TEXT,
+              latitude DECIMAL(10,7),
+              longitude DECIMAL(10,7),
+              distanceMeters DECIMAL(8,2),
+              status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+              reviewedBy INT,
+              reviewedByName VARCHAR(200),
+              reviewedAt TIMESTAMP NULL,
+              reviewNote TEXT,
+              requestedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          console.log('[Migration] OK: attendanceManualRequests table created/verified');
+        } catch (err: any) {
+          console.warn('[Migration] attendanceManualRequests:', err?.message?.substring(0, 80));
+        }
+
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
           try {

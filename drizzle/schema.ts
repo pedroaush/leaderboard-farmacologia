@@ -1647,3 +1647,29 @@ export const examStudentGrades = mysqlTable("examStudentGrades", {
 }));
 export type ExamStudentGrade = typeof examStudentGrades.$inferSelect;
 export type InsertExamStudentGrade = typeof examStudentGrades.$inferInsert;
+
+/**
+ * Attendance Manual Requests - Solicitacoes manuais de presenca quando GPS falha
+ * Fluxo: aluno escaneia QR -> GPS falha -> aluno solicita confirmacao manual -> professor/monitor aprova
+ */
+export const attendanceManualRequests = mysqlTable("attendanceManualRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  qrCodeSessionId: int("qrCodeSessionId").notNull(),
+  memberId: int("memberId").notNull(),
+  classId: int("classId").notNull(),
+  memberName: varchar("memberName", { length: 200 }).notNull(),
+  reason: mysqlEnum("reason", ["gps_failed", "gps_out_of_range", "other"]).notNull().default("gps_failed"),
+  reasonNote: text("reasonNote"),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  distanceMeters: decimal("distanceMeters", { precision: 8, scale: 2 }),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
+  reviewedBy: int("reviewedBy"),
+  reviewedByName: varchar("reviewedByName", { length: 200 }),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewNote: text("reviewNote"),
+  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type AttendanceManualRequest = typeof attendanceManualRequests.$inferSelect;
+export type InsertAttendanceManualRequest = typeof attendanceManualRequests.$inferInsert;
