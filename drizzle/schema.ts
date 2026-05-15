@@ -1673,3 +1673,55 @@ export const attendanceManualRequests = mysqlTable("attendanceManualRequests", {
 });
 export type AttendanceManualRequest = typeof attendanceManualRequests.$inferSelect;
 export type InsertAttendanceManualRequest = typeof attendanceManualRequests.$inferInsert;
+
+/**
+ * Teacher Grades - Notas lancadas pelo professor (tabela separada, editavel livremente)
+ * Integrada visualmente com groupActivityGrades dos monitores no painel admin
+ */
+export const teacherGrades = mysqlTable("teacherGrades", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  activityType: mysqlEnum("activityType", ["kahoot", "clinical_case", "prova", "seminario", "participacao", "outro"]).notNull(),
+  activityName: varchar("activityName", { length: 200 }).notNull(),
+  memberId: int("memberId"),
+  memberName: varchar("memberName", { length: 200 }).notNull(),
+  groupName: varchar("groupName", { length: 200 }),
+  grade: decimal("grade", { precision: 5, scale: 2 }).notNull().default("0.00"),
+  maxGrade: decimal("maxGrade", { precision: 5, scale: 2 }).notNull().default("10.00"),
+  notes: text("notes"),
+  monitorGradeRef: int("monitorGradeRef"),
+  editedByTeacherId: int("editedByTeacherId"),
+  editedByTeacherName: varchar("editedByTeacherName", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type TeacherGrade = typeof teacherGrades.$inferSelect;
+export type InsertTeacherGrade = typeof teacherGrades.$inferInsert;
+
+/**
+ * Monitoring Certificates - Certificados de monitoria emitidos pela plataforma
+ */
+export const monitoringCertificates = mysqlTable("monitoringCertificates", {
+  id: int("id").autoincrement().primaryKey(),
+  monitorAccountId: int("monitorAccountId").notNull(),
+  monitorName: varchar("monitorName", { length: 200 }).notNull(),
+  monitorEmail: varchar("monitorEmail", { length: 320 }).notNull(),
+  disciplineName: varchar("disciplineName", { length: 300 }).notNull().default("Farmacologia I"),
+  courseCode: varchar("courseCode", { length: 50 }),
+  periodStart: varchar("periodStart", { length: 20 }).notNull(),
+  periodEnd: varchar("periodEnd", { length: 20 }).notNull(),
+  workloadHours: int("workloadHours").notNull().default(60),
+  professorName: varchar("professorName", { length: 200 }).notNull(),
+  professorTitle: varchar("professorTitle", { length: 100 }),
+  institution: varchar("institution", { length: 300 }).notNull().default("Universidade Federal do Estado do Rio de Janeiro - UNIRIO"),
+  department: varchar("department", { length: 300 }),
+  activities: text("activities"),
+  issuedByTeacherId: int("issuedByTeacherId"),
+  issuedAt: timestamp("issuedAt").defaultNow().notNull(),
+  pdfUrl: text("pdfUrl"),
+  certificateCode: varchar("certificateCode", { length: 50 }).notNull(),
+  status: mysqlEnum("status", ["active", "revoked"]).notNull().default("active"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type MonitoringCertificate = typeof monitoringCertificates.$inferSelect;
+export type InsertMonitoringCertificate = typeof monitoringCertificates.$inferInsert;

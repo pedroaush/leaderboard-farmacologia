@@ -12,7 +12,7 @@ import {
   FolderOpen, Presentation, LogOut, User,
   ChevronRight, Shield, Eye, EyeOff, Loader2,
   GraduationCap, BarChart3, MessageSquare, FileSpreadsheet,
-  Calendar, UserPlus, CheckCircle2, AlertCircle
+  Calendar, UserPlus, CheckCircle2, AlertCircle, Award
 } from "lucide-react";
 
 const MONITOR_SESSION_KEY = "monitor_session_token";
@@ -106,6 +106,14 @@ const MONITOR_FEATURES = [
     href: "/jogo",
     color: "#f59e0b",
     bg: "from-amber-500/20 to-amber-600/10",
+  },
+  {
+    icon: <Award size={28} />,
+    label: "Meu Certificado",
+    description: "Visualizar e baixar seu certificado de monitoria em PDF",
+    href: "/monitor/certificado",
+    color: "#eab308",
+    bg: "from-yellow-500/20 to-yellow-600/10",
   },
 ];
 

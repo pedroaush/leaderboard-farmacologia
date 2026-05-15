@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../_core/trpc";
 import { getDb, getTeacherAccountBySessionToken } from "../db";
-import { studentAccounts, monitorActivityLogs, classes, jigsawHomeGroups, jigsawHomeMembers, jigsawExpertGroups, jigsawExpertMembers, members, groupActivityGrades } from "../../drizzle/schema";
+import { studentAccounts, monitorActivityLogs, classes, jigsawHomeGroups, jigsawHomeMembers, jigsawExpertGroups, jigsawExpertMembers, members, groupActivityGrades, teacherGrades, monitoringCertificates } from "../../drizzle/schema";
 import { eq, and, desc, gte, lte } from "drizzle-orm";
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 
 // Helper: autenticar monitor e retornar dados completos
@@ -758,5 +759,226 @@ export const monitorsRouter = router({
       if (!db) throw new Error("Database unavailable");
       await db.delete(groupActivityGrades).where(eq(groupActivityGrades.id, input.gradeId));
       return { success: true, message: "Nota excluída" };
+    }),
+
+  // ─── Teacher Grades: tabela de notas do professor (editavel livremente) ───
+  listTeacherGrades: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      classId: z.number().int().positive(),
+      activityType: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const conditions = [eq(teacherGrades.classId, input.classId)];
+      if (input.activityType) {
+        conditions.push(eq(teacherGrades.activityType, input.activityType as any));
+      }
+      const rows = await db.select().from(teacherGrades).where(and(...conditions)).orderBy(desc(teacherGrades.createdAt));
+      return rows;
+    }),
+
+  upsertTeacherGrade: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      id: z.number().optional(),
+      classId: z.number().int().positive(),
+      activityType: z.enum(["kahoot","clinical_case","prova","seminario","participacao","outro"]),
+      activityName: z.string().min(1).max(200),
+      memberId: z.number().optional(),
+      memberName: z.string().min(1).max(200),
+      groupName: z.string().max(200).optional(),
+      grade: z.number().min(0).max(100),
+      maxGrade: z.number().min(0).max(100),
+      notes: z.string().max(500).optional(),
+      monitorGradeRef: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const now = new Date();
+      const payload = {
+        classId: input.classId,
+        activityType: input.activityType,
+        activityName: input.activityName,
+        memberId: input.memberId ?? null,
+        memberName: input.memberName,
+        groupName: input.groupName ?? null,
+        grade: String(input.grade),
+        maxGrade: String(input.maxGrade),
+        notes: input.notes ?? null,
+        monitorGradeRef: input.monitorGradeRef ?? null,
+        editedByTeacherId: teacher.id,
+        editedByTeacherName: teacher.name,
+        updatedAt: now,
+      };
+      if (input.id) {
+        await db.update(teacherGrades).set(payload).where(eq(teacherGrades.id, input.id));
+        return { success: true, message: "Nota atualizada" };
+      } else {
+        await db.insert(teacherGrades).values({ ...payload, createdAt: now });
+        return { success: true, message: "Nota lançada" };
+      }
+    }),
+
+  deleteTeacherGrade: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      gradeId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      await db.delete(teacherGrades).where(eq(teacherGrades.id, input.gradeId));
+      return { success: true, message: "Nota excluída" };
+    }),
+
+  importMonitorGradesToTeacher: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      classId: z.number().int().positive(),
+      activityType: z.enum(["kahoot","clinical_case","prova","seminario","participacao","outro"]),
+      activityName: z.string().min(1).max(200),
+    }))
+    .mutation(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      // Buscar notas dos monitores para esta atividade
+      const monitorRows = await db.select().from(groupActivityGrades)
+        .where(and(
+          eq(groupActivityGrades.classId, input.classId),
+          eq(groupActivityGrades.activityName, input.activityName)
+        ));
+      if (!monitorRows.length) return { success: false, message: "Nenhuma nota de monitor encontrada" };
+      const now = new Date();
+      for (const row of monitorRows) {
+        await db.insert(teacherGrades).values({
+          classId: input.classId,
+          activityType: input.activityType,
+          activityName: input.activityName,
+          groupName: row.groupName ?? null,
+          memberName: row.groupName ?? "Grupo",
+          grade: row.grade,
+          maxGrade: row.maxGrade,
+          notes: row.notes ?? null,
+          monitorGradeRef: row.id,
+          editedByTeacherId: teacher.id,
+          editedByTeacherName: teacher.name,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      return { success: true, message: `${monitorRows.length} notas importadas dos monitores` };
+    }),
+
+  // ─── Monitoring Certificates ───
+  issueCertificate: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      monitorAccountId: z.number(),
+      periodStart: z.string(),
+      periodEnd: z.string(),
+      workloadHours: z.number().default(60),
+      professorTitle: z.string().optional(),
+      department: z.string().optional(),
+      activities: z.array(z.string()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      // Buscar dados do monitor
+      const monitorRows = await db.select({
+        id: studentAccounts.id,
+        displayName: studentAccounts.displayName,
+        email: studentAccounts.email,
+      }).from(studentAccounts).where(eq(studentAccounts.id, input.monitorAccountId)).limit(1);
+      if (!monitorRows.length) throw new Error("Monitor não encontrado");
+      const monitor = monitorRows[0];
+      const certCode = "CF-" + crypto.randomBytes(4).toString("hex").toUpperCase() + "-" + Date.now().toString(36).toUpperCase();
+      await db.insert(monitoringCertificates).values({
+        monitorAccountId: input.monitorAccountId,
+        monitorName: monitor.displayName ?? monitor.email,
+        monitorEmail: monitor.email,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        workloadHours: input.workloadHours,
+        professorName: teacher.name,
+        professorTitle: input.professorTitle ?? "Prof. Dr.",
+        department: input.department ?? "Departamento de Farmácia e Administração Farmacêutica",
+        activities: input.activities ? JSON.stringify(input.activities) : null,
+        issuedByTeacherId: teacher.id,
+        certificateCode: certCode,
+        createdAt: new Date(),
+        issuedAt: new Date(),
+      });
+      return { success: true, certificateCode: certCode, message: "Certificado emitido com sucesso" };
+    }),
+
+  listCertificates: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string().optional(),
+      monitorSessionToken: z.string().optional(),
+      monitorAccountId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      // Autenticar como professor ou monitor
+      let targetMonitorId: number | undefined;
+      if (input.teacherSessionToken) {
+        const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+        if (!teacher) throw new Error("Acesso negado");
+        targetMonitorId = input.monitorAccountId;
+      } else if (input.monitorSessionToken) {
+        const monitor = await getMonitorByToken(input.monitorSessionToken);
+        if (!monitor) throw new Error("Acesso negado");
+        targetMonitorId = monitor.id;
+      } else {
+        throw new Error("Autenticação necessária");
+      }
+      const conditions = [eq(monitoringCertificates.status, "active")];
+      if (targetMonitorId) conditions.push(eq(monitoringCertificates.monitorAccountId, targetMonitorId));
+      return db.select().from(monitoringCertificates).where(and(...conditions)).orderBy(desc(monitoringCertificates.issuedAt));
+    }),
+
+  revokeCertificate: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      certificateId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      await db.update(monitoringCertificates).set({ status: "revoked" }).where(eq(monitoringCertificates.id, input.certificateId));
+      return { success: true, message: "Certificado revogado" };
+    }),
+
+  getMonitorProfile: publicProcedure
+    .input(z.object({ monitorSessionToken: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const monitor = await getMonitorByToken(input.monitorSessionToken);
+      if (!monitor) throw new Error("Acesso negado");
+      const certs = await db.select().from(monitoringCertificates)
+        .where(and(
+          eq(monitoringCertificates.monitorAccountId, monitor.id),
+          eq(monitoringCertificates.status, "active")
+        ))
+        .orderBy(desc(monitoringCertificates.issuedAt));
+      return { monitor, certificates: certs };
     }),
 });

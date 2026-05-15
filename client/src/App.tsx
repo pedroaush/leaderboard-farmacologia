@@ -62,6 +62,7 @@ import ManualAttendance from "./pages/ManualAttendance";
 import AttendanceAlerts from "./pages/AttendanceAlerts";
 import MonitorPortal from "./pages/MonitorPortal";
 import MonitorGrades from "./pages/MonitorGrades";
+import MonitorCertificate from "./pages/MonitorCertificate";
 import ExamTools from "./pages/ExamTools";
 import ProfessorGrades from "./pages/ProfessorGrades";
 import AdminMonitors from "./pages/AdminMonitors";
@@ -116,6 +117,7 @@ function Router() {
       <Route path={"/admin/monitores"} component={AdminMonitors} />
       <Route path={"/monitor"} component={MonitorPortal} />
       <Route path={"/monitor/notas"} component={MonitorGrades} />
+      <Route path={"/monitor/certificado"} component={MonitorCertificate} />
       <Route path={"/professor/ferramentas-prova"} component={ExamTools} />
       <Route path={"/professor/notas"} component={ProfessorGrades} />
 

@@ -632,6 +632,63 @@ async function startServer() {
           console.warn('[Migration] attendanceManualRequests:', err?.message?.substring(0, 80));
         }
 
+        // Migracao: criar tabela teacherGrades se nao existir
+        try {
+          await db.execute(`
+            CREATE TABLE IF NOT EXISTS teacherGrades (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              classId INT NOT NULL,
+              activityType ENUM('kahoot','clinical_case','prova','seminario','participacao','outro') NOT NULL,
+              activityName VARCHAR(200) NOT NULL,
+              memberId INT,
+              memberName VARCHAR(200) NOT NULL,
+              groupName VARCHAR(200),
+              grade DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+              maxGrade DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+              notes TEXT,
+              monitorGradeRef INT,
+              editedByTeacherId INT,
+              editedByTeacherName VARCHAR(200),
+              createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
+              updatedAt TIMESTAMP NOT NULL DEFAULT NOW() ON UPDATE NOW()
+            )
+          `);
+          console.log('[Migration] OK: teacherGrades table created/verified');
+        } catch (err: any) {
+          console.warn('[Migration] teacherGrades:', err?.message?.substring(0, 80));
+        }
+
+        // Migracao: criar tabela monitoringCertificates se nao existir
+        try {
+          await db.execute(`
+            CREATE TABLE IF NOT EXISTS monitoringCertificates (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              monitorAccountId INT NOT NULL,
+              monitorName VARCHAR(200) NOT NULL,
+              monitorEmail VARCHAR(320) NOT NULL,
+              disciplineName VARCHAR(300) NOT NULL DEFAULT 'Farmacologia I',
+              courseCode VARCHAR(50),
+              periodStart VARCHAR(20) NOT NULL,
+              periodEnd VARCHAR(20) NOT NULL,
+              workloadHours INT NOT NULL DEFAULT 60,
+              professorName VARCHAR(200) NOT NULL,
+              professorTitle VARCHAR(100),
+              institution VARCHAR(300) NOT NULL DEFAULT 'Universidade Federal do Estado do Rio de Janeiro - UNIRIO',
+              department VARCHAR(300),
+              activities TEXT,
+              issuedByTeacherId INT,
+              issuedAt TIMESTAMP NOT NULL DEFAULT NOW(),
+              pdfUrl TEXT,
+              certificateCode VARCHAR(50) NOT NULL,
+              status ENUM('active','revoked') NOT NULL DEFAULT 'active',
+              createdAt TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+          `);
+          console.log('[Migration] OK: monitoringCertificates table created/verified');
+        } catch (err: any) {
+          console.warn('[Migration] monitoringCertificates:', err?.message?.substring(0, 80));
+        }
+
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
           try {
