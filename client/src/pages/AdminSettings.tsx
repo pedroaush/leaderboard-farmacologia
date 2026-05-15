@@ -64,11 +64,10 @@ export default function AdminSettings() {
   const handleSaveGeneralSettings = async () => {
     setLoading(true);
     try {
-      await updateSettingsMutation.mutateAsync({
-        courseName,
-        semester,
-        institution,
-        department,
+     const result = await createBackupMutation.mutateAsync({
+  backupType: "full",
+  notes: backupName,
+  teacherSessionToken: localStorage.getItem("teacherToken") || ""
       });
       toast.success("Configurações gerais salvas com sucesso!");
     } catch (error) {
