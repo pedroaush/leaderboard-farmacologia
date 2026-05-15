@@ -9,7 +9,7 @@ import {
   getRestoreHistory,
   createRestoreRecord,
 } from "../db";
-import { createFullBackup, restoreFromBackupData, getBackupContent, listBackups, deleteBackupById } from "../backup-restore";
+import { createBackup as executeRealBackup } from "../backup-restore";
 import { TRPCError } from "@trpc/server";
 
 export const settingsRouter = router({
@@ -62,26 +62,20 @@ export const settingsRouter = router({
   }),
 
   // Criar backup completo real (exporta todos os dados para S3)
-  createBackup: adminProcedure
-    .input(
-      z.object({
-        notes: z.string().optional(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      try {
-        const result = await createFullBackup(
-          ctx.user.id,
-          ctx.user.name,
-          input.notes
+  createBackup: publicProcedure
+  .input(z.object({
+    backupType: z.enum(["full", "partial", "incremental"]),
+    notes: z.string().optional(),
+    teacherSessionToken: z.string()
+  }))
+  .mutation(async ({ input }) => {
+    const backupResult = await executeRealBackup(teacher.id, teacher.name);
+    if (!teacher) throw new TRPCError({ code: "UNAUTHORIZED" });
         );
         return {
-          success: true,
-          backupId: result.backupId,
-          url: result.url,
-          fileSize: result.fileSize,
-          totalRecords: result.totalRecords,
-          message: `Backup completo criado com sucesso! ${result.totalRecords} registros salvos.`,
+         success: true,
+  message: "Backup concluído com sucesso",
+  url: backupResult.url`,
         };
       } catch (error: any) {
         throw new TRPCError({
