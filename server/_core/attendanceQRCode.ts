@@ -129,25 +129,31 @@ export function isWithinClassroomRadius(
 
 /**
  * Validar horário de aula
- * Turma: Terça de 8h às 12h
+ * Turma: Terça de 8h às 12h (horário de Brasília)
+ * IMPORTANTE: O servidor roda em UTC; a conversão para BRT (UTC-3) é feita aqui.
  */
 export function isWithinClassHours(date: Date): {
   valid: boolean;
   error?: string;
 } {
-  const dayOfWeek = date.getDay(); // 0 = domingo, 2 = terça
-  const hours = date.getHours();
+  // Converter para horário de Brasília (BRT = UTC-3)
+  const BRT_OFFSET_MS = -3 * 60 * 60 * 1000;
+  const brtDate = new Date(date.getTime() + BRT_OFFSET_MS);
+  const dayOfWeek = brtDate.getUTCDay(); // 0 = domingo, 2 = terça (em BRT)
+  const hours = brtDate.getUTCHours(); // hora em BRT
+  const minutes = brtDate.getUTCMinutes();
 
-  // Verificar se é terça-feira
+  // Verificar se é terça-feira (em BRT)
   if (dayOfWeek !== 2) {
     return { valid: false, error: "Presença só é permitida nas terças-feiras" };
   }
 
-  // Verificar se está entre 8h e 12h
-  if (hours < 8 || hours >= 12) {
+  // Verificar se está entre 7h30 e 13h (BRT) — janela ampliada para cobrir toda a aula
+  const totalMinutes = hours * 60 + minutes;
+  if (totalMinutes < 7 * 60 + 30 || totalMinutes >= 13 * 60) {
     return {
       valid: false,
-      error: "Presença só é permitida entre 8h e 12h",
+      error: "Presença só é permitida entre 7h30 e 13h (horário de Brasília)",
     };
   }
 
