@@ -41,6 +41,7 @@ export default function QRCodeProjector() {
   const [selectedClassId] = useState(1);
   const [activeSession, setActiveSession] = useState<QRSession | null>(null);
   const [activeSessionDbId, setActiveSessionDbId] = useState<number | null>(null);
+  const [activeWeekNumber, setActiveWeekNumber] = useState<number | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [showSetup, setShowSetup] = useState(true);
   const [tokenCountdown, setTokenCountdown] = useState(0); // seconds remaining
@@ -119,6 +120,7 @@ export default function QRCodeProjector() {
     onSuccess: async (data) => {
       const dbId = data.sessionId;
       setActiveSessionDbId(dbId);
+      if (data.weekNumber) setActiveWeekNumber(data.weekNumber);
       if (data.token) {
         await generateQRImage(dbId, data.token);
         startCountdown(data.tokenExpiresAt);
@@ -218,6 +220,7 @@ export default function QRCodeProjector() {
       if (active && !activeSessionDbId) {
         setActiveSession(active);
         setActiveSessionDbId(active.id);
+        if ((active as any).weekNumber) setActiveWeekNumber((active as any).weekNumber);
         if (active.currentToken && active.tokenExpiresAt) {
           generateQRImage(active.id, active.currentToken);
           startCountdown(active.tokenExpiresAt);
@@ -582,6 +585,13 @@ export default function QRCodeProjector() {
 
               {/* Session info */}
               <div className="mt-4 2xl:mt-8 flex items-center gap-4 sm:gap-6 2xl:gap-10 flex-wrap justify-center">
+                {activeWeekNumber && (
+                  <div className="flex items-center gap-2 2xl:gap-3 px-3 py-1 rounded-full" style={{ backgroundColor: "rgba(247,148,29,0.15)", border: "1px solid rgba(247,148,29,0.3)" }}>
+                    <span className="text-sm 2xl:text-xl font-bold" style={{ color: ORANGE }}>
+                      Semana {activeWeekNumber}/17
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 2xl:gap-3">
                   <Clock size={16} className="2xl:w-5 2xl:h-5" style={{ color: ORANGE }} />
                   <span className="text-sm 2xl:text-xl text-white">

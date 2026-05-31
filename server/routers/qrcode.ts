@@ -102,6 +102,18 @@ export const qrcodeRouter = router({
     .mutation(async ({ input }) => {
       const teacherId = 0;
 
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+
+      // Calcular automaticamente a semana do semestre:
+      // weekNumber = número de sessões já criadas para esta turma + 1 (máx 17)
+      // Cada novo QR Code gerado pelo professor avança automaticamente uma semana
+      const existingSessions = await db
+        .select({ id: qrCodeSessions.id })
+        .from(qrCodeSessions)
+        .where(eq(qrCodeSessions.classId, input.classId));
+      const nextWeekNumber = Math.min(existingSessions.length + 1, 17);
+
       // Generate initial rotating token
       const { token, expiresAt } = generateRotatingToken(0, 0);
 
@@ -110,12 +122,10 @@ export const qrcodeRouter = router({
         dayOfWeek: input.dayOfWeek,
         startTime: input.startTime,
         endTime: input.endTime,
+        weekNumber: nextWeekNumber,
         timestamp: Date.now(),
         sessionId: `qr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       };
-
-      const db = await getDb();
-      if (!db) throw new Error("Database not available");
 
       // Desativar automaticamente sessões anteriores da mesma turma
       // Isso evita que alunos que já registraram em sessões antigas
@@ -133,6 +143,7 @@ export const qrcodeRouter = router({
           dayOfWeek: input.dayOfWeek,
           startTime: input.startTime,
           endTime: input.endTime,
+          weekNumber: nextWeekNumber,
           isActive: true,
           qrCodeData: JSON.stringify(qrCodeData),
           currentToken: token,
@@ -154,6 +165,7 @@ export const qrcodeRouter = router({
       return {
         success: true,
         sessionId: insertedId,
+        weekNumber: nextWeekNumber,
         qrCodeData,
         token,
         tokenExpiresAt: expiresAt.toISOString(),
@@ -582,6 +594,7 @@ export const qrcodeRouter = router({
 
         return {
           sessionId: session.id,
+          weekNumber: session.weekNumber || 0,
           date: session.createdAt,
           dayOfWeek: DAYS[session.dayOfWeek] || "Desconhecido",
           startTime: session.startTime,

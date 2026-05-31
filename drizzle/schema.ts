@@ -1136,6 +1136,9 @@ export const qrCodeSessions = mysqlTable("qrCodeSessions", {
   startTime: varchar("startTime", { length: 5 }).notNull(), // HH:MM
   endTime: varchar("endTime", { length: 5 }).notNull(), // HH:MM
   
+  // Semana do semestre (1-17) — calculada automaticamente ao criar a sessão
+  weekNumber: int("weekNumber").notNull().default(1),
+
   // Status
   isActive: boolean("isActive").notNull().default(true),
   

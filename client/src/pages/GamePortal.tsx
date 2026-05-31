@@ -119,6 +119,7 @@ export default function GamePortal() {
   const [showBossAnimation, setShowBossAnimation] = useState(false);
   const [bossAnimData, setBossAnimData] = useState<{ isVictory: boolean; bossEmoji: string; bossName: string; pfEarned: number; pfPenalty: number } | null>(null);
   const [reviewWeek, setReviewWeek] = useState<{ weekNumber: number; weekTitle: string } | null>(null);
+  const [pendingBossWeek, setPendingBossWeek] = useState<number | null>(null);
 
   // Admin view mode: detect ?adminView=true&memberId=X&memberName=Y in URL
   const searchParams = new URLSearchParams(window.location.search);
@@ -175,6 +176,22 @@ export default function GamePortal() {
       });
     }
   }, [progress, memberId]);
+
+  // Auto-launch Boss Battle after completing the last regular quest (questionInWeek === 4)
+  useEffect(() => {
+    if (pendingBossWeek === null) return;
+    const timer = setTimeout(() => {
+      // Transition: close quest result and open Boss Battle
+      setView("map");
+      setSelectedQuest(null);
+      setShowResult(false);
+      setResultData(null);
+      setActiveBossWeek(pendingBossWeek);
+      setView("boss");
+      setPendingBossWeek(null);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [pendingBossWeek]);
 
   // Timer
   useEffect(() => {
@@ -279,8 +296,13 @@ export default function GamePortal() {
         // Regular question: short chime or buzz
         if (result.isCorrect) {
           playCorrectSound();
-          // Play week complete sound if this was the last regular quest (question 4) and it was correct
-          if (result.canAdvance && activeQuestion && activeQuestion.questionIndex === 3) playWeekCompleteSound();
+          // If this was the last regular quest (questionInWeek === 4), trigger Boss Battle automatically
+          const isLastRegularQuest = selectedQuest?.questionInWeek === 4;
+          if (isLastRegularQuest) {
+            playWeekCompleteSound();
+            // Store the week number — the result screen will show a countdown and then launch the boss
+            setPendingBossWeek(selectedQuest?.weekNumber ?? null);
+          }
         } else {
           playWrongSound();
         }
@@ -913,16 +935,40 @@ export default function GamePortal() {
                   </div>
                 )}
 
+                {/* Auto Boss Battle banner */}
+                {pendingBossWeek !== null && (
+                  <div className="bg-red-900/40 border border-red-500/50 rounded-xl p-4 text-center animate-pulse">
+                    <p className="text-red-300 font-bold text-sm">⚔️ Semana completa! O Chefe está chegando...</p>
+                    <p className="text-red-400/70 text-xs mt-1">A batalha começa em instantes!</p>
+                  </div>
+                )}
+
                 {resultData?.isCorrect ? (
                   <Button
                     onClick={() => {
-                      setView("map");
-                      setSelectedQuest(null);
-                      setShowResult(false);
+                      if (pendingBossWeek !== null) {
+                        // Launch boss immediately on click
+                        const week = pendingBossWeek;
+                        setPendingBossWeek(null);
+                        setView("map");
+                        setSelectedQuest(null);
+                        setShowResult(false);
+                        setResultData(null);
+                        setActiveBossWeek(week);
+                        setView("boss");
+                      } else {
+                        setView("map");
+                        setSelectedQuest(null);
+                        setShowResult(false);
+                      }
                     }}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700"
+                    className={`w-full ${pendingBossWeek !== null ? "bg-red-600 hover:bg-red-700 animate-pulse" : "bg-emerald-600 hover:bg-emerald-700"}`}
                   >
-                    <Map size={16} className="mr-2" /> Voltar ao Mapa
+                    {pendingBossWeek !== null ? (
+                      <><Skull size={16} className="mr-2" /> Enfrentar o Chefe!</>
+                    ) : (
+                      <><Map size={16} className="mr-2" /> Voltar ao Mapa</>
+                    )}
                   </Button>
                 ) : (
                   <Button
