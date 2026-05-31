@@ -117,6 +117,14 @@ export const qrcodeRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
+      // Desativar automaticamente sessões anteriores da mesma turma
+      // Isso evita que alunos que já registraram em sessões antigas
+      // recebam "Presença já registrada" ao usar o novo QR Code
+      await db
+        .update(qrCodeSessions)
+        .set({ isActive: false })
+        .where(and(eq(qrCodeSessions.classId, input.classId), eq(qrCodeSessions.isActive, true)));
+
       const result = await db
         .insert(qrCodeSessions)
         .values({
@@ -402,9 +410,13 @@ export const qrcodeRouter = router({
         );
 
       if (existingRecord.length > 0) {
+        const checkedAt = existingRecord[0].checkedInAt;
+        const timeStr = checkedAt
+          ? new Date(checkedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
+          : "";
         return {
           success: true,
-          message: "Presença já registrada anteriormente!",
+          message: `Sua presença já foi confirmada nesta aula${timeStr ? ` às ${timeStr}` : ""}. Tudo certo! ✓`,
           alreadyCheckedIn: true,
         };
       }

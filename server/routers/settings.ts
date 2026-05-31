@@ -62,20 +62,18 @@ export const settingsRouter = router({
   }),
 
   // Criar backup completo real (exporta todos os dados para S3)
-  createBackup: publicProcedure
-  .input(z.object({
-    backupType: z.enum(["full", "partial", "incremental"]),
-    notes: z.string().optional(),
-    teacherSessionToken: z.string()
-  }))
-  .mutation(async ({ input }) => {
-    const backupResult = await executeRealBackup(teacher.id, teacher.name);
-    if (!teacher) throw new TRPCError({ code: "UNAUTHORIZED" });
-        );
+  createBackup: adminProcedure
+    .input(z.object({
+      backupType: z.enum(["full", "partial", "incremental"]),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx }) => {
+      try {
+        const backupResult = await executeRealBackup(ctx.user.id, ctx.user.name);
         return {
-         success: true,
-  message: "Backup concluído com sucesso",
-  url: backupResult.url`,
+          success: true,
+          message: "Backup concluído com sucesso",
+          url: backupResult.url,
         };
       } catch (error: any) {
         throw new TRPCError({

@@ -424,6 +424,22 @@ export default function QRCodeProjector() {
                 </div>
               </div>
 
+              {/* Aviso: sessão ativa é de uma data anterior */}
+              {sessions && sessions.filter((s: QRSession) => s.isActive).some((s: QRSession) => {
+                const created = s.qrCodeData?.timestamp ? new Date(s.qrCodeData.timestamp) : null;
+                if (!created) return false;
+                const today = new Date();
+                return created.toDateString() !== today.toDateString();
+              }) && (
+                <div className="mb-4 p-4 rounded-xl flex items-start gap-3" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                  <AlertTriangle size={18} style={{ color: RED, flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: RED }}>Sessão de aula anterior ainda ativa</p>
+                    <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.5)" }}>Alunos que já registraram presença nessa sessão não conseguirão registrar novamente. Crie uma nova sessão para a aula de hoje.</p>
+                  </div>
+                </div>
+              )}
+
               {/* Existing sessions */}
               {sessions && sessions.filter((s: QRSession) => s.isActive).length > 0 && (
                 <div className="mb-6 2xl:mb-8">
