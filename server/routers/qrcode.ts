@@ -1,6 +1,6 @@
 import { router, publicProcedure, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
-import { getDb } from "../db";
+import { getDb, getRawDb } from "../db";
 import {
   qrCodeSessions,
   attendanceRecords,
@@ -130,37 +130,69 @@ export const qrcodeRouter = router({
       // Desativar automaticamente sessões anteriores da mesma turma
       // Isso evita que alunos que já registraram em sessões antigas
       // recebam "Presença já registrada" ao usar o novo QR Code
-      await db
-        .update(qrCodeSessions)
-        .set({ isActive: false })
-        .where(and(eq(qrCodeSessions.classId, input.classId), eq(qrCodeSessions.isActive, true)));
+      const rawDb = await getRawDb();
+      if (!rawDb) throw new Error("Database not available");
 
-      const result = await db
-        .insert(qrCodeSessions)
-        .values({
-          classId: input.classId,
-          teacherId,
-          dayOfWeek: input.dayOfWeek,
-          startTime: input.startTime,
-          endTime: input.endTime,
-          weekNumber: nextWeekNumber,
-          isActive: true,
-          qrCodeData: JSON.stringify(qrCodeData),
-          currentToken: token,
-          tokenExpiresAt: expiresAt,
-          tokenRotationCount: 0,
-          geoLatitude: String(input.geoLatitude ?? DEFAULT_GEO_LATITUDE),
-          geoLongitude: String(input.geoLongitude ?? DEFAULT_GEO_LONGITUDE),
-          geoRadiusMeters: input.geoRadiusMeters ?? DEFAULT_GEO_RADIUS_METERS,
-          geoValidationEnabled: input.geoValidationEnabled ?? true,
-        })
-        .catch((err) => {
+      await rawDb.execute(
+        `UPDATE qrCodeSessions SET isActive = false WHERE classId = ? AND isActive = true`,
+        [input.classId]
+      );
+
+      // Usar SQL raw para o INSERT — garante compatibilidade mesmo se a coluna weekNumber
+      // ainda não existir no banco (migração pode estar pendente)
+      // Tenta primeiro com weekNumber, depois sem (fallback)
+      let insertedId: number;
+      try {
+        const [insertResult] = await rawDb.execute(
+          `INSERT INTO qrCodeSessions 
+            (classId, teacherId, dayOfWeek, startTime, endTime, weekNumber, isActive, qrCodeData, currentToken, tokenExpiresAt, tokenRotationCount, geoLatitude, geoLongitude, geoRadiusMeters, geoValidationEnabled)
+           VALUES (?, ?, ?, ?, ?, ?, true, ?, ?, ?, 0, ?, ?, ?, ?)`,
+          [
+            input.classId,
+            teacherId,
+            input.dayOfWeek,
+            input.startTime,
+            input.endTime,
+            nextWeekNumber,
+            JSON.stringify(qrCodeData),
+            token,
+            expiresAt,
+            String(input.geoLatitude ?? DEFAULT_GEO_LATITUDE),
+            String(input.geoLongitude ?? DEFAULT_GEO_LONGITUDE),
+            input.geoRadiusMeters ?? DEFAULT_GEO_RADIUS_METERS,
+            input.geoValidationEnabled ?? true,
+          ]
+        ) as any;
+        insertedId = insertResult.insertId;
+      } catch (err: any) {
+        // Fallback: inserir sem weekNumber (coluna pode não existir ainda)
+        if (err?.code === 'ER_BAD_FIELD_ERROR' || err?.message?.includes('weekNumber')) {
+          console.warn('[QRCode] weekNumber column not found, inserting without it');
+          const [insertResult] = await rawDb.execute(
+            `INSERT INTO qrCodeSessions 
+              (classId, teacherId, dayOfWeek, startTime, endTime, isActive, qrCodeData, currentToken, tokenExpiresAt, tokenRotationCount, geoLatitude, geoLongitude, geoRadiusMeters, geoValidationEnabled)
+             VALUES (?, ?, ?, ?, ?, true, ?, ?, ?, 0, ?, ?, ?, ?)`,
+            [
+              input.classId,
+              teacherId,
+              input.dayOfWeek,
+              input.startTime,
+              input.endTime,
+              JSON.stringify(qrCodeData),
+              token,
+              expiresAt,
+              String(input.geoLatitude ?? DEFAULT_GEO_LATITUDE),
+              String(input.geoLongitude ?? DEFAULT_GEO_LONGITUDE),
+              input.geoRadiusMeters ?? DEFAULT_GEO_RADIUS_METERS,
+              input.geoValidationEnabled ?? true,
+            ]
+          ) as any;
+          insertedId = insertResult.insertId;
+        } else {
           console.error("Erro ao criar sessão QR Code:", err);
           throw err;
-        });
-
-      // Get the inserted ID
-      const insertedId = (result as any)[0]?.insertId || (result as any).insertId;
+        }
+      }
 
       return {
         success: true,
