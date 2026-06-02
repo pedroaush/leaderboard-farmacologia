@@ -135,25 +135,29 @@ export default function AttendanceCheckIn() {
     setIsSubmitting(true);
     setGpsStatus("acquiring");
 
+    // Tentar obter GPS, mas continuar sem ele se permissão negada
+    let coords: { latitude: number; longitude: number } | null = null;
     try {
-      // Step 1: Get GPS location
-      const coords = await getStudentLocation();
+      coords = await getStudentLocation();
       setGpsCoords(coords);
       setGpsStatus("acquired");
+    } catch (_gpsErr) {
+      // GPS negado ou indisponível — continuar sem GPS
+      setGpsStatus("error");
+    }
 
-      // Step 2: Send check-in with GPS data
+    try {
+      // Enviar check-in com ou sem GPS
       await checkInMutation.mutateAsync({
         sessionId: parseInt(sid),
         memberId: student?.memberId || 0,
         classId: parseInt(cid),
         token: tkn,
-        latitude: coords.latitude,
-        longitude: coords.longitude,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
       });
     } catch (error: any) {
-      setGpsStatus("error");
       if (error?.message && !checkInMutation.isError) {
-        // GPS error (not mutation error)
         setResult({
           success: false,
           message: error.message,

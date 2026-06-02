@@ -408,29 +408,24 @@ export const qrcodeRouter = router({
       let distanceFromClass: number | null = null;
       let geoStatus: "valid" | "invalid" | "no_gps" | "disabled" = "no_gps";
 
-      if (geoEnabled) {
-        // GPS é obrigatório quando validação geográfica está ativada
-        if (input.latitude == null || input.longitude == null) {
-          throw new Error(
-            "Localização GPS obrigatória. Ative a localização do celular e tente novamente."
+         if (geoEnabled) {
+        // GPS é opcional: se não fornecido, registra como no_gps (sem bloquear)
+        if (input.latitude != null && input.longitude != null) {
+          // Calcular distância entre aluno e sala de aula
+          distanceFromClass = haversineDistance(
+            input.latitude, input.longitude,
+            sessionLat, sessionLon
           );
+          if (distanceFromClass > allowedRadius) {
+            // GPS fora do raio: registrar como no_gps em vez de bloquear
+            geoStatus = "no_gps";
+          } else {
+            geoStatus = "valid";
+          }
+        } else {
+          // Sem GPS: registrar presença normalmente como no_gps
+          geoStatus = "no_gps";
         }
-
-        // Calcular distância entre aluno e sala de aula
-        distanceFromClass = haversineDistance(
-          input.latitude, input.longitude,
-          sessionLat, sessionLon
-        );
-
-        if (distanceFromClass > allowedRadius) {
-          geoStatus = "invalid";
-          throw new Error(
-            `Você está a ${Math.round(distanceFromClass)}m da sala de aula. ` +
-            `O limite é ${allowedRadius}m. Você precisa estar na sala para registrar presença.`
-          );
-        }
-
-        geoStatus = "valid";
       } else {
         geoStatus = "disabled";
         // Se GPS foi enviado mesmo com validação desabilitada, calcular distância para registro
