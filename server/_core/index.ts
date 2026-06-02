@@ -689,6 +689,16 @@ async function startServer() {
           console.warn('[Migration] monitoringCertificates:', err?.message?.substring(0, 80));
         }
 
+        // Migracao: adicionar coluna weekNumber em qrCodeSessions (necessaria para semana automatica)
+        try {
+          await rawDb.execute(`ALTER TABLE qrCodeSessions ADD COLUMN weekNumber INT NOT NULL DEFAULT 1`);
+          console.log('[Migration] OK: qrCodeSessions.weekNumber column added');
+        } catch (err: any) {
+          if (!err?.message?.includes('Duplicate column') && err?.code !== 'ER_DUP_FIELDNAME') {
+            console.warn('[Migration] qrCodeSessions.weekNumber:', err?.message?.substring(0, 80));
+          }
+        }
+
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
           try {
