@@ -4763,7 +4763,7 @@ export default function Admin() {
     const token = localStorage.getItem("teacherSessionToken") || localStorage.getItem("sessionToken");
     return token ? "__loading__" : null;
   });
-  const [activeSection, setActiveSection] = useState<"jogo" | "turmas" | "teams" | "xp" | "activities" | "highlights" | "recursos" | "badges" | "attendance" | "professores" | "jigsaw" | "settings" | "rebalanceamento" | "qr-code" | "monitores" | "cronograma" | "qr-acesso" | "provas">("turmas");
+  const [activeSection, setActiveSection] = useState<"jogo" | "turmas" | "teams" | "xp" | "activities" | "highlights" | "recursos" | "badges" | "attendance" | "professores" | "jigsaw" | "settings" | "rebalanceamento" | "qr-code" | "monitores" | "cronograma" | "qr-acesso" | "provas">("xp");
   const [, setLocation] = useState("/");
   
   // Check teacher authentication - read synchronously to prevent redirect loop
@@ -4833,10 +4833,10 @@ export default function Admin() {
   }
 
   const sections = [
+    { key: "xp" as const, label: "📊 Lançar Notas", icon: <Zap size={16} /> },
     { key: "jogo" as const, label: "🎮 Jogo", icon: <Gamepad2 size={16} /> },
     { key: "turmas" as const, label: "Turmas", icon: <FlaskConical size={16} /> },
     { key: "teams" as const, label: "Equipes", icon: <Users size={16} /> },
-    { key: "xp" as const, label: "Atualizar PF", icon: <Zap size={16} /> },
     { key: "activities" as const, label: "Atividades", icon: <Trophy size={16} /> },
     { key: "highlights" as const, label: "Destaques", icon: <Activity size={16} /> },
     { key: "recursos" as const, label: "Recursos", icon: <FileText size={16} /> },
