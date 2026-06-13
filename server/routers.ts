@@ -915,6 +915,113 @@ export const appRouter = router({
         const teacherActivityKeys = [...new Set(teacherGradesList.map((g: any) => `${g.activityType}:::${g.activityName}`))].sort();
         return { rows, monitorActivityKeys, teacherActivityKeys };
       }),
+
+    // ─── Salvar nota individual (célula da planilha) ───
+    saveGradeCell: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        memberId: z.number(),
+        memberName: z.string(),
+        field: z.enum(["p1", "p2", "kahoot_1", "kahoot_2", "kahoot_3", "kahoot_4", "caso_1", "caso_2", "caso_3", "caso_4", "jigsaw_fase1", "jigsaw_fase2", "jigsaw_fase3", "jigsaw_total"]),
+        value: z.number().min(0).max(100).nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { teacherGrades: tgTable, examStudentGrades: esgTable, jigsawScores: jsTable } = await import("../drizzle/schema");
+        const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+        const teacherName = teacher.displayName || teacher.email.split("@")[0];
+
+        // P1 / P2 → examStudentGrades
+        if (input.field === "p1" || input.field === "p2") {
+          const provaType = input.field.toUpperCase() as "P1" | "P2";
+          const existing = await dbConn.select().from(esgTable)
+            .where(andOp(eqOp(esgTable.classId, input.classId), eqOp(esgTable.memberId, input.memberId), eqOp(esgTable.provaType, provaType)))
+            .limit(1);
+          if (existing.length > 0) {
+            await dbConn.update(esgTable)
+              .set({ score: String(input.value ?? 0), updatedAt: new Date() })
+              .where(eqOp(esgTable.id, existing[0].id));
+          } else {
+            await dbConn.insert(esgTable).values({
+              classId: input.classId,
+              memberId: input.memberId,
+              memberName: input.memberName,
+              provaType,
+              score: String(input.value ?? 0),
+              examVersion: "A",
+              totalQuestions: 25,
+              correctAnswers: 0,
+              answers: "[]",
+            });
+          }
+          return { success: true };
+        }
+
+        // Jigsaw → jigsawScores
+        if (input.field.startsWith("jigsaw_")) {
+          const colMap: Record<string, string> = {
+            jigsaw_fase1: "fase1PF", jigsaw_fase2: "fase2PF",
+            jigsaw_fase3: "fase3PF", jigsaw_total: "totalJigsawPF"
+          };
+          const col = colMap[input.field];
+          const existing = await dbConn.select().from(jsTable)
+            .where(andOp(eqOp(jsTable.classId, input.classId), eqOp(jsTable.memberId, input.memberId)))
+            .limit(1);
+          if (existing.length > 0) {
+            await dbConn.update(jsTable)
+              .set({ [col]: String(input.value ?? 0) })
+              .where(eqOp(jsTable.id, existing[0].id));
+          } else {
+            await dbConn.insert(jsTable).values({
+              classId: input.classId,
+              memberId: input.memberId,
+              [col]: String(input.value ?? 0),
+            });
+          }
+          return { success: true };
+        }
+
+        // Kahoot / Caso Clínico → teacherGrades
+        const fieldMap: Record<string, { activityType: string; activityName: string }> = {
+          kahoot_1: { activityType: "kahoot", activityName: "Kahoot 1" },
+          kahoot_2: { activityType: "kahoot", activityName: "Kahoot 2" },
+          kahoot_3: { activityType: "kahoot", activityName: "Kahoot 3" },
+          kahoot_4: { activityType: "kahoot", activityName: "Kahoot 4" },
+          caso_1: { activityType: "clinical_case", activityName: "Caso Clínico 1" },
+          caso_2: { activityType: "clinical_case", activityName: "Caso Clínico 2" },
+          caso_3: { activityType: "clinical_case", activityName: "Caso Clínico 3" },
+          caso_4: { activityType: "clinical_case", activityName: "Caso Clínico 4" },
+        };
+        const { activityType, activityName } = fieldMap[input.field];
+        const existing = await dbConn.select().from(tgTable)
+          .where(andOp(
+            eqOp(tgTable.classId, input.classId),
+            eqOp(tgTable.memberId, input.memberId),
+            eqOp(tgTable.activityType, activityType as any),
+            eqOp(tgTable.activityName, activityName)
+          )).limit(1);
+        if (existing.length > 0) {
+          await dbConn.update(tgTable)
+            .set({ grade: String(input.value ?? 0), editedByTeacherName: teacherName })
+            .where(eqOp(tgTable.id, existing[0].id));
+        } else {
+          await dbConn.insert(tgTable).values({
+            classId: input.classId,
+            activityType: activityType as any,
+            activityName,
+            memberId: input.memberId,
+            memberName: input.memberName,
+            grade: String(input.value ?? 0),
+            maxGrade: "10",
+            editedByTeacherName: teacherName,
+          });
+        }
+        return { success: true };
+      }),
   }),
   // ─── Super Admin Profile & Stats ───
   superAdmin: router({
