@@ -804,6 +804,97 @@ export const appRouter = router({
           score: parseFloat(g.score.toString()),
         }));
       }),
+    // ─── Grade Sheet: Planilha completa de notas por turma ───
+    getGradeSheet: publicProcedure
+      .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        // 1. Membros da turma
+        const membersList = await db.getMembersByClass(input.classId);
+        // 2. Notas de provas P1 e P2
+        const p1Grades = await db.getExamStudentGradesByClass(input.classId, "P1");
+        const p2Grades = await db.getExamStudentGradesByClass(input.classId, "P2");
+        const p1Map = new Map(p1Grades.map((g: any) => [g.memberId, parseFloat(g.score.toString())]));
+        const p2Map = new Map(p2Grades.map((g: any) => [g.memberId, parseFloat(g.score.toString())]));
+        // 3. Equipes
+        const allTeams = await db.getAllTeams();
+        const teamMap = new Map(allTeams.map((t: any) => [t.id, { name: t.name, emoji: t.emoji }]));
+        // 4. Notas de monitores (groupActivityGrades) - por grupo
+        const { groupActivityGrades: gagTable, jigsawHomeMembers: jhmTable, teacherGrades: tgTable } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const dbConn = await db.getDb();
+        let monitorGrades: any[] = [];
+        let homeGroupMemberRows: any[] = [];
+        try {
+          if (dbConn) {
+            monitorGrades = await dbConn.select().from(gagTable).where(eqOp(gagTable.classId, input.classId));
+            homeGroupMemberRows = await dbConn.select().from(jhmTable);
+          }
+        } catch (e) { console.warn("[GradeSheet] monitorGrades error:", e); }
+        // Map homeGroupId -> [memberId]
+        const homeGroupMemberMap = new Map<number, number[]>();
+        for (const row of homeGroupMemberRows) {
+          if (!homeGroupMemberMap.has(row.homeGroupId)) homeGroupMemberMap.set(row.homeGroupId, []);
+          homeGroupMemberMap.get(row.homeGroupId)!.push(row.memberId);
+        }
+        // 5. Notas do professor (teacherGrades)
+        let teacherGradesList: any[] = [];
+        try {
+          if (dbConn) {
+            teacherGradesList = await dbConn.select().from(tgTable).where(eqOp(tgTable.classId, input.classId));
+          }
+        } catch (e) { console.warn("[GradeSheet] teacherGrades error:", e); }
+        // 6. Montar linhas por membro
+        const rows = membersList.map((member: any) => {
+          const memberId = member.id;
+          const pf = parseFloat(member.xp?.toString() || "0");
+          const p1 = p1Map.get(memberId) ?? null;
+          const p2 = p2Map.get(memberId) ?? null;
+          // Notas de monitores: pegar nota do grupo do membro
+          const memberMonitorGrades: Record<string, number | null> = {};
+          for (const mg of monitorGrades) {
+            if (mg.homeGroupId) {
+              const groupMembers = homeGroupMemberMap.get(mg.homeGroupId) || [];
+              if (groupMembers.includes(memberId)) {
+                const key = `${mg.activityType}:::${mg.activityName}`;
+                if (!(key in memberMonitorGrades)) {
+                  memberMonitorGrades[key] = parseFloat(mg.grade?.toString() || "0");
+                }
+              }
+            } else {
+              // Sem homeGroupId: nota por nome do grupo (groupName)
+              // Será ignorada aqui pois não temos como mapear para membro
+            }
+          }
+          // Notas do professor: por memberId ou memberName
+          const memberTeacherGrades: Record<string, number | null> = {};
+          for (const tg of teacherGradesList) {
+            if (tg.memberId === memberId || (!tg.memberId && tg.memberName === member.name)) {
+              const key = `${tg.activityType}:::${tg.activityName}`;
+              if (!(key in memberTeacherGrades)) {
+                memberTeacherGrades[key] = parseFloat(tg.grade?.toString() || "0");
+              }
+            }
+          }
+          return {
+            memberId,
+            memberName: member.name,
+            teamId: member.teamId,
+            teamName: teamMap.get(member.teamId)?.name || "Sem equipe",
+            teamEmoji: teamMap.get(member.teamId)?.emoji || "🧪",
+            pf,
+            p1,
+            p2,
+            monitorGrades: memberMonitorGrades,
+            teacherGrades: memberTeacherGrades,
+          };
+        });
+        // 7. Atividades únicas
+        const monitorActivityKeys = [...new Set(monitorGrades.map((g: any) => `${g.activityType}:::${g.activityName}`))].sort();
+        const teacherActivityKeys = [...new Set(teacherGradesList.map((g: any) => `${g.activityType}:::${g.activityName}`))].sort();
+        return { rows, monitorActivityKeys, teacherActivityKeys };
+      }),
   }),
   // ─── Super Admin Profile & Stats ───
   superAdmin: router({

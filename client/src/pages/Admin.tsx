@@ -18,6 +18,7 @@ import JigsawRebalancingManager from "./AdminJigsawRebalancing";
 import ExamToolsManager from "@/components/ExamToolsManager";
 import AdminJigsawPanel from "./AdminJigsawPanel";
 import AttendanceQRCodeManager from "./AdminAttendanceQRCode";
+import GradesSpreadsheet from "@/components/GradesSpreadsheet";
 import {
   Lock, LogOut, Users, UserPlus, Trash2, Edit2, Save, X,
   Plus, Trophy, Zap, Activity, Settings, ChevronDown, ChevronUp,
@@ -4901,7 +4902,15 @@ export default function Admin() {
         )}
         {activeSection === "turmas" && <TurmasManager teacherToken={teacherToken || ""} />}
         {activeSection === "teams" && password && <TeamManager password={password} />}
-        {activeSection === "xp" && password && <BulkXPManager password={password} />}
+        {activeSection === "xp" && teacherToken && (
+          <div className="space-y-8">
+            <GradesSpreadsheet teacherToken={teacherToken} />
+            <div className="border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-4 uppercase tracking-wider">Lançamento Manual de PF por Equipe</h3>
+              {password && <BulkXPManager password={password} />}
+            </div>
+          </div>
+        )}
         {activeSection === "activities" && password && <ActivitiesManager password={password} />}
         {activeSection === "highlights" && password && <HighlightsManager password={password} />}
         {activeSection === "recursos" && password && (
