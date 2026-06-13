@@ -821,7 +821,7 @@ export const appRouter = router({
         const allTeams = await db.getAllTeams();
         const teamMap = new Map(allTeams.map((t: any) => [t.id, { name: t.name, emoji: t.emoji }]));
         // 4. Notas de monitores (groupActivityGrades) - por grupo
-        const { groupActivityGrades: gagTable, jigsawHomeMembers: jhmTable, teacherGrades: tgTable } = await import("../drizzle/schema");
+        const { groupActivityGrades: gagTable, jigsawHomeMembers: jhmTable, teacherGrades: tgTable, jigsawScores: jsTable } = await import("../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
         const dbConn = await db.getDb();
         let monitorGrades: any[] = [];
@@ -845,7 +845,24 @@ export const appRouter = router({
             teacherGradesList = await dbConn.select().from(tgTable).where(eqOp(tgTable.classId, input.classId));
           }
         } catch (e) { console.warn("[GradeSheet] teacherGrades error:", e); }
-        // 6. Montar linhas por membro
+        // 6. Notas do Jigsaw por membro
+        let jigsawScoresList: any[] = [];
+        try {
+          if (dbConn) {
+            jigsawScoresList = await dbConn.select().from(jsTable).where(eqOp(jsTable.classId, input.classId));
+          }
+        } catch (e) { console.warn("[GradeSheet] jigsawScores error:", e); }
+        // Map memberId -> jigsawScore
+        const jigsawMap = new Map<number, { fase1PF: number; fase2PF: number; fase3PF: number; totalJigsawPF: number }>();
+        for (const js of jigsawScoresList) {
+          jigsawMap.set(js.memberId, {
+            fase1PF: parseFloat(js.fase1PF?.toString() || "0"),
+            fase2PF: parseFloat(js.fase2PF?.toString() || "0"),
+            fase3PF: parseFloat(js.fase3PF?.toString() || "0"),
+            totalJigsawPF: parseFloat(js.totalJigsawPF?.toString() || "0"),
+          });
+        }
+        // 7. Montar linhas por membro
         const rows = membersList.map((member: any) => {
           const memberId = member.id;
           const pf = parseFloat(member.xp?.toString() || "0");
@@ -862,9 +879,6 @@ export const appRouter = router({
                   memberMonitorGrades[key] = parseFloat(mg.grade?.toString() || "0");
                 }
               }
-            } else {
-              // Sem homeGroupId: nota por nome do grupo (groupName)
-              // Será ignorada aqui pois não temos como mapear para membro
             }
           }
           // Notas do professor: por memberId ou memberName
@@ -877,6 +891,8 @@ export const appRouter = router({
               }
             }
           }
+          // Notas do Jigsaw
+          const jigsaw = jigsawMap.get(memberId) || null;
           return {
             memberId,
             memberName: member.name,
@@ -888,9 +904,13 @@ export const appRouter = router({
             p2,
             monitorGrades: memberMonitorGrades,
             teacherGrades: memberTeacherGrades,
+            jigsawFase1: jigsaw?.fase1PF ?? null,
+            jigsawFase2: jigsaw?.fase2PF ?? null,
+            jigsawFase3: jigsaw?.fase3PF ?? null,
+            jigsawTotal: jigsaw?.totalJigsawPF ?? null,
           };
         });
-        // 7. Atividades únicas
+        // 8. Atividades únicas
         const monitorActivityKeys = [...new Set(monitorGrades.map((g: any) => `${g.activityType}:::${g.activityName}`))].sort();
         const teacherActivityKeys = [...new Set(teacherGradesList.map((g: any) => `${g.activityType}:::${g.activityName}`))].sort();
         return { rows, monitorActivityKeys, teacherActivityKeys };

@@ -1,16 +1,17 @@
 /**
  * GradesSpreadsheet — Planilha completa de lançamento de notas
- * Design: dark academic, tabela horizontal com scroll, pesos configuráveis
  *
- * Fontes de dados:
- * - PF (gamificado): members.xp
- * - P1/P2: teacherAuth.getClassGrades
- * - Notas de monitores: groupActivityGrades (via teacherAuth.getGradeSheet)
- * - Notas do professor: teacherGrades (via teacherAuth.getGradeSheet)
+ * FÓRMULA DA MÉDIA FINAL:
+ * ─────────────────────────────────────────────────────────────────
+ * Nota Provas   = (P1 + P2) / 2  → peso 0,75
+ * Nota Atividades = média(Kahoots, Casos Clínicos, Jigsaw) → peso 0,25
+ *   - Kahoot: cada um vale 2,5 pontos (escala 0-10 normalizada)
+ *   - Caso Clínico: cada um vale 2,5 pontos
+ *   - Jigsaw: nota total (0-10) entra na média das atividades
  *
- * Cálculo da média final:
- * Média = (P1 * pesoP1 + P2 * pesoP2 + PF * pesoPF) / (pesoP1 + pesoP2 + pesoPF)
- * Prova Final: Média < 6.0
+ * Média Final = (NotaProvas × 0,75) + (NotaAtividades × 0,25)
+ * Prova Final: Média Final < 6,0
+ * ─────────────────────────────────────────────────────────────────
  */
 
 import { useState, useMemo, useCallback } from "react";
@@ -18,7 +19,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   Download, RefreshCw, Settings2, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle, Info, Search, Filter, Loader2, FileSpreadsheet
+  AlertTriangle, CheckCircle, Info, Search, Loader2, FileSpreadsheet
 } from "lucide-react";
 
 // ─── Tipos ───
@@ -33,31 +34,28 @@ interface GradeRow {
   p2: number | null;
   monitorGrades: Record<string, number | null>;
   teacherGrades: Record<string, number | null>;
+  jigsawFase1: number | null;
+  jigsawFase2: number | null;
+  jigsawFase3: number | null;
+  jigsawTotal: number | null;
 }
 
 interface WeightConfig {
-  pf: number;
-  p1: number;
-  p2: number;
-  monitorWeight: number; // peso das notas de monitores (0-1 do total)
-  teacherWeight: number; // peso das notas do professor (0-1 do total)
-  minPassGrade: number;  // nota mínima para aprovação sem prova final
+  pesoProvas: number;       // padrão 0.75
+  pesoAtividades: number;   // padrão 0.25
+  minPassGrade: number;     // padrão 6.0
 }
 
 const DEFAULT_WEIGHTS: WeightConfig = {
-  pf: 1,
-  p1: 3,
-  p2: 3,
-  monitorWeight: 0,
-  teacherWeight: 0,
+  pesoProvas: 0.75,
+  pesoAtividades: 0.25,
   minPassGrade: 6.0,
 };
 
 // ─── Helpers ───
-function formatGrade(v: number | null | undefined, max?: number): string {
+function fmt(v: number | null | undefined, decimals = 1): string {
   if (v === null || v === undefined) return "—";
-  if (max) return `${v.toFixed(1)}/${max}`;
-  return v.toFixed(1);
+  return v.toFixed(decimals);
 }
 
 function gradeColor(v: number | null | undefined, max: number = 10): string {
@@ -68,71 +66,97 @@ function gradeColor(v: number | null | undefined, max: number = 10): string {
   return "text-red-400";
 }
 
+/**
+ * Calcula a Nota de Atividades:
+ * - Kahoots: cada nota (0-10) vale 2.5 pontos → somados e divididos por (nKahoots * 2.5) * 10
+ *   Na prática: média simples dos kahoots (0-10)
+ * - Casos Clínicos: idem
+ * - Jigsaw: jigsawTotal (0-10)
+ * Média das três categorias (se existirem), normalizada 0-10
+ */
+function calcNotaAtividades(
+  row: GradeRow,
+  monitorActivityKeys: string[],
+  teacherActivityKeys: string[]
+): { nota: number | null; kahoots: number[]; casos: number[]; jigsawNota: number | null } {
+  // Separar kahoots e casos clínicos das notas de monitores
+  const kahoots: number[] = [];
+  const casos: number[] = [];
+
+  for (const key of monitorActivityKeys) {
+    const [type] = key.split(":::");
+    const v = row.monitorGrades[key];
+    if (v !== null && v !== undefined) {
+      if (type === "kahoot") kahoots.push(v);
+      else if (type === "clinical_case") casos.push(v);
+    }
+  }
+  // Também das notas do professor
+  for (const key of teacherActivityKeys) {
+    const [type] = key.split(":::");
+    const v = row.teacherGrades[key];
+    if (v !== null && v !== undefined) {
+      if (type === "kahoot") kahoots.push(v);
+      else if (type === "clinical_case") casos.push(v);
+    }
+  }
+
+  const jigsawNota = row.jigsawTotal;
+
+  // Média de cada categoria
+  const categorias: number[] = [];
+  if (kahoots.length > 0) {
+    categorias.push(kahoots.reduce((s, v) => s + v, 0) / kahoots.length);
+  }
+  if (casos.length > 0) {
+    categorias.push(casos.reduce((s, v) => s + v, 0) / casos.length);
+  }
+  if (jigsawNota !== null && jigsawNota !== undefined) {
+    categorias.push(jigsawNota);
+  }
+
+  const nota = categorias.length > 0
+    ? categorias.reduce((s, v) => s + v, 0) / categorias.length
+    : null;
+
+  return { nota, kahoots, casos, jigsawNota };
+}
+
 function calcFinalGrade(
   row: GradeRow,
   weights: WeightConfig,
   monitorActivityKeys: string[],
   teacherActivityKeys: string[]
 ): number | null {
-  const { pf, p1, p2 } = row;
+  const { p1, p2 } = row;
 
-  // Notas de monitores normalizadas (0-10)
-  let monitorSum = 0;
-  let monitorCount = 0;
-  for (const key of monitorActivityKeys) {
-    const v = row.monitorGrades[key];
-    if (v !== null && v !== undefined) {
-      monitorSum += v;
-      monitorCount++;
-    }
-  }
-  const monitorAvg = monitorCount > 0 ? monitorSum / monitorCount : null;
-
-  // Notas do professor normalizadas (0-10)
-  let teacherSum = 0;
-  let teacherCount = 0;
-  for (const key of teacherActivityKeys) {
-    const v = row.teacherGrades[key];
-    if (v !== null && v !== undefined) {
-      teacherSum += v;
-      teacherCount++;
-    }
-  }
-  const teacherAvg = teacherCount > 0 ? teacherSum / teacherCount : null;
-
-  // Calcular média ponderada
-  let totalWeight = 0;
-  let weightedSum = 0;
-
-  // P1 normalizada para 0-10
-  if (p1 !== null && p1 !== undefined && weights.p1 > 0) {
-    weightedSum += (p1 / 10) * 10 * weights.p1;
-    totalWeight += weights.p1;
-  }
-  // P2 normalizada para 0-10
-  if (p2 !== null && p2 !== undefined && weights.p2 > 0) {
-    weightedSum += (p2 / 10) * 10 * weights.p2;
-    totalWeight += weights.p2;
-  }
-  // PF normalizado para 0-10 (max 45 pontos → 10)
-  if (pf !== null && pf !== undefined && weights.pf > 0) {
-    const pfNorm = Math.min((pf / 45) * 10, 10);
-    weightedSum += pfNorm * weights.pf;
-    totalWeight += weights.pf;
-  }
-  // Monitor
-  if (monitorAvg !== null && weights.monitorWeight > 0) {
-    weightedSum += monitorAvg * weights.monitorWeight;
-    totalWeight += weights.monitorWeight;
-  }
-  // Teacher
-  if (teacherAvg !== null && weights.teacherWeight > 0) {
-    weightedSum += teacherAvg * weights.teacherWeight;
-    totalWeight += weights.teacherWeight;
+  // Nota de provas: média de P1 e P2
+  let notaProvas: number | null = null;
+  if (p1 !== null && p2 !== null) {
+    notaProvas = (p1 + p2) / 2;
+  } else if (p1 !== null) {
+    notaProvas = p1;
+  } else if (p2 !== null) {
+    notaProvas = p2;
   }
 
-  if (totalWeight === 0) return null;
-  return weightedSum / totalWeight;
+  const { nota: notaAtividades } = calcNotaAtividades(row, monitorActivityKeys, teacherActivityKeys);
+
+  if (notaProvas === null && notaAtividades === null) return null;
+
+  let total = 0;
+  let totalPeso = 0;
+
+  if (notaProvas !== null) {
+    total += notaProvas * weights.pesoProvas;
+    totalPeso += weights.pesoProvas;
+  }
+  if (notaAtividades !== null) {
+    total += notaAtividades * weights.pesoAtividades;
+    totalPeso += weights.pesoAtividades;
+  }
+
+  return totalPeso > 0 ? total / totalPeso : null;
 }
 
 // ─── Componente principal ───
@@ -141,9 +165,8 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
   const [weights, setWeights] = useState<WeightConfig>(DEFAULT_WEIGHTS);
   const [showWeights, setShowWeights] = useState(false);
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"name" | "team" | "pf" | "p1" | "p2" | "media">("name");
+  const [sortBy, setSortBy] = useState<"name" | "team" | "p1" | "p2" | "atividades" | "media">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [pfEdits, setPfEdits] = useState<Record<number, string>>({});
   const utils = trpc.useUtils();
 
   // Turmas
@@ -160,32 +183,24 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
     { enabled: !!teacherToken && !!selectedClassId }
   );
 
-  // Mutation para atualizar PF
-  const bulkUpdatePF = trpc.members.bulkUpdateXP.useMutation({
-    onSuccess: (data) => {
-      toast.success(`${data.count} alunos atualizados!`);
-      setPfEdits({});
-      utils.teacherAuth.getGradeSheet.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  // Mutation para atualizar nota do professor (teacherGrades)
-  const upsertTeacherGrade = trpc.monitors.upsertTeacherGrade.useMutation({
-    onSuccess: () => {
-      toast.success("Nota salva!");
-      utils.teacherAuth.getGradeSheet.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
   const rows = gradeSheet?.rows ?? [];
   const monitorActivityKeys = gradeSheet?.monitorActivityKeys ?? [];
   const teacherActivityKeys = gradeSheet?.teacherActivityKeys ?? [];
 
+  // Separar kahoots e casos clínicos para exibição
+  const kahootKeys = useMemo(() =>
+    monitorActivityKeys.filter(k => k.startsWith("kahoot:::"))
+      .concat(teacherActivityKeys.filter(k => k.startsWith("kahoot:::")))
+  , [monitorActivityKeys, teacherActivityKeys]);
+
+  const casoKeys = useMemo(() =>
+    monitorActivityKeys.filter(k => k.startsWith("clinical_case:::"))
+      .concat(teacherActivityKeys.filter(k => k.startsWith("clinical_case:::")))
+  , [monitorActivityKeys, teacherActivityKeys]);
+
   // Filtrar e ordenar
   const filteredRows = useMemo(() => {
-    let list = [...rows];
+    let list = [...rows] as GradeRow[];
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(r =>
@@ -197,9 +212,12 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
       let va: any, vb: any;
       if (sortBy === "name") { va = a.memberName; vb = b.memberName; }
       else if (sortBy === "team") { va = a.teamName; vb = b.teamName; }
-      else if (sortBy === "pf") { va = a.pf; vb = b.pf; }
       else if (sortBy === "p1") { va = a.p1 ?? -1; vb = b.p1 ?? -1; }
       else if (sortBy === "p2") { va = a.p2 ?? -1; vb = b.p2 ?? -1; }
+      else if (sortBy === "atividades") {
+        va = calcNotaAtividades(a, monitorActivityKeys, teacherActivityKeys).nota ?? -1;
+        vb = calcNotaAtividades(b, monitorActivityKeys, teacherActivityKeys).nota ?? -1;
+      }
       else if (sortBy === "media") {
         va = calcFinalGrade(a, weights, monitorActivityKeys, teacherActivityKeys) ?? -1;
         vb = calcFinalGrade(b, weights, monitorActivityKeys, teacherActivityKeys) ?? -1;
@@ -219,28 +237,51 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
     const needFinal = withMedia.filter(v => v < weights.minPassGrade).length;
     const passed = withMedia.filter(v => v >= weights.minPassGrade).length;
     const avg = withMedia.length > 0 ? withMedia.reduce((s, v) => s + v, 0) / withMedia.length : null;
-    return { needFinal, passed, avg, total: filteredRows.length };
+    return { needFinal, passed, avg, total: filteredRows.length, withMedia: withMedia.length };
   }, [filteredRows, weights, monitorActivityKeys, teacherActivityKeys]);
 
   // Exportar CSV
   const exportCSV = useCallback(() => {
     if (!filteredRows.length) return;
     const headers = [
-      "Nome", "Equipe", "PF (Gamificado)", "P1 (0-10)", "P2 (0-10)",
-      ...monitorActivityKeys.map(k => `Monitor: ${k.split(":::")[1] || k}`),
-      ...teacherActivityKeys.map(k => `Professor: ${k.split(":::")[1] || k}`),
+      "Nome", "Equipe",
+      "P1 (0-10)", "P2 (0-10)", "Média Provas",
+      ...kahootKeys.map(k => `Kahoot: ${k.split(":::")[1] || k}`),
+      "Média Kahoots",
+      ...casoKeys.map(k => `Caso Clínico: ${k.split(":::")[1] || k}`),
+      "Média Casos Clínicos",
+      "Jigsaw Fase 1 (0-2)", "Jigsaw Fase 2 (0-5)", "Jigsaw Fase 3 (0-3)", "Jigsaw Total (0-10)",
+      "Nota Atividades (0-10)",
       "Média Final", "Prova Final?"
     ];
     const lines = filteredRows.map(r => {
       const media = calcFinalGrade(r, weights, monitorActivityKeys, teacherActivityKeys);
+      const { nota: notaAtiv, kahoots, casos } = calcNotaAtividades(r, monitorActivityKeys, teacherActivityKeys);
+      const mediaProvas = r.p1 !== null && r.p2 !== null ? ((r.p1 + r.p2) / 2).toFixed(2) :
+        r.p1 !== null ? r.p1.toFixed(2) : r.p2 !== null ? r.p2.toFixed(2) : "";
+      const mediaKahoots = kahoots.length > 0 ? (kahoots.reduce((s, v) => s + v, 0) / kahoots.length).toFixed(2) : "";
+      const mediaCasos = casos.length > 0 ? (casos.reduce((s, v) => s + v, 0) / casos.length).toFixed(2) : "";
       return [
         `"${r.memberName}"`,
         `"${r.teamEmoji} ${r.teamName}"`,
-        r.pf.toFixed(1),
         r.p1 !== null ? r.p1.toFixed(1) : "",
         r.p2 !== null ? r.p2.toFixed(1) : "",
-        ...monitorActivityKeys.map(k => r.monitorGrades[k] !== null && r.monitorGrades[k] !== undefined ? r.monitorGrades[k]!.toFixed(1) : ""),
-        ...teacherActivityKeys.map(k => r.teacherGrades[k] !== null && r.teacherGrades[k] !== undefined ? r.teacherGrades[k]!.toFixed(1) : ""),
+        mediaProvas,
+        ...kahootKeys.map(k => {
+          const v = r.monitorGrades[k] ?? r.teacherGrades[k];
+          return v !== null && v !== undefined ? v.toFixed(1) : "";
+        }),
+        mediaKahoots,
+        ...casoKeys.map(k => {
+          const v = r.monitorGrades[k] ?? r.teacherGrades[k];
+          return v !== null && v !== undefined ? v.toFixed(1) : "";
+        }),
+        mediaCasos,
+        r.jigsawFase1 !== null ? r.jigsawFase1.toFixed(2) : "",
+        r.jigsawFase2 !== null ? r.jigsawFase2.toFixed(2) : "",
+        r.jigsawFase3 !== null ? r.jigsawFase3.toFixed(2) : "",
+        r.jigsawTotal !== null ? r.jigsawTotal.toFixed(2) : "",
+        notaAtiv !== null ? notaAtiv.toFixed(2) : "",
         media !== null ? media.toFixed(2) : "",
         media !== null ? (media < weights.minPassGrade ? "SIM" : "NÃO") : "",
       ].join(",");
@@ -255,7 +296,7 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Planilha exportada!");
-  }, [filteredRows, weights, monitorActivityKeys, teacherActivityKeys, classesList, selectedClassId]);
+  }, [filteredRows, weights, monitorActivityKeys, teacherActivityKeys, kahootKeys, casoKeys, classesList, selectedClassId]);
 
   const handleSort = (col: typeof sortBy) => {
     if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -267,15 +308,12 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
     return sortDir === "asc" ? <ChevronUp size={12} className="text-primary" /> : <ChevronDown size={12} className="text-primary" />;
   };
 
-  const handleSavePF = () => {
-    const updates = Object.entries(pfEdits)
-      .filter(([_, v]) => v !== "")
-      .map(([id, xp]) => ({ id: parseInt(id), xp }));
-    if (!updates.length) { toast.info("Nenhuma alteração"); return; }
-    // Need password for bulkUpdateXP — use teacherToken approach via upsertTeacherGrade
-    // Actually bulkUpdateXP uses password, not teacherToken
-    // We'll show a message to use the PF field in the main BulkXPManager
-    toast.info("Para atualizar o PF, use a seção abaixo ou o campo de edição inline.");
+  const getMonitorGrade = (row: GradeRow, key: string): number | null => {
+    const v = row.monitorGrades[key];
+    if (v !== null && v !== undefined) return v;
+    const v2 = row.teacherGrades[key];
+    if (v2 !== null && v2 !== undefined) return v2;
+    return null;
   };
 
   return (
@@ -309,6 +347,45 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
         </div>
       </div>
 
+      {/* ── Fórmula resumida ── */}
+      <div className="rounded-lg border border-primary/20 px-4 py-2.5 text-xs text-muted-foreground" style={{ backgroundColor: "oklch(0.18 0.03 264)" }}>
+        <span className="text-foreground font-semibold">Fórmula: </span>
+        <span className="font-mono">Média Final = (NotaProvas × <span className="text-blue-300">{weights.pesoProvas}</span>) + (NotaAtividades × <span className="text-purple-300">{weights.pesoAtividades}</span>)</span>
+        <span className="mx-2 text-border">|</span>
+        <span className="text-foreground font-semibold">NotaAtividades</span> = média(Kahoots, Casos Clínicos, Jigsaw)
+        <span className="mx-2 text-border">|</span>
+        <span className="text-red-300 font-semibold">Prova Final se Média &lt; {weights.minPassGrade}</span>
+      </div>
+
+      {/* ── Configuração de pesos ── */}
+      {showWeights && (
+        <div className="rounded-lg border border-border p-4 space-y-3" style={{ backgroundColor: "oklch(0.18 0.025 264)" }}>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Settings2 size={14} className="text-primary" /> Ajustar Pesos
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              { key: "pesoProvas" as const, label: "Peso Provas (P1+P2)", hint: "padrão: 0,75" },
+              { key: "pesoAtividades" as const, label: "Peso Atividades", hint: "padrão: 0,25" },
+              { key: "minPassGrade" as const, label: "Nota mínima aprovação", hint: "padrão: 6,0" },
+            ].map(({ key, label, hint }) => (
+              <div key={key} className="space-y-1">
+                <label className="text-xs text-muted-foreground">{label} <span className="text-[10px] opacity-60">({hint})</span></label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={weights[key]}
+                  onChange={e => setWeights(w => ({ ...w, [key]: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground text-center font-mono"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Seletor de turma + busca ── */}
       <div className="flex items-center gap-3 flex-wrap">
         <select
@@ -335,54 +412,6 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
         )}
       </div>
 
-      {/* ── Configuração de pesos ── */}
-      {showWeights && (
-        <div className="rounded-lg border border-border p-4 space-y-3" style={{ backgroundColor: "oklch(0.18 0.025 264)" }}>
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Settings2 size={14} className="text-primary" /> Configurar Pesos da Média Final
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            Média = (P1×{weights.p1} + P2×{weights.p2} + PF×{weights.pf}) / ({weights.p1 + weights.p2 + weights.pf})
-            {weights.monitorWeight > 0 && ` + Monitor×${weights.monitorWeight}`}
-            {weights.teacherWeight > 0 && ` + Professor×${weights.teacherWeight}`}
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[
-              { key: "p1" as const, label: "Peso P1", max: 10 },
-              { key: "p2" as const, label: "Peso P2", max: 10 },
-              { key: "pf" as const, label: "Peso PF", max: 10 },
-              { key: "monitorWeight" as const, label: "Peso Monitores", max: 5 },
-              { key: "teacherWeight" as const, label: "Peso Professor", max: 5 },
-            ].map(({ key, label, max }) => (
-              <div key={key} className="space-y-1">
-                <label className="text-xs text-muted-foreground">{label}</label>
-                <input
-                  type="number"
-                  min="0"
-                  max={max}
-                  step="0.5"
-                  value={weights[key]}
-                  onChange={e => setWeights(w => ({ ...w, [key]: parseFloat(e.target.value) || 0 }))}
-                  className="w-full px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground text-center font-mono"
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-muted-foreground">Nota mínima para aprovação:</label>
-            <input
-              type="number"
-              min="0"
-              max="10"
-              step="0.5"
-              value={weights.minPassGrade}
-              onChange={e => setWeights(w => ({ ...w, minPassGrade: parseFloat(e.target.value) || 6 }))}
-              className="w-20 px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground text-center font-mono"
-            />
-          </div>
-        </div>
-      )}
-
       {/* ── Estatísticas ── */}
       {selectedClassId && !isLoading && filteredRows.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -390,7 +419,12 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
             { label: "Total de alunos", value: stats.total, color: "text-foreground", icon: "👥" },
             { label: "Aprovados", value: stats.passed, color: "text-emerald-400", icon: "✅" },
             { label: "Prova Final", value: stats.needFinal, color: "text-red-400", icon: "⚠️" },
-            { label: "Média da turma", value: stats.avg !== null ? stats.avg.toFixed(2) : "—", color: stats.avg !== null && stats.avg >= weights.minPassGrade ? "text-emerald-400" : "text-amber-400", icon: "📊" },
+            {
+              label: "Média da turma",
+              value: stats.avg !== null ? stats.avg.toFixed(2) : "—",
+              color: stats.avg !== null && stats.avg >= weights.minPassGrade ? "text-emerald-400" : "text-amber-400",
+              icon: "📊"
+            },
           ].map(s => (
             <div key={s.label} className="rounded-lg border border-border p-3 text-center" style={{ backgroundColor: "oklch(0.18 0.025 264)" }}>
               <div className="text-lg">{s.icon}</div>
@@ -424,107 +458,167 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border" style={{ backgroundColor: "oklch(0.16 0.025 264)" }}>
-          <table className="w-full text-xs border-collapse min-w-[700px]">
+          <table className="w-full text-xs border-collapse" style={{ minWidth: 900 }}>
             <thead>
+              {/* ── Grupo de colunas ── */}
+              <tr style={{ backgroundColor: "oklch(0.22 0.035 264)" }}>
+                <th className="sticky left-0 z-10 px-3 py-1.5 border-b border-r border-border" style={{ backgroundColor: "oklch(0.22 0.035 264)" }} rowSpan={2} />
+                <th className="sticky left-[180px] z-10 px-3 py-1.5 border-b border-r border-border text-left text-muted-foreground font-normal" style={{ backgroundColor: "oklch(0.22 0.035 264)" }} rowSpan={2} />
+                {/* Provas */}
+                <th colSpan={3} className="px-3 py-1.5 text-center text-blue-300 font-semibold border-b border-r border-border text-[11px] uppercase tracking-wider">
+                  Provas <span className="text-blue-300/60 font-normal text-[10px]">(peso {weights.pesoProvas})</span>
+                </th>
+                {/* Kahoots */}
+                {kahootKeys.length > 0 && (
+                  <th colSpan={kahootKeys.length + 1} className="px-3 py-1.5 text-center text-yellow-300 font-semibold border-b border-r border-border text-[11px] uppercase tracking-wider">
+                    Kahoots <span className="text-yellow-300/60 font-normal text-[10px]">(2,5 pts cada)</span>
+                  </th>
+                )}
+                {/* Casos Clínicos */}
+                {casoKeys.length > 0 && (
+                  <th colSpan={casoKeys.length + 1} className="px-3 py-1.5 text-center text-orange-300 font-semibold border-b border-r border-border text-[11px] uppercase tracking-wider">
+                    Casos Clínicos <span className="text-orange-300/60 font-normal text-[10px]">(2,5 pts cada)</span>
+                  </th>
+                )}
+                {/* Jigsaw */}
+                <th colSpan={4} className="px-3 py-1.5 text-center text-purple-300 font-semibold border-b border-r border-border text-[11px] uppercase tracking-wider">
+                  Jigsaw
+                </th>
+                {/* Nota Atividades */}
+                <th className="px-3 py-1.5 text-center text-violet-300 font-semibold border-b border-r border-border text-[11px] uppercase tracking-wider" rowSpan={2}>
+                  Nota<br />Atividades<br /><span className="text-violet-300/60 font-normal text-[10px]">(peso {weights.pesoAtividades})</span>
+                </th>
+                {/* Média + PF */}
+                <th className="px-3 py-1.5 text-center text-emerald-300 font-semibold border-b border-r border-border text-[11px] uppercase tracking-wider" rowSpan={2}>
+                  Média<br />Final
+                </th>
+                <th className="px-3 py-1.5 text-center text-red-300 font-semibold border-b border-border text-[11px] uppercase tracking-wider" rowSpan={2}>
+                  Prova<br />Final?
+                </th>
+              </tr>
+              {/* ── Sub-cabeçalhos ── */}
               <tr style={{ backgroundColor: "oklch(0.20 0.03 264)" }}>
-                <th className="sticky left-0 z-10 px-3 py-2.5 text-left font-semibold text-foreground border-b border-r border-border cursor-pointer select-none whitespace-nowrap" style={{ backgroundColor: "oklch(0.20 0.03 264)", minWidth: 180 }} onClick={() => handleSort("name")}>
-                  <span className="flex items-center gap-1">Nome <SortIcon col="name" /></span>
+                {/* Nome (sticky) */}
+                {/* Provas */}
+                <th className="px-3 py-2 text-center font-semibold text-blue-200 border-b border-r border-border whitespace-nowrap cursor-pointer" onClick={() => handleSort("p1")}>
+                  <span className="flex items-center gap-1 justify-center">P1 /10 <SortIcon col="p1" /></span>
                 </th>
-                <th className="px-3 py-2.5 text-left font-semibold text-foreground border-b border-r border-border cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("team")}>
-                  <span className="flex items-center gap-1">Equipe <SortIcon col="team" /></span>
+                <th className="px-3 py-2 text-center font-semibold text-blue-200 border-b border-r border-border whitespace-nowrap cursor-pointer" onClick={() => handleSort("p2")}>
+                  <span className="flex items-center gap-1 justify-center">P2 /10 <SortIcon col="p2" /></span>
                 </th>
-                {/* PF */}
-                <th className="px-3 py-2.5 text-center font-semibold text-amber-300 border-b border-r border-border cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("pf")}>
-                  <span className="flex items-center gap-1 justify-center">PF <span className="text-[10px] text-muted-foreground font-normal">/45</span> <SortIcon col="pf" /></span>
+                <th className="px-3 py-2 text-center font-semibold text-blue-300 border-b border-r border-border whitespace-nowrap">
+                  Média
                 </th>
-                {/* P1 */}
-                <th className="px-3 py-2.5 text-center font-semibold text-blue-300 border-b border-r border-border cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("p1")}>
-                  <span className="flex items-center gap-1 justify-center">P1 <span className="text-[10px] text-muted-foreground font-normal">/10</span> <SortIcon col="p1" /></span>
-                </th>
-                {/* P2 */}
-                <th className="px-3 py-2.5 text-center font-semibold text-blue-300 border-b border-r border-border cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("p2")}>
-                  <span className="flex items-center gap-1 justify-center">P2 <span className="text-[10px] text-muted-foreground font-normal">/10</span> <SortIcon col="p2" /></span>
-                </th>
-                {/* Notas de monitores */}
-                {monitorActivityKeys.map(key => {
-                  const [type, name] = key.split(":::");
-                  return (
-                    <th key={key} className="px-3 py-2.5 text-center font-semibold text-purple-300 border-b border-r border-border whitespace-nowrap" title={`Tipo: ${type}`}>
-                      <span className="block max-w-[100px] truncate">{name || key}</span>
-                      <span className="text-[10px] text-muted-foreground font-normal">Monitor</span>
-                    </th>
-                  );
-                })}
-                {/* Notas do professor */}
-                {teacherActivityKeys.map(key => {
-                  const [type, name] = key.split(":::");
-                  return (
-                    <th key={key} className="px-3 py-2.5 text-center font-semibold text-orange-300 border-b border-r border-border whitespace-nowrap" title={`Tipo: ${type}`}>
-                      <span className="block max-w-[100px] truncate">{name || key}</span>
-                      <span className="text-[10px] text-muted-foreground font-normal">Professor</span>
-                    </th>
-                  );
-                })}
-                {/* Média Final */}
-                <th className="px-3 py-2.5 text-center font-semibold text-emerald-300 border-b border-r border-border cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("media")}>
-                  <span className="flex items-center gap-1 justify-center">Média <SortIcon col="media" /></span>
-                </th>
-                {/* Prova Final */}
-                <th className="px-3 py-2.5 text-center font-semibold text-red-300 border-b border-border whitespace-nowrap">
-                  Prova Final?
+                {/* Kahoots */}
+                {kahootKeys.map(key => (
+                  <th key={key} className="px-3 py-2 text-center font-semibold text-yellow-200 border-b border-r border-border whitespace-nowrap max-w-[90px]" title={key.split(":::")[1]}>
+                    <span className="block truncate max-w-[80px]">{key.split(":::")[1] || key}</span>
+                  </th>
+                ))}
+                {kahootKeys.length > 0 && (
+                  <th className="px-3 py-2 text-center font-semibold text-yellow-300 border-b border-r border-border whitespace-nowrap">Média</th>
+                )}
+                {/* Casos Clínicos */}
+                {casoKeys.map(key => (
+                  <th key={key} className="px-3 py-2 text-center font-semibold text-orange-200 border-b border-r border-border whitespace-nowrap max-w-[90px]" title={key.split(":::")[1]}>
+                    <span className="block truncate max-w-[80px]">{key.split(":::")[1] || key}</span>
+                  </th>
+                ))}
+                {casoKeys.length > 0 && (
+                  <th className="px-3 py-2 text-center font-semibold text-orange-300 border-b border-r border-border whitespace-nowrap">Média</th>
+                )}
+                {/* Jigsaw */}
+                <th className="px-3 py-2 text-center font-semibold text-purple-200 border-b border-r border-border whitespace-nowrap text-[10px]">F1 /2</th>
+                <th className="px-3 py-2 text-center font-semibold text-purple-200 border-b border-r border-border whitespace-nowrap text-[10px]">F2 /5</th>
+                <th className="px-3 py-2 text-center font-semibold text-purple-200 border-b border-r border-border whitespace-nowrap text-[10px]">F3 /3</th>
+                <th className="px-3 py-2 text-center font-semibold text-purple-300 border-b border-r border-border whitespace-nowrap cursor-pointer" onClick={() => handleSort("atividades")}>
+                  <span className="flex items-center gap-1 justify-center">Total /10</span>
                 </th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.map((row, idx) => {
                 const media = calcFinalGrade(row, weights, monitorActivityKeys, teacherActivityKeys);
+                const { nota: notaAtiv, kahoots, casos } = calcNotaAtividades(row, monitorActivityKeys, teacherActivityKeys);
                 const needsFinal = media !== null && media < weights.minPassGrade;
+                const mediaProvas = row.p1 !== null && row.p2 !== null ? (row.p1 + row.p2) / 2 :
+                  row.p1 !== null ? row.p1 : row.p2 !== null ? row.p2 : null;
+                const mediaKahoots = kahoots.length > 0 ? kahoots.reduce((s, v) => s + v, 0) / kahoots.length : null;
+                const mediaCasos = casos.length > 0 ? casos.reduce((s, v) => s + v, 0) / casos.length : null;
                 const rowBg = idx % 2 === 0 ? "oklch(0.16 0.025 264)" : "oklch(0.175 0.028 264)";
+
                 return (
-                  <tr
-                    key={row.memberId}
-                    className="hover:brightness-110 transition-all"
-                    style={{ backgroundColor: rowBg }}
-                  >
+                  <tr key={row.memberId} className="hover:brightness-110 transition-all" style={{ backgroundColor: rowBg }}>
                     {/* Nome */}
-                    <td className="sticky left-0 z-10 px-3 py-2 border-b border-r border-border font-medium text-foreground whitespace-nowrap" style={{ backgroundColor: rowBg }}>
+                    <td className="sticky left-0 z-10 px-3 py-2 border-b border-r border-border font-medium text-foreground whitespace-nowrap" style={{ backgroundColor: rowBg, minWidth: 180 }}>
                       {row.memberName}
                     </td>
                     {/* Equipe */}
-                    <td className="px-3 py-2 border-b border-r border-border text-muted-foreground whitespace-nowrap">
+                    <td className="sticky left-[180px] z-10 px-3 py-2 border-b border-r border-border text-muted-foreground whitespace-nowrap text-[11px]" style={{ backgroundColor: rowBg }}>
                       {row.teamEmoji} {row.teamName}
-                    </td>
-                    {/* PF */}
-                    <td className="px-3 py-2 border-b border-r border-border text-center font-mono">
-                      <span className={gradeColor(row.pf, 45)}>{row.pf.toFixed(1)}</span>
-                      <span className="text-muted-foreground text-[10px]">/45</span>
                     </td>
                     {/* P1 */}
                     <td className="px-3 py-2 border-b border-r border-border text-center font-mono">
-                      <span className={gradeColor(row.p1, 10)}>{formatGrade(row.p1)}</span>
+                      <span className={gradeColor(row.p1, 10)}>{fmt(row.p1)}</span>
                     </td>
                     {/* P2 */}
                     <td className="px-3 py-2 border-b border-r border-border text-center font-mono">
-                      <span className={gradeColor(row.p2, 10)}>{formatGrade(row.p2)}</span>
+                      <span className={gradeColor(row.p2, 10)}>{fmt(row.p2)}</span>
                     </td>
-                    {/* Notas de monitores */}
-                    {monitorActivityKeys.map(key => (
+                    {/* Média Provas */}
+                    <td className="px-3 py-2 border-b border-r border-border text-center font-mono font-semibold">
+                      <span className={gradeColor(mediaProvas, 10)}>{fmt(mediaProvas)}</span>
+                    </td>
+                    {/* Kahoots individuais */}
+                    {kahootKeys.map(key => (
                       <td key={key} className="px-3 py-2 border-b border-r border-border text-center font-mono">
-                        <span className={gradeColor(row.monitorGrades[key], 10)}>
-                          {formatGrade(row.monitorGrades[key])}
+                        <span className={gradeColor(getMonitorGrade(row, key), 10)}>
+                          {fmt(getMonitorGrade(row, key))}
                         </span>
                       </td>
                     ))}
-                    {/* Notas do professor */}
-                    {teacherActivityKeys.map(key => (
+                    {/* Média Kahoots */}
+                    {kahootKeys.length > 0 && (
+                      <td className="px-3 py-2 border-b border-r border-border text-center font-mono font-semibold">
+                        <span className={gradeColor(mediaKahoots, 10)}>{fmt(mediaKahoots)}</span>
+                      </td>
+                    )}
+                    {/* Casos Clínicos individuais */}
+                    {casoKeys.map(key => (
                       <td key={key} className="px-3 py-2 border-b border-r border-border text-center font-mono">
-                        <span className={gradeColor(row.teacherGrades[key], 10)}>
-                          {formatGrade(row.teacherGrades[key])}
+                        <span className={gradeColor(getMonitorGrade(row, key), 10)}>
+                          {fmt(getMonitorGrade(row, key))}
                         </span>
                       </td>
                     ))}
-                    {/* Média Final */}
+                    {/* Média Casos */}
+                    {casoKeys.length > 0 && (
+                      <td className="px-3 py-2 border-b border-r border-border text-center font-mono font-semibold">
+                        <span className={gradeColor(mediaCasos, 10)}>{fmt(mediaCasos)}</span>
+                      </td>
+                    )}
+                    {/* Jigsaw Fase 1 */}
+                    <td className="px-3 py-2 border-b border-r border-border text-center font-mono">
+                      <span className={gradeColor(row.jigsawFase1, 2)}>{fmt(row.jigsawFase1, 2)}</span>
+                    </td>
+                    {/* Jigsaw Fase 2 */}
+                    <td className="px-3 py-2 border-b border-r border-border text-center font-mono">
+                      <span className={gradeColor(row.jigsawFase2, 5)}>{fmt(row.jigsawFase2, 2)}</span>
+                    </td>
+                    {/* Jigsaw Fase 3 */}
+                    <td className="px-3 py-2 border-b border-r border-border text-center font-mono">
+                      <span className={gradeColor(row.jigsawFase3, 3)}>{fmt(row.jigsawFase3, 2)}</span>
+                    </td>
+                    {/* Jigsaw Total */}
+                    <td className="px-3 py-2 border-b border-r border-border text-center font-mono font-semibold">
+                      <span className={gradeColor(row.jigsawTotal, 10)}>{fmt(row.jigsawTotal, 2)}</span>
+                    </td>
+                    {/* Nota Atividades */}
                     <td className="px-3 py-2 border-b border-r border-border text-center font-mono font-bold">
+                      <span className={gradeColor(notaAtiv, 10)}>{fmt(notaAtiv, 2)}</span>
+                    </td>
+                    {/* Média Final */}
+                    <td className="px-3 py-2 border-b border-r border-border text-center font-mono font-bold text-sm">
                       {media !== null ? (
                         <span className={media >= weights.minPassGrade ? "text-emerald-400" : "text-red-400"}>
                           {media.toFixed(2)}
@@ -557,27 +651,13 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
 
       {/* ── Legenda ── */}
       {selectedClassId && !isLoading && filteredRows.length > 0 && (
-        <div className="flex flex-wrap gap-4 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> PF = Pontos de Farmacologia (gamificado, max 45)</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> P1/P2 = Provas (0–10)</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-purple-400 inline-block" /> Monitor = Notas lançadas pelos monitores</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /> Professor = Notas lançadas pelo professor</span>
+        <div className="flex flex-wrap gap-4 text-[11px] text-muted-foreground pt-1">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> P1/P2 = Provas (0–10) · peso {weights.pesoProvas}</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> Kahoot = 2,5 pts cada</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /> Caso Clínico = 2,5 pts cada</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-purple-400 inline-block" /> Jigsaw = nota total (0–10)</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-violet-400 inline-block" /> Nota Atividades = média(Kahoots, Casos, Jigsaw) · peso {weights.pesoAtividades}</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Verde ≥ 70% | Amarelo ≥ 50% | Vermelho &lt; 50%</span>
-        </div>
-      )}
-
-      {/* ── Lançamento rápido de PF ── */}
-      {selectedClassId && !isLoading && filteredRows.length > 0 && (
-        <div className="rounded-lg border border-border p-4" style={{ backgroundColor: "oklch(0.18 0.025 264)" }}>
-          <h3 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
-            <Info size={14} className="text-primary" /> Como lançar notas?
-          </h3>
-          <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-            <li><strong className="text-foreground">PF (Gamificado):</strong> Use a seção "Lançar Notas" acima (campo de edição por equipe)</li>
-            <li><strong className="text-foreground">P1 / P2:</strong> Use a seção "Provas" para lançar gabarito e corrigir automaticamente</li>
-            <li><strong className="text-foreground">Notas de monitores:</strong> Os monitores lançam diretamente no painel deles</li>
-            <li><strong className="text-foreground">Notas do professor:</strong> Use a seção "Monitores → Notas" para lançar manualmente</li>
-          </ul>
         </div>
       )}
     </div>
