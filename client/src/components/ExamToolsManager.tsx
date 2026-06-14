@@ -18,6 +18,7 @@ import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Printer, CheckCircle, Download, RefreshCw, Users, ChevronDown, ChevronUp, Save, Loader2, AlertTriangle, Camera, BarChart2, Database } from "lucide-react";
+import LiveQuizControl from "@/pages/LiveQuizControl";
 
 // ─── Tipos ───
 type Difficulty = "facil" | "intermediario" | "dificil";
@@ -88,7 +89,7 @@ interface ExamToolsManagerProps {
 }
 
 export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToolsManagerProps) {
-  const [tab, setTab] = useState<"gabarito" | "correcao" | "turma" | "imprimir">("gabarito");
+  const [tab, setTab] = useState<"gabarito" | "correcao" | "turma" | "relatorio" | "imprimir" | "quiz">("gabarito");
 
   // Gabarito
   const [gabarito, setGabarito] = useState<Answer[]>(Array(25).fill(null));
@@ -783,6 +784,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
     { id: "turma", label: `👥 Turma (${classResults.length})` },
     { id: "relatorio", label: "📊 Relatório" },
     { id: "imprimir", label: "🖨️ Imprimir" },
+    { id: "quiz", label: "🏆 Quiz ao Vivo (P2)" },
   ] as const;
 
   return (
@@ -1451,6 +1453,14 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
               <strong>Dica:</strong> Configure as dificuldades por questão na aba "Gabarito" antes de imprimir. O cartão impresso refletirá a distribuição atual ({difficulties.filter(d => d === "facil").length}F / {difficulties.filter(d => d === "intermediario").length}I / {difficulties.filter(d => d === "dificil").length}D).
             </p>
           </div>
+        </div>
+      )}
+    </div>
+
+      {/* ─── TAB: QUIZ AO VIVO ─── */}
+      {tab === "quiz" && (
+        <div className="space-y-4">
+          <LiveQuizControl />
         </div>
       )}
     </div>
