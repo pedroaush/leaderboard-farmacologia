@@ -1022,6 +1022,142 @@ export const appRouter = router({
         }
         return { success: true };
       }),
+
+    // ─── Prova Digital: abrir sessao ───
+    openDigitalExam: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        provaType: z.enum(["P1", "P2"]),
+        questions: z.string(),
+        gabarito: z.string(),
+        difficulties: z.string(),
+        timeLimitMinutes: z.number().default(60),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { digitalExamSessions } = await import("../drizzle/schema.js");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const accessCode = crypto.randomBytes(3).toString("hex").toUpperCase();
+        const [result] = await dbConn.insert(digitalExamSessions).values({
+          classId: input.classId,
+          provaType: input.provaType,
+          accessCode,
+          questions: input.questions,
+          gabarito: input.gabarito,
+          difficulties: input.difficulties,
+          timeLimitMinutes: input.timeLimitMinutes,
+          status: "open",
+          createdByName: teacher.name,
+        });
+        return { success: true, sessionId: (result as any).insertId, accessCode };
+      }),
+
+    // ─── Prova Digital: fechar sessao ───
+    closeDigitalExam: publicProcedure
+      .input(z.object({ sessionToken: z.string(), sessionId: z.number() }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { digitalExamSessions } = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        await dbConn.update(digitalExamSessions)
+          .set({ status: "closed", closedAt: new Date() })
+          .where(eq(digitalExamSessions.id, input.sessionId));
+        return { success: true };
+      }),
+
+    // ─── Prova Digital: listar sessoes da turma ───
+    listDigitalExamSessions: publicProcedure
+      .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { digitalExamSessions, digitalExamResponses } = await import("../drizzle/schema.js");
+        const { eq, desc } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const sessions = await dbConn.select().from(digitalExamSessions)
+          .where(eq(digitalExamSessions.classId, input.classId))
+          .orderBy(desc(digitalExamSessions.createdAt));
+        const result = await Promise.all((sessions as any[]).map(async (s) => {
+          const responses = await dbConn.select().from(digitalExamResponses)
+            .where(eq(digitalExamResponses.sessionId, s.id));
+          const submitted = (responses as any[]).filter((r) => r.status !== "in_progress").length;
+          return { ...s, totalResponses: responses.length, submittedCount: submitted };
+        }));
+        return result;
+      }),
+
+    // ─── Prova Digital: ver respostas de uma sessao ───
+    getDigitalExamResponses: publicProcedure
+      .input(z.object({ sessionToken: z.string(), sessionId: z.number() }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { digitalExamResponses } = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        return dbConn.select().from(digitalExamResponses)
+          .where(eq(digitalExamResponses.sessionId, input.sessionId));
+      }),
+
+    // ─── Prova Digital: corrigir e lancar notas automaticamente ───
+    gradeDigitalExam: publicProcedure
+      .input(z.object({ sessionToken: z.string(), sessionId: z.number() }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { digitalExamSessions, digitalExamResponses, examStudentGrades } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(digitalExamSessions).where(eq(digitalExamSessions.id, input.sessionId));
+        if (!session) throw new Error("Sessao nao encontrada");
+        const gabarito: string[] = JSON.parse((session as any).gabarito);
+        const difficulties: string[] = JSON.parse((session as any).difficulties);
+        const POINTS: Record<string, number> = { facil: 0.2, intermediario: 0.3, dificil: 0.5 };
+        const responses = await dbConn.select().from(digitalExamResponses)
+          .where(eq(digitalExamResponses.sessionId, input.sessionId));
+        let graded = 0;
+        for (const resp of responses as any[]) {
+          if (resp.status === "graded") continue;
+          const answers: (string | null)[] = JSON.parse(resp.answers || "[]");
+          let score = 0; let correct = 0;
+          for (let i = 0; i < 25; i++) {
+            if (answers[i] && answers[i] === gabarito[i]) {
+              score += POINTS[difficulties[i] || "intermediario"] || 0.3;
+              correct++;
+            }
+          }
+          score = Math.round(score * 100) / 100;
+          await dbConn.update(digitalExamResponses)
+            .set({ score: String(score), correctCount: correct, status: "graded", gradedAt: new Date() })
+            .where(eq(digitalExamResponses.id, resp.id));
+          const existing = await dbConn.select().from(examStudentGrades)
+            .where(and(eq(examStudentGrades.memberId, resp.memberId), eq(examStudentGrades.provaType, (session as any).provaType)));
+          if (existing.length > 0) {
+            await dbConn.update(examStudentGrades)
+              .set({ score: String(score), correctCount: correct, answers: resp.answers, examVersion: "D" })
+              .where(and(eq(examStudentGrades.memberId, resp.memberId), eq(examStudentGrades.provaType, (session as any).provaType)));
+          } else {
+            await dbConn.insert(examStudentGrades).values({
+              classId: resp.classId, memberId: resp.memberId, memberName: resp.memberName,
+              provaType: (session as any).provaType, examVersion: "D",
+              answers: resp.answers, score: String(score), correctCount: correct,
+            });
+          }
+          graded++;
+        }
+        await dbConn.update(digitalExamSessions).set({ status: "finished" })
+          .where(eq(digitalExamSessions.id, input.sessionId));
+        return { success: true, graded };
+      }),
   }),
   // ─── Super Admin Profile & Stats ───
   superAdmin: router({
@@ -2836,6 +2972,128 @@ export const appRouter = router({
         const passwordHash = await bcrypt.hash(input.newPassword, 10);
         await db.updateStudentAccountPassword(account.id, passwordHash);
         return { success: true, message: "Senha alterada com sucesso" } as const;
+      }),
+
+    // ─── Prova Digital: buscar prova pelo codigo de acesso ───
+    getDigitalExamByCode: publicProcedure
+      .input(z.object({ accessCode: z.string(), sessionToken: z.string() }))
+      .query(async ({ input }) => {
+        const account = await db.getStudentAccountBySessionToken(input.sessionToken);
+        if (!account) throw new Error("Nao autorizado");
+        const { digitalExamSessions, digitalExamResponses } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(digitalExamSessions)
+          .where(eq(digitalExamSessions.accessCode, input.accessCode.toUpperCase()));
+        if (!session) return { found: false, message: "Codigo invalido ou prova nao encontrada" };
+        if ((session as any).status === "finished") return { found: false, message: "Esta prova ja foi encerrada" };
+        if ((session as any).status === "closed") return { found: false, message: "O professor encerrou o acesso a esta prova" };
+        // Verificar se ja respondeu
+        const memberId = account.memberId;
+        if (!memberId) return { found: false, message: "Conta sem vinculo de aluno" };
+        const existing = await dbConn.select().from(digitalExamResponses)
+          .where(and(eq(digitalExamResponses.sessionId, (session as any).id), eq(digitalExamResponses.memberId, memberId)));
+        const alreadySubmitted = existing.length > 0 && (existing[0] as any).status !== "in_progress";
+        // Retornar questoes sem gabarito
+        const questions = JSON.parse((session as any).questions);
+        // Embaralhar questoes baseado no memberId (seed deterministico)
+        const seed = memberId * 31337;
+        const shuffled = [...questions.map((_: any, i: number) => i)];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.abs((seed * (i + 1)) % (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return {
+          found: true,
+          sessionId: (session as any).id,
+          provaType: (session as any).provaType,
+          timeLimitMinutes: (session as any).timeLimitMinutes,
+          openedAt: (session as any).openedAt,
+          questions: shuffled.map((origIdx: number) => ({ ...questions[origIdx], origIdx })),
+          questionOrder: JSON.stringify(shuffled),
+          alreadySubmitted,
+          existingAnswers: alreadySubmitted ? JSON.parse((existing[0] as any).answers || "[]") : null,
+          existingScore: alreadySubmitted ? (existing[0] as any).score : null,
+          responseId: existing.length > 0 ? (existing[0] as any).id : null,
+        };
+      }),
+
+    // ─── Prova Digital: iniciar/salvar progresso ───
+    startOrUpdateDigitalExam: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        sessionId: z.number(),
+        questionOrder: z.string(),
+        answers: z.string(), // JSON parcial
+      }))
+      .mutation(async ({ input }) => {
+        const account = await db.getStudentAccountBySessionToken(input.sessionToken);
+        if (!account || !account.memberId) throw new Error("Nao autorizado");
+        const { digitalExamResponses } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const memberInfo = await db.getMemberById(account.memberId);
+        const existing = await dbConn.select().from(digitalExamResponses)
+          .where(and(eq(digitalExamResponses.sessionId, input.sessionId), eq(digitalExamResponses.memberId, account.memberId)));
+        if (existing.length > 0) {
+          if ((existing[0] as any).status !== "in_progress") return { success: false, message: "Prova ja enviada" };
+          await dbConn.update(digitalExamResponses)
+            .set({ answers: input.answers })
+            .where(eq(digitalExamResponses.id, (existing[0] as any).id));
+          return { success: true, responseId: (existing[0] as any).id };
+        }
+        const [res] = await dbConn.insert(digitalExamResponses).values({
+          sessionId: input.sessionId,
+          memberId: account.memberId,
+          memberName: memberInfo?.name || account.displayName || "Aluno",
+          classId: memberInfo?.classId || 0,
+          questionOrder: input.questionOrder,
+          answers: input.answers,
+          status: "in_progress",
+        });
+        return { success: true, responseId: (res as any).insertId };
+      }),
+
+    // ─── Prova Digital: submeter prova ───
+    submitDigitalExam: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        sessionId: z.number(),
+        answers: z.string(), // JSON com 25 respostas na ordem original
+        questionOrder: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const account = await db.getStudentAccountBySessionToken(input.sessionToken);
+        if (!account || !account.memberId) throw new Error("Nao autorizado");
+        const { digitalExamSessions, digitalExamResponses } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(digitalExamSessions).where(eq(digitalExamSessions.id, input.sessionId));
+        if (!session || (session as any).status === "finished") throw new Error("Prova encerrada");
+        const existing = await dbConn.select().from(digitalExamResponses)
+          .where(and(eq(digitalExamResponses.sessionId, input.sessionId), eq(digitalExamResponses.memberId, account.memberId)));
+        if (existing.length > 0 && (existing[0] as any).status !== "in_progress") return { success: false, message: "Prova ja enviada" };
+        if (existing.length > 0) {
+          await dbConn.update(digitalExamResponses)
+            .set({ answers: input.answers, status: "submitted", submittedAt: new Date() })
+            .where(eq(digitalExamResponses.id, (existing[0] as any).id));
+        } else {
+          const memberInfo = await db.getMemberById(account.memberId);
+          await dbConn.insert(digitalExamResponses).values({
+            sessionId: input.sessionId,
+            memberId: account.memberId,
+            memberName: memberInfo?.name || "Aluno",
+            classId: memberInfo?.classId || 0,
+            questionOrder: input.questionOrder,
+            answers: input.answers,
+            status: "submitted",
+            submittedAt: new Date(),
+          });
+        }
+        return { success: true, message: "Prova enviada com sucesso!" };
       }),
   }),
   // ─── Invite Codes (Códigos de Convite para Monitores/Externos) ───

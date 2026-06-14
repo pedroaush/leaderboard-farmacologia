@@ -699,6 +699,53 @@ async function startServer() {
           }
         }
 
+        // Migracao: criar tabela digitalExamSessions (prova digital anti-cola)
+        try {
+          await rawDb.execute(`CREATE TABLE IF NOT EXISTS digitalExamSessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            classId INT NOT NULL,
+            provaType ENUM('P1','P2') NOT NULL,
+            accessCode VARCHAR(8) NOT NULL,
+            questions TEXT NOT NULL,
+            gabarito TEXT NOT NULL,
+            difficulties TEXT NOT NULL,
+            timeLimitMinutes INT NOT NULL DEFAULT 60,
+            status ENUM('open','closed','finished') NOT NULL DEFAULT 'open',
+            openedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closedAt TIMESTAMP NULL,
+            createdByName VARCHAR(200),
+            createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY digitalExamSessions_accessCode (accessCode)
+          )`);
+          console.log('[Migration] OK: digitalExamSessions table created/exists');
+        } catch (err: any) {
+          console.warn('[Migration] digitalExamSessions:', err?.message?.substring(0, 80));
+        }
+
+        // Migracao: criar tabela digitalExamResponses (respostas dos alunos)
+        try {
+          await rawDb.execute(`CREATE TABLE IF NOT EXISTS digitalExamResponses (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sessionId INT NOT NULL,
+            memberId INT NOT NULL,
+            memberName VARCHAR(200) NOT NULL,
+            classId INT NOT NULL,
+            questionOrder TEXT NOT NULL,
+            answers TEXT NOT NULL DEFAULT '[]',
+            score DECIMAL(5,2) DEFAULT 0,
+            correctCount INT DEFAULT 0,
+            status ENUM('in_progress','submitted','graded') NOT NULL DEFAULT 'in_progress',
+            startedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            submittedAt TIMESTAMP NULL,
+            gradedAt TIMESTAMP NULL,
+            createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY digitalExamResponses_memberId_sessionId (memberId, sessionId)
+          )`);
+          console.log('[Migration] OK: digitalExamResponses table created/exists');
+        } catch (err: any) {
+          console.warn('[Migration] digitalExamResponses:', err?.message?.substring(0, 80));
+        }
+
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
           try {

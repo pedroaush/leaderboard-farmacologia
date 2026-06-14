@@ -28,8 +28,9 @@ import {
   ArrowLeft, CheckCircle2, ClipboardList, FileText, RotateCcw,
   User, Users, Download, Printer, Trophy, Target, BookOpen,
   ChevronRight, AlertCircle, TrendingUp, BarChart2, FileSpreadsheet,
-  Send, Lock, Unlock, RefreshCw
+  Send, Lock, Unlock, RefreshCw, Smartphone
 } from "lucide-react";
+import DigitalExamControl from "./DigitalExamControl";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ExamVersion = "A" | "B" | "C" | "D";
@@ -831,7 +832,7 @@ function LaunchP1Panel({ students, prova, classId: classIdProp, turmaName }: { s
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function ExamTools() {
-  const [activeTab, setActiveTab] = useState<"cover" | "correction" | "launch">("correction");
+  const [activeTab, setActiveTab] = useState<"cover" | "correction" | "launch" | "digital">("correction");
   const [examConfig, setExamConfig] = useState<ExamConfig>({
     disciplina: "Farmacologia I",
     turma: TURMAS[0],
@@ -1098,6 +1099,13 @@ export default function ExamTools() {
               className={activeTab === "launch" ? "bg-purple-600 text-white" : "text-purple-400 hover:text-white hover:bg-purple-600/30"}
             >
               <Send className="w-3.5 h-3.5 mr-1" /> Lançar Notas
+            </Button>
+            <Button
+              variant="ghost" size="sm"
+              onClick={() => setActiveTab("digital")}
+              className={activeTab === "digital" ? "bg-blue-600 text-white" : "text-blue-400 hover:text-white hover:bg-blue-600/30"}
+            >
+              <Smartphone className="w-3.5 h-3.5 mr-1" /> Prova Digital
             </Button>
           </div>
         </div>
@@ -1458,6 +1466,10 @@ export default function ExamTools() {
               </div>
             )}
           </div>
+        )}
+        {/* ── TAB: PROVA DIGITAL ─────────────────────────────────────────────── */}
+        {activeTab === "digital" && (
+          <DigitalExamControl />
         )}
       </div>
     </div>

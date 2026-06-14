@@ -66,6 +66,7 @@ import MonitorCertificate from "./pages/MonitorCertificate";
 import ExamTools from "./pages/ExamTools";
 import ProfessorGrades from "./pages/ProfessorGrades";
 import AdminMonitors from "./pages/AdminMonitors";
+import DigitalExam from "./pages/DigitalExam";
 
 
 function Router() {
@@ -119,6 +120,7 @@ function Router() {
       <Route path={"/monitor/notas"} component={MonitorGrades} />
       <Route path={"/monitor/certificado"} component={MonitorCertificate} />
       <Route path={"/professor/ferramentas-prova"} component={ExamTools} />
+      <Route path={"/prova-digital"} component={DigitalExam} />
       <Route path={"/professor/notas"} component={ProfessorGrades} />
 
       <Route path={"/professor/perfil"} component={TeacherProfile} />      <Route path={"/professor/login"} component={ProfessorLogin} />
