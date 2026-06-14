@@ -746,6 +746,50 @@ async function startServer() {
           console.warn('[Migration] digitalExamResponses:', err?.message?.substring(0, 80));
         }
 
+        // Migracao: criar tabela liveQuizSessions (quiz ao vivo P2)
+        try {
+          await rawDb.execute(`CREATE TABLE IF NOT EXISTS liveQuizSessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            accessCode VARCHAR(8) NOT NULL,
+            title VARCHAR(200) NOT NULL DEFAULT 'P2 - Quiz ao Vivo',
+            provaType VARCHAR(10) NOT NULL DEFAULT 'P2',
+            classId INT NOT NULL,
+            teacherSessionToken VARCHAR(200) NOT NULL,
+            questions TEXT NOT NULL DEFAULT '[]',
+            currentQuestionIndex INT NOT NULL DEFAULT -1,
+            totalQuestions INT NOT NULL DEFAULT 0,
+            status ENUM('lobby','active','question_closed','finished','gabarito_released') NOT NULL DEFAULT 'lobby',
+            gabarito TEXT NOT NULL DEFAULT '[]',
+            gabaritReleasedAt TIMESTAMP NULL,
+            finishedAt TIMESTAMP NULL,
+            createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY liveQuizSessions_accessCode (accessCode)
+          )`);
+          console.log('[Migration] OK: liveQuizSessions table created/exists');
+        } catch (err: any) {
+          console.warn('[Migration] liveQuizSessions:', err?.message?.substring(0, 80));
+        }
+
+        // Migracao: criar tabela liveQuizAnswers (respostas do quiz ao vivo)
+        try {
+          await rawDb.execute(`CREATE TABLE IF NOT EXISTS liveQuizAnswers (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sessionId INT NOT NULL,
+            memberId INT NOT NULL,
+            memberName VARCHAR(200) NOT NULL,
+            classId INT NOT NULL,
+            questionIndex INT NOT NULL,
+            answer VARCHAR(200) NOT NULL,
+            isCorrect TINYINT NOT NULL DEFAULT 0,
+            pointsEarned DECIMAL(5,2) NOT NULL DEFAULT 0,
+            answeredAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY liveQuizAnswers_member_session_question (memberId, sessionId, questionIndex)
+          )`);
+          console.log('[Migration] OK: liveQuizAnswers table created/exists');
+        } catch (err: any) {
+          console.warn('[Migration] liveQuizAnswers:', err?.message?.substring(0, 80));
+        }
+
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
           try {

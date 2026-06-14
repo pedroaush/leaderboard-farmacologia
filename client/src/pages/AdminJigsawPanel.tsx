@@ -188,6 +188,8 @@ function HomeGroupCard({ group, index, onScoresSaved, teacherToken }: {
   const [expanded, setExpanded] = useState(false);
   const [showScoring, setShowScoring] = useState(false);
   const [scores, setScores] = useState<Record<number, { presentation: number; participation: number; peer: number }>>({});
+  const [editingName, setEditingName] = useState<number | null>(null);
+  const [editNameValue, setEditNameValue] = useState("");
   const color = GROUP_COLORS[index % GROUP_COLORS.length];
   const utils = trpc.useUtils();
 
@@ -203,6 +205,28 @@ function HomeGroupCard({ group, index, onScoresSaved, teacherToken }: {
     },
     onError: (e) => toast.error(e.message || "Erro ao salvar notas"),
   });
+
+  const renameMutation = trpc.jigsawComplete.homeGroups.renameMember.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Nome atualizado para "${data.newName}"`);
+      utils.jigsawComplete.homeGroups.getByClass.invalidate();
+      setEditingName(null);
+      setEditNameValue("");
+      onScoresSaved();
+    },
+    onError: (e) => toast.error(e.message || "Erro ao renomear"),
+  });
+
+  const handleStartRename = (memberId: number, currentName: string) => {
+    setEditingName(memberId);
+    setEditNameValue(currentName);
+  };
+
+  const handleConfirmRename = (memberId: number) => {
+    const trimmed = editNameValue.trim();
+    if (!trimmed || trimmed.length < 2) { toast.error("Nome deve ter ao menos 2 caracteres"); return; }
+    renameMutation.mutate({ memberId, newName: trimmed, sessionToken: teacherToken || undefined });
+  };
 
   const handleSaveScores = () => {
     const arr = Object.entries(scores).map(([memberId, s]) => ({
@@ -251,7 +275,42 @@ function HomeGroupCard({ group, index, onScoresSaved, teacherToken }: {
                       style={{ backgroundColor: "oklch(0.22 0.03 264.052)" }}>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-muted-foreground font-mono w-4">{mIdx + 1}</span>
-                        <span className="flex-1 text-xs text-foreground truncate font-medium">{m.name}</span>
+                        {editingName === m.id ? (
+                          <div className="flex-1 flex items-center gap-1">
+                            <input
+                              autoFocus
+                              className="flex-1 text-xs bg-transparent border-b border-primary outline-none text-foreground font-medium px-0.5"
+                              value={editNameValue}
+                              onChange={(e) => setEditNameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleConfirmRename(m.id);
+                                if (e.key === "Escape") { setEditingName(null); setEditNameValue(""); }
+                              }}
+                            />
+                            <button
+                              className="text-[10px] px-1.5 py-0.5 rounded text-white shrink-0"
+                              style={{ backgroundColor: color.accent }}
+                              onClick={() => handleConfirmRename(m.id)}
+                              disabled={renameMutation.isPending}
+                            >
+                              {renameMutation.isPending ? "..." : "OK"}
+                            </button>
+                            <button
+                              className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground border border-muted shrink-0"
+                              onClick={() => { setEditingName(null); setEditNameValue(""); }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <span
+                            className="flex-1 text-xs text-foreground truncate font-medium cursor-pointer hover:underline hover:text-primary transition-colors"
+                            title="Clique para editar o nome"
+                            onClick={() => handleStartRename(m.id, m.name)}
+                          >
+                            {m.name}
+                          </span>
+                        )}
                         <span className="text-[10px] px-1.5 py-0.5 rounded text-white truncate max-w-[110px]"
                           style={{ backgroundColor: topicColor.accent + "cc" }}>
                           {m.topicName?.split(" ").slice(0, 3).join(" ")}

@@ -31,6 +31,7 @@ import {
   Send, Lock, Unlock, RefreshCw, Smartphone
 } from "lucide-react";
 import DigitalExamControl from "./DigitalExamControl";
+import LiveQuizControl from "./LiveQuizControl";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ExamVersion = "A" | "B" | "C" | "D";
@@ -832,7 +833,7 @@ function LaunchP1Panel({ students, prova, classId: classIdProp, turmaName }: { s
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function ExamTools() {
-  const [activeTab, setActiveTab] = useState<"cover" | "correction" | "launch" | "digital">("correction");
+  const [activeTab, setActiveTab] = useState<"cover" | "correction" | "launch" | "digital" | "quiz">("correction");
   const [examConfig, setExamConfig] = useState<ExamConfig>({
     disciplina: "Farmacologia I",
     turma: TURMAS[0],
@@ -1106,6 +1107,13 @@ export default function ExamTools() {
               className={activeTab === "digital" ? "bg-blue-600 text-white" : "text-blue-400 hover:text-white hover:bg-blue-600/30"}
             >
               <Smartphone className="w-3.5 h-3.5 mr-1" /> Prova Digital
+            </Button>
+            <Button
+              variant="ghost" size="sm"
+              onClick={() => setActiveTab("quiz")}
+              className={activeTab === "quiz" ? "bg-red-600 text-white" : "text-red-400 hover:text-white hover:bg-red-600/30"}
+            >
+              <Trophy className="w-3.5 h-3.5 mr-1" /> Quiz ao Vivo (P2)
             </Button>
           </div>
         </div>
@@ -1470,6 +1478,10 @@ export default function ExamTools() {
         {/* ── TAB: PROVA DIGITAL ─────────────────────────────────────────────── */}
         {activeTab === "digital" && (
           <DigitalExamControl />
+        )}
+        {/* ── TAB: QUIZ AO VIVO (P2) ──────────────────────────────────────────── */}
+        {activeTab === "quiz" && (
+          <LiveQuizControl />
         )}
       </div>
     </div>

@@ -1158,6 +1158,167 @@ export const appRouter = router({
           .where(eq(digitalExamSessions.id, input.sessionId));
         return { success: true, graded };
       }),
+
+    // ─── Quiz ao Vivo: criar sessao ───
+    createLiveQuiz: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        provaType: z.string().default("P2"),
+        title: z.string().default("P2 - Quiz ao Vivo"),
+        questions: z.string(),
+        gabarito: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { liveQuizSessions } = await import("../drizzle/schema.js");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const questions = JSON.parse(input.questions);
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let accessCode = "";
+        for (let i = 0; i < 6; i++) accessCode += chars[Math.floor(Math.random() * chars.length)];
+        const [result] = await dbConn.insert(liveQuizSessions).values({
+          accessCode,
+          title: input.title,
+          provaType: input.provaType,
+          classId: input.classId,
+          teacherSessionToken: input.sessionToken,
+          questions: input.questions,
+          totalQuestions: questions.length,
+          gabarito: input.gabarito,
+          status: "lobby",
+          currentQuestionIndex: -1,
+        });
+        return { success: true, sessionId: (result as any).insertId, accessCode };
+      }),
+
+    // ─── Quiz ao Vivo: avancar questao ───
+    advanceLiveQuiz: publicProcedure
+      .input(z.object({ sessionToken: z.string(), sessionId: z.number() }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { liveQuizSessions } = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(liveQuizSessions).where(eq(liveQuizSessions.id, input.sessionId));
+        if (!session) throw new Error("Sessao nao encontrada");
+        const nextIndex = (session as any).currentQuestionIndex + 1;
+        const isFinished = nextIndex >= (session as any).totalQuestions;
+        await dbConn.update(liveQuizSessions).set({
+          currentQuestionIndex: isFinished ? (session as any).totalQuestions - 1 : nextIndex,
+          status: isFinished ? "finished" : "active",
+          finishedAt: isFinished ? new Date() : undefined,
+        }).where(eq(liveQuizSessions.id, input.sessionId));
+        return { success: true, finished: isFinished, currentIndex: isFinished ? (session as any).totalQuestions - 1 : nextIndex };
+      }),
+
+    // ─── Quiz ao Vivo: fechar questao atual ───
+    closeLiveQuizQuestion: publicProcedure
+      .input(z.object({ sessionToken: z.string(), sessionId: z.number() }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { liveQuizSessions } = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        await dbConn.update(liveQuizSessions).set({ status: "question_closed" }).where(eq(liveQuizSessions.id, input.sessionId));
+        return { success: true };
+      }),
+
+    // ─── Quiz ao Vivo: liberar gabarito ───
+    releaseLiveQuizGabarito: publicProcedure
+      .input(z.object({ sessionToken: z.string(), sessionId: z.number() }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { liveQuizSessions } = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        await dbConn.update(liveQuizSessions).set({
+          status: "gabarito_released",
+          gabaritReleasedAt: new Date(),
+        }).where(eq(liveQuizSessions.id, input.sessionId));
+        return { success: true };
+      }),
+
+    // ─── Quiz ao Vivo: lancar notas P2 automaticamente ───
+    gradeLiveQuiz: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        sessionId: z.number(),
+        provaType: z.enum(["P1", "P2"]),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { liveQuizSessions, liveQuizAnswers } = await import("../drizzle/schema.js");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(liveQuizSessions).where(eq(liveQuizSessions.id, input.sessionId));
+        if (!session) throw new Error("Sessao nao encontrada");
+        const gabarito = JSON.parse((session as any).gabarito || "[]");
+        const totalQuestions = (session as any).totalQuestions || gabarito.length;
+        const pointsPerQuestion = totalQuestions > 0 ? 10 / totalQuestions : 0;
+        const allAnswers = await dbConn.select().from(liveQuizAnswers).where(eq(liveQuizAnswers.sessionId, input.sessionId));
+        const memberScores: Record<number, { memberId: number; memberName: string; classId: number; correct: number }> = {};
+        for (const answer of allAnswers) {
+          const mid = (answer as any).memberId;
+          if (!memberScores[mid]) memberScores[mid] = { memberId: mid, memberName: (answer as any).memberName, classId: (answer as any).classId, correct: 0 };
+          if ((answer as any).isCorrect) memberScores[mid].correct++;
+        }
+        const { examStudentGrades } = await import("../drizzle/schema.js");
+        let launched = 0;
+        for (const ms of Object.values(memberScores)) {
+          const score = parseFloat((ms.correct * pointsPerQuestion).toFixed(2));
+          try {
+            await dbConn.insert(examStudentGrades).values({
+              memberId: ms.memberId, classId: ms.classId, provaType: input.provaType,
+              score: score.toString(), correctCount: ms.correct, totalQuestions,
+              gradedAt: new Date(), gradedBy: teacher.name || "Sistema",
+            } as any).onDuplicateKeyUpdate({ set: { score: score.toString(), correctCount: ms.correct, gradedAt: new Date() } });
+            launched++;
+          } catch (e: any) { console.warn('[gradeLiveQuiz]', e?.message?.substring(0, 80)); }
+        }
+        return { success: true, launched, totalStudents: Object.keys(memberScores).length };
+      }),
+
+    // ─── Quiz ao Vivo: status para o professor ───
+    getLiveQuizStatus: publicProcedure
+      .input(z.object({ sessionToken: z.string(), sessionId: z.number() }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { liveQuizSessions, liveQuizAnswers } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(liveQuizSessions).where(eq(liveQuizSessions.id, input.sessionId));
+        if (!session) throw new Error("Sessao nao encontrada");
+        const currentIdx = (session as any).currentQuestionIndex;
+        const answersCurrentQ = currentIdx >= 0
+          ? await dbConn.select().from(liveQuizAnswers).where(and(eq(liveQuizAnswers.sessionId, input.sessionId), eq(liveQuizAnswers.questionIndex, currentIdx)))
+          : [];
+        const allAnswers = await dbConn.select().from(liveQuizAnswers).where(eq(liveQuizAnswers.sessionId, input.sessionId));
+        const uniqueStudents = new Set(allAnswers.map((a: any) => a.memberId)).size;
+        return {
+          session: {
+            id: (session as any).id, accessCode: (session as any).accessCode,
+            title: (session as any).title, status: (session as any).status,
+            currentQuestionIndex: currentIdx, totalQuestions: (session as any).totalQuestions,
+            classId: (session as any).classId, gabaritReleasedAt: (session as any).gabaritReleasedAt,
+            finishedAt: (session as any).finishedAt,
+          },
+          answersCurrentQuestion: answersCurrentQ.length,
+          totalStudentsAnswered: uniqueStudents,
+        };
+      }),
   }),
   // ─── Super Admin Profile & Stats ───
   superAdmin: router({
@@ -3094,6 +3255,116 @@ export const appRouter = router({
           });
         }
         return { success: true, message: "Prova enviada com sucesso!" };
+      }),
+
+    // ─── Quiz ao Vivo: aluno entra na sessao pelo codigo ───
+    joinLiveQuiz: publicProcedure
+      .input(z.object({ accessCode: z.string(), sessionToken: z.string() }))
+      .query(async ({ input }) => {
+        const account = await db.getStudentAccountBySessionToken(input.sessionToken);
+        if (!account || !account.memberId) return { found: false, message: "Sessao invalida" };
+        const { liveQuizSessions, liveQuizAnswers } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(liveQuizSessions)
+          .where(eq(liveQuizSessions.accessCode, input.accessCode.toUpperCase()));
+        if (!session) return { found: false, message: "Codigo invalido" };
+        if ((session as any).status === "finished" || (session as any).status === "gabarito_released") {
+          // Retornar gabarito se liberado
+          const myAnswers = await dbConn.select().from(liveQuizAnswers)
+            .where(and(eq(liveQuizAnswers.sessionId, (session as any).id), eq(liveQuizAnswers.memberId, account.memberId)));
+          const totalCorrect = myAnswers.filter((a: any) => a.isCorrect).length;
+          const totalQ = (session as any).totalQuestions;
+          const score = totalQ > 0 ? parseFloat((totalCorrect * 10 / totalQ).toFixed(2)) : 0;
+          return {
+            found: true, sessionId: (session as any).id,
+            status: (session as any).status, currentQuestionIndex: (session as any).currentQuestionIndex,
+            totalQuestions: totalQ, title: (session as any).title,
+            gabarito: (session as any).status === "gabarito_released" ? JSON.parse((session as any).gabarito || "[]") : null,
+            questions: JSON.parse((session as any).questions || "[]"),
+            myAnswers: myAnswers.map((a: any) => ({ questionIndex: a.questionIndex, answer: a.answer, isCorrect: a.isCorrect })),
+            score, totalCorrect,
+          };
+        }
+        return {
+          found: true, sessionId: (session as any).id,
+          status: (session as any).status, currentQuestionIndex: (session as any).currentQuestionIndex,
+          totalQuestions: (session as any).totalQuestions, title: (session as any).title,
+          gabarito: null, questions: null, myAnswers: null, score: null, totalCorrect: null,
+        };
+      }),
+
+    // ─── Quiz ao Vivo: aluno busca questao atual ───
+    getLiveQuizCurrentQuestion: publicProcedure
+      .input(z.object({ sessionId: z.number(), sessionToken: z.string() }))
+      .query(async ({ input }) => {
+        const account = await db.getStudentAccountBySessionToken(input.sessionToken);
+        if (!account || !account.memberId) throw new Error("Nao autorizado");
+        const { liveQuizSessions, liveQuizAnswers } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(liveQuizSessions).where(eq(liveQuizSessions.id, input.sessionId));
+        if (!session) throw new Error("Sessao nao encontrada");
+        const currentIdx = (session as any).currentQuestionIndex;
+        const questions = JSON.parse((session as any).questions || "[]");
+        const currentQ = currentIdx >= 0 && currentIdx < questions.length ? questions[currentIdx] : null;
+        // Verificar se ja respondeu esta questao
+        const myAnswer = currentIdx >= 0
+          ? await dbConn.select().from(liveQuizAnswers)
+              .where(and(eq(liveQuizAnswers.sessionId, input.sessionId), eq(liveQuizAnswers.memberId, account.memberId), eq(liveQuizAnswers.questionIndex, currentIdx)))
+          : [];
+        return {
+          status: (session as any).status,
+          currentQuestionIndex: currentIdx,
+          totalQuestions: (session as any).totalQuestions,
+          question: currentQ ? { ...currentQ, gabarito: undefined, justificativa: undefined } : null,
+          alreadyAnswered: myAnswer.length > 0,
+          myAnswer: myAnswer.length > 0 ? (myAnswer[0] as any).answer : null,
+        };
+      }),
+
+    // ─── Quiz ao Vivo: aluno submete resposta de uma questao ───
+    submitLiveQuizAnswer: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        sessionId: z.number(),
+        questionIndex: z.number(),
+        answer: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const account = await db.getStudentAccountBySessionToken(input.sessionToken);
+        if (!account || !account.memberId) throw new Error("Nao autorizado");
+        const { liveQuizSessions, liveQuizAnswers } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const [session] = await dbConn.select().from(liveQuizSessions).where(eq(liveQuizSessions.id, input.sessionId));
+        if (!session) throw new Error("Sessao nao encontrada");
+        if ((session as any).status === "question_closed" || (session as any).status === "finished") {
+          return { success: false, message: "Tempo esgotado para esta questao" };
+        }
+        const gabarito = JSON.parse((session as any).gabarito || "[]");
+        const correctAnswer = gabarito[input.questionIndex]?.gabarito || gabarito[input.questionIndex]?.answer || "";
+        const isCorrect = input.answer.trim().toUpperCase() === correctAnswer.trim().toUpperCase() ? 1 : 0;
+        const memberInfo = await db.getMemberById(account.memberId);
+        try {
+          await dbConn.insert(liveQuizAnswers).values({
+            sessionId: input.sessionId,
+            memberId: account.memberId,
+            memberName: memberInfo?.displayName || memberInfo?.name || "Aluno",
+            classId: memberInfo?.classId || 0,
+            questionIndex: input.questionIndex,
+            answer: input.answer,
+            isCorrect,
+            pointsEarned: "0",
+          });
+        } catch (e: any) {
+          if (e?.message?.includes("Duplicate")) return { success: true, alreadyAnswered: true };
+          throw e;
+        }
+        return { success: true, isCorrect: isCorrect === 1 };
       }),
   }),
   // ─── Invite Codes (Códigos de Convite para Monitores/Externos) ───

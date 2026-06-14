@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean, uniqueIndex, tinyint } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -1728,3 +1728,96 @@ export const monitoringCertificates = mysqlTable("monitoringCertificates", {
 });
 export type MonitoringCertificate = typeof monitoringCertificates.$inferSelect;
 export type InsertMonitoringCertificate = typeof monitoringCertificates.$inferInsert;
+
+/**
+ * Digital Exam Sessions - Sessoes de prova digital abertas pelo professor
+ * O professor abre uma sessao, alunos entram com o codigo, respondem no celular
+ */
+export const digitalExamSessions = mysqlTable("digitalExamSessions", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  provaType: mysqlEnum("provaType", ["P1", "P2"]).notNull(),
+  accessCode: varchar("accessCode", { length: 8 }).notNull(),
+  questions: text("questions").notNull(),
+  gabarito: text("gabarito").notNull(),
+  difficulties: text("difficulties").notNull(),
+  timeLimitMinutes: int("timeLimitMinutes").notNull().default(60),
+  status: mysqlEnum("status", ["open", "closed", "finished"]).notNull().default("open"),
+  openedAt: timestamp("openedAt").defaultNow().notNull(),
+  closedAt: timestamp("closedAt"),
+  createdByName: varchar("createdByName", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueCode: uniqueIndex("digitalExamSessions_accessCode").on(t.accessCode),
+}));
+export type DigitalExamSession = typeof digitalExamSessions.$inferSelect;
+export type InsertDigitalExamSession = typeof digitalExamSessions.$inferInsert;
+
+/**
+ * Digital Exam Responses - Respostas individuais dos alunos na prova digital
+ */
+export const digitalExamResponses = mysqlTable("digitalExamResponses", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull(),
+  memberId: int("memberId").notNull(),
+  memberName: varchar("memberName", { length: 200 }).notNull(),
+  classId: int("classId").notNull(),
+  questionOrder: text("questionOrder").notNull(),
+  answers: text("answers").notNull().default("[]"),
+  score: decimal("score", { precision: 5, scale: 2 }).default("0"),
+  correctCount: int("correctCount").default(0),
+  status: mysqlEnum("status", ["in_progress", "submitted", "graded"]).notNull().default("in_progress"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  submittedAt: timestamp("submittedAt"),
+  gradedAt: timestamp("gradedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueMemberSession: uniqueIndex("digitalExamResponses_memberId_sessionId").on(t.memberId, t.sessionId),
+}));
+export type DigitalExamResponse = typeof digitalExamResponses.$inferSelect;
+export type InsertDigitalExamResponse = typeof digitalExamResponses.$inferInsert;
+
+/**
+ * Live Quiz Sessions - Sessões do quiz ao vivo (P2 digital)
+ * Professor controla questão por questão; alunos respondem no celular
+ */
+export const liveQuizSessions = mysqlTable("liveQuizSessions", {
+  id: int("id").autoincrement().primaryKey(),
+  accessCode: varchar("accessCode", { length: 8 }).notNull(),
+  title: varchar("title", { length: 200 }).notNull().default("P2 - Quiz ao Vivo"),
+  provaType: varchar("provaType", { length: 10 }).notNull().default("P2"),
+  classId: int("classId").notNull(),
+  teacherSessionToken: varchar("teacherSessionToken", { length: 200 }).notNull(),
+  questions: text("questions").notNull().default("[]"),
+  currentQuestionIndex: int("currentQuestionIndex").notNull().default(-1),
+  totalQuestions: int("totalQuestions").notNull().default(0),
+  status: mysqlEnum("status", ["lobby", "active", "question_closed", "finished", "gabarito_released"]).notNull().default("lobby"),
+  gabarito: text("gabarito").notNull().default("[]"),
+  gabaritReleasedAt: timestamp("gabaritReleasedAt"),
+  finishedAt: timestamp("finishedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueCode: uniqueIndex("liveQuizSessions_accessCode").on(t.accessCode),
+}));
+export type LiveQuizSession = typeof liveQuizSessions.$inferSelect;
+export type InsertLiveQuizSession = typeof liveQuizSessions.$inferInsert;
+
+/**
+ * Live Quiz Answers - Respostas dos alunos por questão no quiz ao vivo
+ */
+export const liveQuizAnswers = mysqlTable("liveQuizAnswers", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull(),
+  memberId: int("memberId").notNull(),
+  memberName: varchar("memberName", { length: 200 }).notNull(),
+  classId: int("classId").notNull(),
+  questionIndex: int("questionIndex").notNull(),
+  answer: varchar("answer", { length: 200 }).notNull(),
+  isCorrect: tinyint("isCorrect").notNull().default(0),
+  pointsEarned: decimal("pointsEarned", { precision: 5, scale: 2 }).notNull().default("0"),
+  answeredAt: timestamp("answeredAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueAnswer: uniqueIndex("liveQuizAnswers_member_session_question").on(t.memberId, t.sessionId, t.questionIndex),
+}));
+export type LiveQuizAnswer = typeof liveQuizAnswers.$inferSelect;
+export type InsertLiveQuizAnswer = typeof liveQuizAnswers.$inferInsert;

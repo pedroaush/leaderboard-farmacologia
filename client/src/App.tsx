@@ -67,6 +67,7 @@ import ExamTools from "./pages/ExamTools";
 import ProfessorGrades from "./pages/ProfessorGrades";
 import AdminMonitors from "./pages/AdminMonitors";
 import DigitalExam from "./pages/DigitalExam";
+import LiveQuizStudent from "./pages/LiveQuizStudent";
 
 
 function Router() {
@@ -121,6 +122,12 @@ function Router() {
       <Route path={"/monitor/certificado"} component={MonitorCertificate} />
       <Route path={"/professor/ferramentas-prova"} component={ExamTools} />
       <Route path={"/prova-digital"} component={DigitalExam} />
+      <Route path={"/quiz-ao-vivo"} component={() => {
+        const token = localStorage.getItem("studentSessionToken") || "";
+        const name = localStorage.getItem("studentName") || "Aluno";
+        if (!token) { window.location.href = "/login-aluno"; return null; }
+        return <LiveQuizStudent studentToken={token} studentName={name} />;
+      }} />
       <Route path={"/professor/notas"} component={ProfessorGrades} />
 
       <Route path={"/professor/perfil"} component={TeacherProfile} />      <Route path={"/professor/login"} component={ProfessorLogin} />

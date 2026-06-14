@@ -807,7 +807,7 @@ export const jigsawCompleteRouter = router({
     /**
      * Get scores for home group
      */
-    getScores: protectedProcedure
+     getScores: protectedProcedure
       .input(z.object({ homeGroupId: z.number() }))
       .query(async ({ input }) => {
         try {
@@ -818,7 +818,6 @@ export const jigsawCompleteRouter = router({
             .select()
             .from(jigsawHomeMembers)
             .where(eq(jigsawHomeMembers.homeGroupId, input.homeGroupId));
-
           return memberScores.map((m: any) => ({
             memberId: m.memberId,
             presentationScore: m.presentationScore,
@@ -833,6 +832,32 @@ export const jigsawCompleteRouter = router({
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: "Erro ao buscar notas",
+          });
+        }
+      }),
+    /**
+     * Renomear membro no grupo mosaico (professor pode corrigir nomes)
+     */
+    renameMember: publicProcedure
+      .input(z.object({
+        memberId: z.number(),
+        newName: z.string().min(2).max(200),
+        sessionToken: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const db = await getDb();
+          if (!db) throw new Error("Database not available");
+          // Atualizar o nome na tabela members
+          await db
+            .update(members)
+            .set({ name: input.newName })
+            .where(eq(members.id, input.memberId));
+          return { success: true, memberId: input.memberId, newName: input.newName };
+        } catch (error) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao renomear membro",
           });
         }
       }),
