@@ -285,9 +285,13 @@ export default function Home() {
   const { data: leaderboard, isLoading } = trpc.leaderboard.getData.useQuery();
   const { data: classes } = trpc.classes.list.useQuery({ sessionToken: "" });
   const { logout, user } = useAuth();
-  const { student: studentData } = useStudentAuth();
+  const { student: studentData, sessionToken: studentSessionToken } = useStudentAuth();
   const [, setLocation] = useLocation();
-
+  // Verificar se há quiz ao vivo ativo
+  const { data: activeLiveQuiz } = trpc.studentAuth.getActiveLiveQuiz.useQuery(
+    { sessionToken: studentSessionToken || "" },
+    { enabled: !!studentSessionToken, refetchInterval: 15000 }
+  );
   // Badge ranking query
   const { data: badgeRanking, isLoading: badgeRankingLoading } = trpc.badges.getRanking.useQuery();
 
@@ -1243,6 +1247,23 @@ export default function Home() {
         </AnimatePresence>
       </div>
 
+      {/* Botão flutuante Quiz ao Vivo - aparece quando há sessão ativa */}
+      {activeLiveQuiz?.found && (
+        <Link href="/quiz-ao-vivo">
+          <motion.div
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-sm text-white shadow-2xl cursor-pointer"
+            style={{ backgroundColor: ORANGE, boxShadow: `0 0 24px ${ORANGE}80` }}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <Zap size={18} />
+            <span>Quiz ao Vivo</span>
+          </motion.div>
+        </Link>
+      )}
       {/* Footer */}
       <footer className="py-6 2xl:py-10 px-4 2xl:px-8" style={{ borderTop: `1px solid rgba(247,148,29,0.1)`, backgroundColor: CARD_BG }}>
         <div className="container text-center">
