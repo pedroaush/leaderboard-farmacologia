@@ -429,12 +429,19 @@ export default function LiveQuizControl() {
   const handleCreate = async () => {
     setCreating(true);
     try {
+      // Serializar questions e extrair gabarito separadamente
+      const gabarito = JSON.stringify(
+        P2_QUESTIONS.reduce((acc: Record<number, string>, q: any, idx: number) => {
+          acc[idx] = q.gabarito;
+          return acc;
+        }, {})
+      );
       const res = await callApi("teacherAuth.createLiveQuiz", {
         sessionToken: token,
         classId: selectedClassId,
         provaType: selectedProva,
-        timeLimitSeconds: timeLimitSec,
-        questions: P2_QUESTIONS,
+        questions: JSON.stringify(P2_QUESTIONS),
+        gabarito,
       });
       if (res?.sessionId) {
         setSessionId(res.sessionId);
