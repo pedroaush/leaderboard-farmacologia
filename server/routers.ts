@@ -1307,14 +1307,17 @@ export const appRouter = router({
           : [];
         const allAnswers = await dbConn.select().from(liveQuizAnswers).where(eq(liveQuizAnswers.sessionId, input.sessionId));
         const uniqueStudents = new Set(allAnswers.map((a: any) => a.memberId)).size;
-        // Buscar participantes conectados (lastSeenAt nos ultimos 30s)
+        // Buscar participantes conectados (lastSeenAt nos ultimos 10 minutos)
         let participants: { memberId: number; memberName: string }[] = [];
         try {
-          const [rows] = await (dbConn as any).execute(
-            `SELECT memberId, memberName FROM liveQuizParticipants WHERE sessionId = ? AND lastSeenAt >= DATE_SUB(NOW(), INTERVAL 60 SECOND) ORDER BY joinedAt ASC`,
-            [input.sessionId]
-          );
-          participants = (rows as any[]).map((r: any) => ({ memberId: r.memberId, memberName: r.memberName }));
+          const rawDb = await db.getRawDb();
+          if (rawDb) {
+            const [rows] = await rawDb.execute(
+              `SELECT memberId, memberName FROM liveQuizParticipants WHERE sessionId = ? AND lastSeenAt >= DATE_SUB(NOW(), INTERVAL 10 MINUTE) ORDER BY joinedAt ASC`,
+              [input.sessionId]
+            );
+            participants = (rows as any[]).map((r: any) => ({ memberId: r.memberId, memberName: r.memberName }));
+          }
         } catch (_) { /* silently ignore */ }
         return {
           session: {
@@ -3283,12 +3286,15 @@ export const appRouter = router({
         if (!session) return { found: false, message: "Codigo invalido" };
         // Registrar participante no lobby (UPSERT)
         try {
-          await dbConn.execute(
-            `INSERT INTO liveQuizParticipants (sessionId, memberId, memberName, classId, joinedAt, lastSeenAt)
-             VALUES (?, ?, ?, ?, NOW(), NOW())
-             ON DUPLICATE KEY UPDATE lastSeenAt = NOW()`,
-            [(session as any).id, account.memberId, account.displayName || 'Aluno', (session as any).classId]
-          );
+          const rawDb = await db.getRawDb();
+          if (rawDb) {
+            await rawDb.execute(
+              `INSERT INTO liveQuizParticipants (sessionId, memberId, memberName, classId, joinedAt, lastSeenAt)
+               VALUES (?, ?, ?, ?, NOW(), NOW())
+               ON DUPLICATE KEY UPDATE lastSeenAt = NOW()`,
+              [(session as any).id, account.memberId, account.displayName || account.memberName || 'Aluno', (session as any).classId]
+            );
+          }
         } catch (_) { /* silently ignore participant tracking errors */ }
         if ((session as any).status === "finished" || (session as any).status === "gabarito_released") {
           // Retornar gabarito se liberado
