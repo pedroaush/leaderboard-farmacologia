@@ -4130,6 +4130,14 @@ export const appRouter = router({
 
   // ─── Classes (Turmas) ───
   classes: router({
+    // Get basic public info of a class (name, course) without teacher auth - for student area
+    getPublicInfo: publicProcedure
+      .input(z.object({ classId: z.number() }))
+      .query(async ({ input }) => {
+        const cls = await db.getClassById(input.classId);
+        if (!cls) throw new Error("Turma n\u00e3o encontrada");
+        return { id: cls.id, name: cls.name, course: cls.course, discipline: (cls as any).discipline };
+      }),
     // List all classes without authentication (for UI selectors)
     listAll: publicProcedure
       .query(async () => {

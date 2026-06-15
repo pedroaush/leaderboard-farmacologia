@@ -32,10 +32,16 @@ export default function StudentArea() {
     { enabled: !!studentSessionToken, refetchInterval: 15000 }
   );
 
-  const { data: classData } = trpc.classes.getById.useQuery(
-    { classId: classId || 0, sessionToken: "" },
-    { enabled: !!classId }
+  // Para alunos (sem OAuth), usar endpoint público; para professores/OAuth usar getById
+  const { data: classDataPublic } = trpc.classes.getPublicInfo.useQuery(
+    { classId: classId || 0 },
+    { enabled: !!classId && !user }
   );
+  const { data: classDataFull } = trpc.classes.getById.useQuery(
+    { classId: classId || 0, sessionToken: "" },
+    { enabled: !!classId && !!user }
+  );
+  const classData = user ? classDataFull : classDataPublic;
 
   // Buscar dados filtrados por turma
   const { data: leaderboardData } = trpc.leaderboard.getDataByClass.useQuery(
