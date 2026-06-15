@@ -540,8 +540,10 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
 
   const currentQ = currentQIdx >= 0 ? P2_QUESTIONS[currentQIdx] : null;
   const totalQ = P2_QUESTIONS.length;
-  const answeredCount = sessionStatus?.answeredCount || 0;
-  const totalStudents = sessionStatus?.totalStudents || 0;
+  const answeredCount = sessionStatus?.answersCurrentQuestion || 0;
+  const totalStudents = sessionStatus?.totalStudentsAnswered || 0;
+  const participants: { memberId: number; memberName: string }[] = sessionStatus?.participants || [];
+  const participantCount = sessionStatus?.participantCount || participants.length || 0;
   const isFinished = sessionStatus?.status === "finished" || sessionStatus?.status === "gabarito_released";
 
   // ─── LOGIN ───
@@ -648,10 +650,12 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
                 <div className="text-right">
                   <div className="flex items-center gap-1 text-green-400">
                     <Users className="w-4 h-4" />
-                    <span className="text-2xl font-bold">{answeredCount}</span>
-                    <span className="text-gray-400 text-sm">/{totalStudents}</span>
+                    <span className="text-2xl font-bold">{participantCount}</span>
                   </div>
-                  <p className="text-gray-400 text-xs">responderam</p>
+                  <p className="text-gray-400 text-xs">no lobby</p>
+                  {answeredCount > 0 && (
+                    <p className="text-yellow-400 text-xs mt-1">{answeredCount} responderam</p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -665,6 +669,16 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
                   <Loader2 className="w-8 h-8 text-gray-500 animate-spin mx-auto mb-2" />
                   <p className="text-gray-400">Aguardando alunos entrarem no lobby...</p>
                   <p className="text-gray-500 text-sm mt-1">Clique em "Iniciar Q1" quando todos estiverem conectados</p>
+                  {participants.length > 0 && (
+                    <div className="mt-3 text-left">
+                      <p className="text-green-400 text-xs font-semibold mb-1">✅ {participantCount} conectado(s):</p>
+                      <div className="max-h-40 overflow-y-auto space-y-0.5">
+                        {participants.map((p) => (
+                          <p key={p.memberId} className="text-gray-300 text-xs">• {p.memberName}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : currentQ ? (
                 <div>

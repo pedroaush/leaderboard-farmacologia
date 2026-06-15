@@ -1821,3 +1821,20 @@ export const liveQuizAnswers = mysqlTable("liveQuizAnswers", {
 }));
 export type LiveQuizAnswer = typeof liveQuizAnswers.$inferSelect;
 export type InsertLiveQuizAnswer = typeof liveQuizAnswers.$inferInsert;
+
+/**
+ * Live Quiz Participants - Rastreamento de alunos conectados ao lobby
+ */
+export const liveQuizParticipants = mysqlTable("liveQuizParticipants", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull(),
+  memberId: int("memberId").notNull(),
+  memberName: varchar("memberName", { length: 200 }).notNull(),
+  classId: int("classId").notNull(),
+  joinedAt: timestamp("joinedAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueParticipant: uniqueIndex("liveQuizParticipants_member_session").on(t.memberId, t.sessionId),
+}));
+export type LiveQuizParticipant = typeof liveQuizParticipants.$inferSelect;
+export type InsertLiveQuizParticipant = typeof liveQuizParticipants.$inferInsert;

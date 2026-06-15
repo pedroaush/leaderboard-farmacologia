@@ -1307,6 +1307,15 @@ export const appRouter = router({
           : [];
         const allAnswers = await dbConn.select().from(liveQuizAnswers).where(eq(liveQuizAnswers.sessionId, input.sessionId));
         const uniqueStudents = new Set(allAnswers.map((a: any) => a.memberId)).size;
+        // Buscar participantes conectados (lastSeenAt nos ultimos 30s)
+        let participants: { memberId: number; memberName: string }[] = [];
+        try {
+          const [rows] = await (dbConn as any).execute(
+            `SELECT memberId, memberName FROM liveQuizParticipants WHERE sessionId = ? AND lastSeenAt >= DATE_SUB(NOW(), INTERVAL 60 SECOND) ORDER BY joinedAt ASC`,
+            [input.sessionId]
+          );
+          participants = (rows as any[]).map((r: any) => ({ memberId: r.memberId, memberName: r.memberName }));
+        } catch (_) { /* silently ignore */ }
         return {
           session: {
             id: (session as any).id, accessCode: (session as any).accessCode,
@@ -1317,6 +1326,8 @@ export const appRouter = router({
           },
           answersCurrentQuestion: answersCurrentQ.length,
           totalStudentsAnswered: uniqueStudents,
+          participants,
+          participantCount: participants.length,
         };
       }),
   }),
@@ -3270,6 +3281,15 @@ export const appRouter = router({
         const [session] = await dbConn.select().from(liveQuizSessions)
           .where(eq(liveQuizSessions.accessCode, input.accessCode.toUpperCase()));
         if (!session) return { found: false, message: "Codigo invalido" };
+        // Registrar participante no lobby (UPSERT)
+        try {
+          await dbConn.execute(
+            `INSERT INTO liveQuizParticipants (sessionId, memberId, memberName, classId, joinedAt, lastSeenAt)
+             VALUES (?, ?, ?, ?, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE lastSeenAt = NOW()`,
+            [(session as any).id, account.memberId, account.displayName || 'Aluno', (session as any).classId]
+          );
+        } catch (_) { /* silently ignore participant tracking errors */ }
         if ((session as any).status === "finished" || (session as any).status === "gabarito_released") {
           // Retornar gabarito se liberado
           const myAnswers = await dbConn.select().from(liveQuizAnswers)

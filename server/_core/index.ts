@@ -789,6 +789,22 @@ async function startServer() {
         } catch (err: any) {
           console.warn('[Migration] liveQuizAnswers:', err?.message?.substring(0, 80));
         }
+        // Migracao: criar tabela liveQuizParticipants (participantes conectados ao lobby)
+        try {
+          await rawDb.execute(`CREATE TABLE IF NOT EXISTS liveQuizParticipants (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sessionId INT NOT NULL,
+            memberId INT NOT NULL,
+            memberName VARCHAR(200) NOT NULL,
+            classId INT NOT NULL,
+            joinedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            lastSeenAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY liveQuizParticipants_member_session (memberId, sessionId)
+          )`);
+          console.log('[Migration] OK: liveQuizParticipants table created/exists');
+        } catch (err: any) {
+          console.warn('[Migration] liveQuizParticipants:', err?.message?.substring(0, 80));
+        }
 
         // === CRON JOB: Verificar e conceder bônus de eventos (a cada 30 minutos) ===
         async function checkEventBonuses() {
