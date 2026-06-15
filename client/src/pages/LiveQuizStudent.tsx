@@ -40,19 +40,19 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
   }, []);
 
   // Entrar no quiz
-  const { data: joinResult, refetch: refetchJoin } = trpc.studentDashboard.joinLiveQuiz.useQuery(
+  const { data: joinResult, refetch: refetchJoin } = trpc.studentAuth.joinLiveQuiz.useQuery(
     { accessCode: code.toUpperCase(), sessionToken: studentToken },
     { enabled: false }
   );
 
   // Questão atual (polling a cada 2s)
-  const { data: questionData, refetch: refetchQuestion } = trpc.studentDashboard.getLiveQuizCurrentQuestion.useQuery(
+  const { data: questionData, refetch: refetchQuestion } = trpc.studentAuth.getLiveQuizCurrentQuestion.useQuery(
     { sessionId: sessionId || 0, sessionToken: studentToken },
     { enabled: !!sessionId && (phase === "lobby" || phase === "question" || phase === "waiting"), refetchInterval: 2000 }
   );
 
   // Submeter resposta
-  const submitMutation = trpc.studentDashboard.submitLiveQuizAnswer.useMutation({
+  const submitMutation = trpc.studentAuth.submitLiveQuizAnswer.useMutation({
     onSuccess: (data) => {
       if (data.success) {
         setSubmitted(true);
@@ -97,7 +97,7 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
   }, [questionData]);
 
   // Buscar gabarito quando liberado
-  const { data: gabaritData, refetch: refetchGabarito } = trpc.studentDashboard.joinLiveQuiz.useQuery(
+  const { data: gabaritData, refetch: refetchGabarito } = trpc.studentAuth.joinLiveQuiz.useQuery(
     { accessCode: code.toUpperCase(), sessionToken: studentToken },
     { enabled: phase === "gabarito", refetchInterval: false }
   );
