@@ -157,7 +157,8 @@ export default function StudentArea() {
     return (a1 * 0.3 + a2 * 0.3 + pfVal * 0.4);
   }, [av1, av2, pf]);
 
-  if (!user) {
+  // Aceitar login OAuth (user) OU login de aluno via studentSessionToken
+  if (!user && !studentSessionToken) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: DARK_BG }}>
         <div className="text-center">
@@ -197,7 +198,8 @@ export default function StudentArea() {
     );
   }
 
-  if (!isEnrolled) {
+  // Alunos logados via studentSessionToken sempre têm acesso (já validado no login)
+  if (!studentSessionToken && !isEnrolled) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: DARK_BG }}>
         <div className="text-center max-w-md">
