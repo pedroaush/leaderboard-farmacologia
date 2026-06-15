@@ -1459,7 +1459,7 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
       {/* ─── TAB: QUIZ AO VIVO ─── */}
       {tab === "quiz" && (
         <div className="space-y-4">
-          <LiveQuizControl />
+          <LiveQuizControl teacherToken={teacherToken} />
         </div>
       )}
     </div>

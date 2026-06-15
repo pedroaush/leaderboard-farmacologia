@@ -375,8 +375,12 @@ const P2_QUESTIONS = [
   }
 ];
 
-export default function LiveQuizControl() {
-  const [token, setToken] = useState(() => localStorage.getItem(TEACHER_TOKEN_KEY) || "");
+interface LiveQuizControlProps {
+  teacherToken?: string;
+}
+
+export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizControlProps = {}) {
+  const [token, setToken] = useState(() => propToken || localStorage.getItem(TEACHER_TOKEN_KEY) || "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
