@@ -68,7 +68,19 @@ import ProfessorGrades from "./pages/ProfessorGrades";
 import AdminMonitors from "./pages/AdminMonitors";
 import DigitalExam from "./pages/DigitalExam";
 import LiveQuizStudent from "./pages/LiveQuizStudent";
+import { useStudentAuth } from "./pages/StudentLogin";
 
+function LiveQuizStudentWrapper() {
+  const { student, sessionToken, isLoading } = useStudentAuth();
+  if (isLoading) return <div style={{color:'white',padding:'2rem'}}>Carregando...</div>;
+  if (!sessionToken) {
+    localStorage.setItem("attendance_return_url", "/quiz-ao-vivo");
+    window.location.href = "/login-aluno";
+    return null;
+  }
+  const name = student?.memberName || student?.name || "Aluno";
+  return <LiveQuizStudent studentToken={sessionToken} studentName={name} />;
+}
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -122,16 +134,7 @@ function Router() {
       <Route path={"/monitor/certificado"} component={MonitorCertificate} />
       <Route path={"/professor/ferramentas-prova"} component={ExamTools} />
       <Route path={"/prova-digital"} component={DigitalExam} />
-      <Route path={"/quiz-ao-vivo"} component={() => {
-        const token = localStorage.getItem("studentSessionToken") || "";
-        const name = localStorage.getItem("studentName") || "Aluno";
-        if (!token) {
-          localStorage.setItem("attendance_return_url", "/quiz-ao-vivo");
-          window.location.href = "/login-aluno";
-          return null;
-        }
-        return <LiveQuizStudent studentToken={token} studentName={name} />;
-      }} />
+      <Route path={"/quiz-ao-vivo"} component={LiveQuizStudentWrapper} />
       <Route path={"/professor/notas"} component={ProfessorGrades} />
 
       <Route path={"/professor/perfil"} component={TeacherProfile} />      <Route path={"/professor/login"} component={ProfessorLogin} />
