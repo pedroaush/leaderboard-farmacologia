@@ -737,13 +737,46 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
             </div>
           )}
 
-          {/* Reiniciar */}
+          {/* Gerar novo código sem sair do painel */}
           <Button
-            onClick={() => { setSessionId(null); setAccessCode(""); setCurrentQIdx(-1); setSessionStatus(null); }}
-            variant="ghost"
-            className="w-full text-gray-500 hover:text-gray-300 text-xs"
+            onClick={async () => {
+              if (!window.confirm("Criar nova sessão? O código atual será substituído.")) return;
+              setCreating(true);
+              try {
+                const gabarito = JSON.stringify(
+                  P2_QUESTIONS.reduce((acc: Record<number, string>, q: any, idx: number) => {
+                    acc[idx] = q.gabarito;
+                    return acc;
+                  }, {})
+                );
+                const res = await callApi("teacherAuth.createLiveQuiz", {
+                  sessionToken: token,
+                  classId: selectedClassId,
+                  provaType: selectedProva,
+                  questions: JSON.stringify(P2_QUESTIONS),
+                  gabarito,
+                });
+                if (res?.sessionId) {
+                  setSessionId(res.sessionId);
+                  setAccessCode(res.accessCode);
+                  setCurrentQIdx(-1);
+                  setSessionStatus(null);
+                  toast.success(`Nova sessão criada! Código: ${res.accessCode}`);
+                } else {
+                  toast.error(res?.message || "Erro ao criar nova sessão");
+                }
+              } catch (e: any) {
+                toast.error(e.message || "Erro ao criar nova sessão");
+              } finally {
+                setCreating(false);
+              }
+            }}
+            disabled={creating}
+            variant="outline"
+            className="w-full border-orange-700 text-orange-400 hover:bg-orange-900/30 text-xs mt-1"
           >
-            <RefreshCw className="w-3 h-3 mr-1" /> Criar novo quiz
+            {creating ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+            Gerar Novo Código (nova sessão)
           </Button>
         </>
       )}
