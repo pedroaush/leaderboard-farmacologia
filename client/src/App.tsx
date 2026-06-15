@@ -125,7 +125,11 @@ function Router() {
       <Route path={"/quiz-ao-vivo"} component={() => {
         const token = localStorage.getItem("studentSessionToken") || "";
         const name = localStorage.getItem("studentName") || "Aluno";
-        if (!token) { window.location.href = "/login-aluno"; return null; }
+        if (!token) {
+          localStorage.setItem("attendance_return_url", "/quiz-ao-vivo");
+          window.location.href = "/login-aluno";
+          return null;
+        }
         return <LiveQuizStudent studentToken={token} studentName={name} />;
       }} />
       <Route path={"/professor/notas"} component={ProfessorGrades} />
