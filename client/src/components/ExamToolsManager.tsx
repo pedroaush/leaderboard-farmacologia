@@ -1455,7 +1455,6 @@ export default function ExamToolsManager({ teacherToken, classes = [] }: ExamToo
           </div>
         </div>
       )}
-    </div>
 
       {/* ─── TAB: QUIZ AO VIVO ─── */}
       {tab === "quiz" && (
