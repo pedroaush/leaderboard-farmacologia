@@ -9,7 +9,7 @@ import {
   ArrowLeft, AlertCircle, Lock, Calendar, QrCode,
   BarChart3, BookOpen, Gamepad2, Target, Users,
   Download, Clock, CheckCircle, XCircle, FileText,
-  Puzzle, FlaskConical, Shuffle, Star, ChevronDown, ChevronUp
+  Puzzle, FlaskConical, Shuffle, Star, ChevronDown, ChevronUp, Zap
 } from "lucide-react";
 
 const DARK_BG = "#0A1628";
@@ -23,8 +23,14 @@ export default function StudentArea() {
   const [, setLocation] = useLocation();
 
   const { user } = useAuth();
-  const { student: studentData } = useStudentAuth();
+  const { student: studentData, sessionToken: studentSessionToken } = useStudentAuth();
   const memberId = studentData?.memberId || null;
+
+  // Verificar se há quiz ao vivo ativo
+  const { data: activeLiveQuiz } = trpc.studentAuth.getActiveLiveQuiz.useQuery(
+    { sessionToken: studentSessionToken || "" },
+    { enabled: !!studentSessionToken, refetchInterval: 15000 }
+  );
 
   const { data: classData } = trpc.classes.getById.useQuery(
     { classId: classId || 0, sessionToken: "" },
@@ -224,16 +230,30 @@ export default function StudentArea() {
         }}
       >
         <div className="container mx-auto px-3 sm:px-4 2xl:px-8 py-3 sm:py-4 2xl:py-6">
-          <div className="flex items-center gap-3">
-            <Link href="/leaderboard">
-              <button className="p-2 rounded-lg hover:bg-white/10 transition-colors">
-                <ArrowLeft size={20} className="text-white/60" />
-              </button>
-            </Link>
-            <div>
-              <h1 className="text-lg sm:text-xl 2xl:text-2xl font-bold text-white">Portal do Aluno</h1>
-              <p className="text-sm text-white/60">{classData.name}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Link href="/leaderboard">
+                <button className="p-2 rounded-lg hover:bg-white/10 transition-colors">
+                  <ArrowLeft size={20} className="text-white/60" />
+                </button>
+              </Link>
+              <div>
+                <h1 className="text-lg sm:text-xl 2xl:text-2xl font-bold text-white">Portal do Aluno</h1>
+                <p className="text-sm text-white/60">{classData.name}</p>
+              </div>
             </div>
+            {activeLiveQuiz?.found && (
+              <Link href="/quiz-ao-vivo">
+                <button
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm"
+                  style={{ backgroundColor: ORANGE, color: "#fff", animation: "pulse 2s infinite" }}
+                >
+                  <Zap size={16} />
+                  <span className="hidden sm:inline">Quiz ao Vivo</span>
+                  <span className="sm:hidden">Quiz</span>
+                </button>
+              </Link>
+            )}
           </div>
         </div>
       </div>

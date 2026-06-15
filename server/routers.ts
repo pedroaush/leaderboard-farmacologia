@@ -3366,6 +3366,24 @@ export const appRouter = router({
         }
         return { success: true, isCorrect: isCorrect === 1 };
       }),
+    // ─── Quiz ao Vivo: verificar se há sessão ativa (para botão na área do aluno) ───
+    getActiveLiveQuiz: publicProcedure
+      .input(z.object({ sessionToken: z.string() }))
+      .query(async ({ input }) => {
+        const account = await db.getStudentAccountBySessionToken(input.sessionToken);
+        if (!account || !account.memberId) return { found: false };
+        const { liveQuizSessions } = await import("../drizzle/schema.js");
+        const { or, eq } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) return { found: false };
+        // Buscar sessões ativas (lobby ou active)
+        const sessions = await dbConn.select().from(liveQuizSessions)
+          .where(or(eq(liveQuizSessions.status, "lobby"), eq(liveQuizSessions.status, "active")))
+          .limit(1);
+        if (!sessions.length) return { found: false };
+        const s = sessions[0] as any;
+        return { found: true, sessionId: s.id, accessCode: s.accessCode, title: s.title, status: s.status };
+      }),
   }),
   // ─── Invite Codes (Códigos de Convite para Monitores/Externos) ───
   inviteCodes: router({
