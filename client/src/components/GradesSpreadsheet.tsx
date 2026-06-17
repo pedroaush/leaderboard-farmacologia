@@ -291,8 +291,12 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
     };
   }, [filteredRows, weights, localOverrides]);
 
-  const exportCSV = useCallback(() => {
+  const exportXLS = useCallback(async () => {
     if (!filteredRows.length) return;
+    const XLSX = await import("xlsx");
+    const className = classesList.find(c => c.id === selectedClassId)?.name || "turma";
+
+    // ── Aba 1: Notas Completas ──
     const headers = [
       "Nome", "Equipe",
       "P1", "P2", "Média Provas",
@@ -301,7 +305,7 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
       "Jigsaw F1 /2", "Jigsaw F2 /5", "Jigsaw F3 /3", "Jigsaw Total /10",
       "Nota Atividades", "Média Final", "Prova Final?"
     ];
-    const lines = filteredRows.map(r => {
+    const rows = filteredRows.map(r => {
       const ov = localOverrides[r.memberId] || {};
       const g = (f: GradeField) => f in ov ? ov[f] : getFieldValue(r, f);
       const p1 = g("p1"); const p2 = g("p2");
@@ -313,32 +317,69 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
       const { nota: notaAtiv } = calcNotaAtividades(r, localOverrides);
       const media = calcFinalGrade(r, weights, localOverrides);
       return [
-        `"${r.memberName}"`, `"${r.teamEmoji} ${r.teamName}"`,
-        p1 !== null ? p1.toFixed(1) : "", p2 !== null ? p2.toFixed(1) : "",
-        mediaProvas !== null ? mediaProvas.toFixed(2) : "",
-        ...ks.map(v => v !== null ? v.toFixed(1) : ""),
-        mediaKs !== null ? mediaKs.toFixed(2) : "",
-        ...cs.map(v => v !== null ? v.toFixed(1) : ""),
-        mediaCs !== null ? mediaCs.toFixed(2) : "",
-        g("jigsaw_fase1") !== null ? g("jigsaw_fase1")!.toFixed(2) : "",
-        g("jigsaw_fase2") !== null ? g("jigsaw_fase2")!.toFixed(2) : "",
-        g("jigsaw_fase3") !== null ? g("jigsaw_fase3")!.toFixed(2) : "",
-        g("jigsaw_total") !== null ? g("jigsaw_total")!.toFixed(2) : "",
-        notaAtiv !== null ? notaAtiv.toFixed(2) : "",
-        media !== null ? media.toFixed(2) : "",
+        r.memberName, `${r.teamEmoji} ${r.teamName}`,
+        p1, p2, mediaProvas !== null ? parseFloat(mediaProvas.toFixed(2)) : null,
+        ...ks,
+        mediaKs !== null ? parseFloat(mediaKs.toFixed(2)) : null,
+        ...cs,
+        mediaCs !== null ? parseFloat(mediaCs.toFixed(2)) : null,
+        g("jigsaw_fase1"), g("jigsaw_fase2"), g("jigsaw_fase3"), g("jigsaw_total"),
+        notaAtiv !== null ? parseFloat(notaAtiv.toFixed(2)) : null,
+        media !== null ? parseFloat(media.toFixed(2)) : null,
         media !== null ? (media < weights.minPassGrade ? "SIM" : "NÃO") : "",
-      ].join(",");
+      ];
     });
-    const csv = [headers.join(","), ...lines].join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const className = classesList.find(c => c.id === selectedClassId)?.name || "turma";
-    a.href = url;
-    a.download = `notas_${className.replace(/\s+/g,"_")}_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Planilha exportada!");
+    const ws1 = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws1["!cols"] = headers.map((h, i) => ({ wch: i === 0 ? 30 : i === 1 ? 20 : 12 }));
+
+    // ── Aba 2: Resumo Final ──
+    const resumoHeaders = ["Nome", "Equipe", "Média Final", "Situação"];
+    const resumoRows = [...filteredRows]
+      .sort((a, b) => a.memberName.localeCompare(b.memberName))
+      .map(r => {
+        const media = calcFinalGrade(r, weights, localOverrides);
+        return [
+          r.memberName,
+          `${r.teamEmoji} ${r.teamName}`,
+          media !== null ? parseFloat(media.toFixed(2)) : null,
+          media !== null ? (media < weights.minPassGrade ? "PROVA FINAL" : "APROVADO") : "SEM NOTA",
+        ];
+      });
+    const ws2 = XLSX.utils.aoa_to_sheet([resumoHeaders, ...resumoRows]);
+    ws2["!cols"] = [{ wch: 30 }, { wch: 20 }, { wch: 14 }, { wch: 14 }];
+
+    // ── Aba 3: Estatísticas ──
+    const medias = filteredRows
+      .map(r => calcFinalGrade(r, weights, localOverrides))
+      .filter((v): v is number => v !== null);
+    const aprovados = medias.filter(v => v >= weights.minPassGrade).length;
+    const sorted = [...medias].sort((a, b) => a - b);
+    const mediana = sorted.length > 0
+      ? sorted.length % 2 === 0
+        ? (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2
+        : sorted[Math.floor(sorted.length/2)]
+      : null;
+    const statsData = [
+      ["Estatística", "Valor"],
+      ["Total de alunos", filteredRows.length],
+      ["Com nota final", medias.length],
+      ["Média da turma", medias.length > 0 ? parseFloat((medias.reduce((s,v)=>s+v,0)/medias.length).toFixed(2)) : null],
+      ["Mediana", mediana !== null ? parseFloat(mediana.toFixed(2)) : null],
+      ["Maior nota", sorted.length > 0 ? sorted[sorted.length-1] : null],
+      ["Menor nota", sorted.length > 0 ? sorted[0] : null],
+      ["Aprovados", aprovados],
+      ["Prova Final", medias.length - aprovados],
+      ["Taxa de aprovação", medias.length > 0 ? `${((aprovados/medias.length)*100).toFixed(1)}%` : "-"],
+    ];
+    const ws3 = XLSX.utils.aoa_to_sheet(statsData);
+    ws3["!cols"] = [{ wch: 22 }, { wch: 14 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws1, "Notas Completas");
+    XLSX.utils.book_append_sheet(wb, ws2, "Resumo Final");
+    XLSX.utils.book_append_sheet(wb, ws3, "Estatísticas");
+    XLSX.writeFile(wb, `notas_${className.replace(/\s+/g,"_")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    toast.success("Planilha XLS exportada!");
   }, [filteredRows, weights, localOverrides, classesList, selectedClassId]);
 
   const handleSort = (col: typeof sortBy) => {
@@ -370,9 +411,9 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary border border-border text-xs text-foreground hover:bg-secondary/80 transition-colors">
             <RefreshCw size={13} /> Atualizar
           </button>
-          <button onClick={exportCSV} disabled={!filteredRows.length}
+          <button onClick={exportXLS} disabled={!filteredRows.length}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
-            <Download size={13} /> Exportar CSV
+            <Download size={13} /> Exportar XLS
           </button>
         </div>
       </div>
