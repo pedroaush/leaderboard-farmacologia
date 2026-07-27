@@ -10,4 +10,7 @@ export const ENV = {
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
+  superAdminEmail: process.env.SUPER_ADMIN_EMAIL ?? "",
+  superAdminPasswordHash: process.env.SUPER_ADMIN_PASSWORD_HASH ?? "",
+  superAdminSecret: process.env.SUPER_ADMIN_SECRET ?? "",
 };

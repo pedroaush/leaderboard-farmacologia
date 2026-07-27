@@ -323,15 +323,23 @@ export const appRouter = router({
         password: z.string(),
       }))
       .mutation(async ({ input }) => {
-        const SUPER_ADMIN_EMAIL = "pedro.alexandre@unirio.br";
-        const SUPER_ADMIN_PASSWORD = "0702G@bi";
+        const SUPER_ADMIN_EMAIL = ENV.superAdminEmail;
+const SUPER_ADMIN_PASSWORD_HASH = ENV.superAdminPasswordHash;
 
-        if (input.email !== SUPER_ADMIN_EMAIL) {
-          return { success: false, message: "Email ou senha incorretos" } as const;
-        }
+if (!SUPER_ADMIN_EMAIL || !SUPER_ADMIN_PASSWORD_HASH) {
+  console.error("[superAdminLogin] SUPER_ADMIN_EMAIL/PASSWORD_HASH não configurados no ambiente.");
+  return { success: false, message: "Email ou senha incorretos" } as const;
+}
 
-        if (input.password !== SUPER_ADMIN_PASSWORD) {
-          return { success: false, message: "Email ou senha incorretos" } as const;
+if (input.email.toLowerCase().trim() !== SUPER_ADMIN_EMAIL.toLowerCase().trim()) {
+  return { success: false, message: "Email ou senha incorretos" } as const;
+}
+
+const senhaConfere = await bcrypt.compare(input.password, SUPER_ADMIN_PASSWORD_HASH);
+if (!senhaConfere) {
+  return { success: false, message: "Email ou senha incorretos" } as const;
+const passwordHash = await bcrypt.hash(SUPER_ADMIN_PASSWORD_HASH, 10);
+}
         }
 
         let teacher = await db.getTeacherAccountByEmail(SUPER_ADMIN_EMAIL);
@@ -508,10 +516,10 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         // Secret key for super admin creation (should be changed in production)
-        const SUPER_ADMIN_SECRET = process.env.SUPER_ADMIN_SECRET || "farmaco_super_2026";
-        
-        if (input.secretKey !== SUPER_ADMIN_SECRET) {
-          return { success: false, message: "Chave secreta inválida" } as const;
+       const SUPER_ADMIN_SECRET = ENV.superAdminSecret;
+
+if (!SUPER_ADMIN_SECRET) {
+  return { success: false, message: "Operação indisponível" } as const;
         }
 
         // Check if super admin already exists
