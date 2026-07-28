@@ -324,31 +324,28 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const SUPER_ADMIN_EMAIL = ENV.superAdminEmail;
-const SUPER_ADMIN_PASSWORD_HASH = ENV.superAdminPasswordHash;
+        const SUPER_ADMIN_PASSWORD_HASH = ENV.superAdminPasswordHash;
 
-if (!SUPER_ADMIN_EMAIL || !SUPER_ADMIN_PASSWORD_HASH) {
-  console.error("[superAdminLogin] SUPER_ADMIN_EMAIL/PASSWORD_HASH não configurados no ambiente.");
-  return { success: false, message: "Email ou senha incorretos" } as const;
-}
+        if (!SUPER_ADMIN_EMAIL || !SUPER_ADMIN_PASSWORD_HASH) {
+          console.error("[superAdminLogin] SUPER_ADMIN_EMAIL/PASSWORD_HASH não configurados no ambiente.");
+          return { success: false, message: "Email ou senha incorretos" } as const;
+        }
 
-if (input.email.toLowerCase().trim() !== SUPER_ADMIN_EMAIL.toLowerCase().trim()) {
-  return { success: false, message: "Email ou senha incorretos" } as const;
-}
+        if (input.email.toLowerCase().trim() !== SUPER_ADMIN_EMAIL.toLowerCase().trim()) {
+          return { success: false, message: "Email ou senha incorretos" } as const;
+        }
 
-const senhaConfere = await bcrypt.compare(input.password, SUPER_ADMIN_PASSWORD_HASH);
-if (!senhaConfere) {
-  return { success: false, message: "Email ou senha incorretos" } as const;
-const passwordHash = await bcrypt.hash(SUPER_ADMIN_PASSWORD_HASH, 10);
-}
+        const senhaConfere = await bcrypt.compare(input.password, SUPER_ADMIN_PASSWORD_HASH);
+        if (!senhaConfere) {
+          return { success: false, message: "Email ou senha incorretos" } as const;
         }
 
         let teacher = await db.getTeacherAccountByEmail(SUPER_ADMIN_EMAIL);
         if (!teacher) {
-          const passwordHash = await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10);
           const teacherId = await db.createTeacherAccount({
             email: SUPER_ADMIN_EMAIL,
             name: "Pedro Alexandre (Super Admin)",
-            passwordHash,
+            passwordHash: SUPER_ADMIN_PASSWORD_HASH,
             role: "super_admin",
             isActive: 1,
           });
