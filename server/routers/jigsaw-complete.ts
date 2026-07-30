@@ -1418,20 +1418,6 @@ submitSelfAssessment: publicProcedure
               .from(jigsawHomeMembers)
               .where(eq(jigsawHomeMembers.homeGroupId, hg[0].id));
             const memberDetails = await Promise.all(
-              hgMembers.map(async (m) => {
-                const md = await db.select().from(members).where(eq(members.id, m.memberId)).limit(1);
-                const topicData = await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, m.topicId)).limit(1);
-                return md[0] ? {
-                  id: md[0].id,
-                  name: cleanName(md[0].name),
-                  topicName: topicData[0]?.name || "Tópico",
-                  presentationScore: m.presentationScore,
-                  participationScore: m.participationScore,
-                  peerRating: m.peerRating,
-                } : null;
-              })
-            );
-            const memberDetails = await Promise.all(
   hgMembers.map(async (m) => {
     const md = await db.select().from(members).where(eq(members.id, m.memberId)).limit(1);
     const topicData = await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, m.topicId)).limit(1);
