@@ -1055,6 +1055,57 @@ export const jigsawCompleteRouter = router({
         }
       }),
   },
+submitSelfAssessment: publicProcedure
+  .input(z.object({
+    studentSessionToken: z.string(),
+    homeGroupId: z.number(),
+    contribuicaoEspecifica: z.string().min(10, "Descreva sua contribuição com um pouco mais de detalhe"),
+    explicouNoTempo: z.boolean(),
+    topicosNaoEntendidos: z.string().optional(),
+  }))
+  .mutation(async ({ input }) => {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+
+    const student = await db
+      .select()
+      .from(studentAccounts)
+      .where(and(eq(studentAccounts.sessionToken, input.studentSessionToken), eq(studentAccounts.isActive, 1)))
+      .limit(1);
+    if (!student.length || !student[0].memberId) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido" });
+    }
+    const memberId = student[0].memberId!;
+
+    const membership = await db
+      .select()
+      .from(jigsawHomeMembers)
+      .where(and(eq(jigsawHomeMembers.homeGroupId, input.homeGroupId), eq(jigsawHomeMembers.memberId, memberId)))
+      .limit(1);
+    if (!membership.length) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Você não pertence a este grupo-base" });
+    }
+
+    const existing = await db
+      .select()
+      .from(jigsawSelfAssessments)
+      .where(and(eq(jigsawSelfAssessments.homeGroupId, input.homeGroupId), eq(jigsawSelfAssessments.memberId, memberId)))
+      .limit(1);
+
+    const valores = {
+      contribuicaoEspecifica: input.contribuicaoEspecifica,
+      explicouNoTempo: input.explicouNoTempo ? 1 : 0,
+      topicosNaoEntendidos: input.topicosNaoEntendidos || null,
+    };
+
+    if (existing.length > 0) {
+      await db.update(jigsawSelfAssessments).set(valores).where(eq(jigsawSelfAssessments.id, existing[0].id));
+    } else {
+      await db.insert(jigsawSelfAssessments).values({ homeGroupId: input.homeGroupId, memberId, ...valores });
+    }
+
+    return { success: true };
+  }),
 
   /**
    * ========================================
@@ -1380,25 +1431,24 @@ export const jigsawCompleteRouter = router({
                 } : null;
               })
             );
-            homeGroup = {
-              ...hg[0],
-              members: memberDetails.filter(Boolean),
-              myTopicName: (await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, homeMembership[0].topicId)).limit(1))[0]?.name || "Tópico",
-              myPresentationScore: homeMembership[0].presentationScore,
-              myParticipationScore: homeMembership[0].participationScore,
-              myPeerRating: homeMembership[0].peerRating,
-            };
-          }
-        }
-
-        return { expertGroup, homeGroup };
-      } catch (error) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Erro ao buscar grupos Jigsaw do aluno",
-        });
-      }
-    }),
+            const memberDetails = await Promise.all(
+  hgMembers.map(async (m) => {
+    const md = await db.select().from(members).where(eq(members.id, m.memberId)).limit(1);
+    const topicData = await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, m.topicId)).limit(1);
+    return md[0] ? {
+      id: md[0].id,
+      name: cleanName(md[0].name),
+      topicName: topicData[0]?.name || "Tópico",
+      // presentationScore/participationScore/peerRating REMOVIDOS da resposta ao aluno.
+      // Ficam disponíveis só em endpoints autenticados como professor/monitor.
+    } : null;
+  });
+homeGroup = {
+  ...hg[0],
+  members: memberDetails.filter(Boolean),
+  myTopicName: (await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, homeMembership[0].topicId)).limit(1))[0]?.name || "Tópico",
+  // myPresentationScore / myParticipationScore / myPeerRating REMOVIDOS.
+};
 
   /**
    * ========================================
@@ -1607,6 +1657,127 @@ export const jigsawCompleteRouter = router({
         });
       }
     }),
+submitExpertChecklist: publicProcedure
+  .input(z.object({
+    evaluatorToken: z.string(),
+    evaluatedMemberId: z.number(),
+    expertGroupId: z.number(),
+    chegouComLeitura: z.boolean(),
+    contribuiuDiscussao: z.boolean(),
+    ajudouResumo: z.boolean(),
+  }))
+  .mutation(async ({ input }) => {
+    try {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+
+      const accountRows = await db
+        .select()
+        .from(studentAccounts)
+        .where(and(eq(studentAccounts.sessionToken, input.evaluatorToken), eq(studentAccounts.isActive, 1)))
+        .limit(1);
+      if (!accountRows.length || !accountRows[0].memberId) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido ou conta sem membro vinculado" });
+      }
+      const evaluatorMemberId = accountRows[0].memberId!;
+
+      // Verifica que avaliador pertence ao mesmo grupo especialista
+      const evaluatorMembership = await db
+        .select()
+        .from(jigsawExpertMembers)
+        .where(and(
+          eq(jigsawExpertMembers.expertGroupId, input.expertGroupId),
+          eq(jigsawExpertMembers.memberId, evaluatorMemberId)
+        ))
+        .limit(1);
+      if (!evaluatorMembership.length) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Você não pertence a este grupo de especialistas" });
+      }
+
+      if (evaluatorMemberId === input.evaluatedMemberId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Você não pode se autoavaliar" });
+      }
+
+      const evaluatedMembership = await db
+        .select()
+        .from(jigsawExpertMembers)
+        .where(and(
+          eq(jigsawExpertMembers.expertGroupId, input.expertGroupId),
+          eq(jigsawExpertMembers.memberId, input.evaluatedMemberId)
+        ))
+        .limit(1);
+      if (!evaluatedMembership.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Aluno avaliado não pertence a este grupo" });
+      }
+
+      // Converte o checklist em nota (0-5) — MESMA lógica testada em teste_checklist.js
+      const itens = [input.chegouComLeitura, input.contribuiuDiscussao, input.ajudouResumo];
+      const positivos = itens.filter(Boolean).length;
+      const notaCalculada = Math.round((positivos / itens.length) * 5 * 10) / 10;
+
+      const existing = await db
+        .select()
+        .from(jigsawExpertPeerEvaluations)
+        .where(and(
+          eq(jigsawExpertPeerEvaluations.expertGroupId, input.expertGroupId),
+          eq(jigsawExpertPeerEvaluations.evaluatorMemberId, evaluatorMemberId),
+          eq(jigsawExpertPeerEvaluations.evaluatedMemberId, input.evaluatedMemberId)
+        ))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db.update(jigsawExpertPeerEvaluations)
+          .set({
+            chegouComLeitura: input.chegouComLeitura ? 1 : 0,
+            contribuiuDiscussao: input.contribuiuDiscussao ? 1 : 0,
+            ajudouResumo: input.ajudouResumo ? 1 : 0,
+            rating: String(notaCalculada),
+          })
+          .where(eq(jigsawExpertPeerEvaluations.id, existing[0].id));
+      } else {
+        await db.insert(jigsawExpertPeerEvaluations).values({
+          expertGroupId: input.expertGroupId,
+          evaluatorMemberId,
+          evaluatedMemberId: input.evaluatedMemberId,
+          chegouComLeitura: input.chegouComLeitura ? 1 : 0,
+          contribuiuDiscussao: input.contribuiuDiscussao ? 1 : 0,
+          ajudouResumo: input.ajudouResumo ? 1 : 0,
+          rating: String(notaCalculada),
+        });
+      }
+
+      // Recalcula a média e grava em jigsawExpertMembers — REAPROVEITA o
+      // campo participationScore (0-2) já existente, escalando de 0-5 para
+      // 0-2, para não precisar alterar a fórmula de nota final (fase1Raw).
+      const allRatings = await db
+        .select()
+        .from(jigsawExpertPeerEvaluations)
+        .where(and(
+          eq(jigsawExpertPeerEvaluations.expertGroupId, input.expertGroupId),
+          eq(jigsawExpertPeerEvaluations.evaluatedMemberId, input.evaluatedMemberId)
+        ));
+      const media = allRatings.length > 0
+        ? allRatings.reduce((s, r) => s + Number(r.rating), 0) / allRatings.length
+        : 0;
+      const participationEscalada = Math.round((media / 5) * 2 * 10) / 10; // 0-5 -> 0-2
+
+      await db.update(jigsawExpertMembers)
+        .set({ participationScore: String(participationEscalada) })
+        .where(and(
+          eq(jigsawExpertMembers.expertGroupId, input.expertGroupId),
+          eq(jigsawExpertMembers.memberId, input.evaluatedMemberId)
+        ));
+
+      // IMPORTANTE: a resposta NÃO devolve a nota/média ao aluno — só confirma o envio.
+      return { success: true };
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: `Erro ao salvar checklist: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }),
 
   /**
    * Get peer evaluations submitted by a student (to show what they already rated)

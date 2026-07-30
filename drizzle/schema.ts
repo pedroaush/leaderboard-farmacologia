@@ -1585,8 +1585,26 @@ export const jigsawPeerEvaluations = mysqlTable("jigsawPeerEvaluations", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-export type JigsawPeerEvaluation = typeof jigsawPeerEvaluations.$inferSelect;
-export type InsertJigsawPeerEvaluation = typeof jigsawPeerEvaluations.$inferInsert;
+export const jigsawIntegrationQuestions = mysqlTable("jigsawIntegrationQuestions", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull().references(() => classes.id, { onDelete: "cascade" }),
+  topico: varchar("topico", { length: 200 }).notNull(), // ex.: "Farmacogenômica"
+  enunciado: text("enunciado").notNull(),
+  // alternativas como JSON: [{ id: "a", texto: "..." , correta: true }, ...]
+  alternativas: json("alternativas").notNull(),
+  explicacao: text("explicacao"), // mostrada ao aluno DEPOIS de responder
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const jigsawIntegrationAnswers = mysqlTable("jigsawIntegrationAnswers", {
+  id: int("id").autoincrement().primaryKey(),
+  questionId: int("questionId").notNull().references(() => jigsawIntegrationQuestions.id, { onDelete: "cascade" }),
+  memberId: int("memberId").notNull().references(() => members.id, { onDelete: "cascade" }),
+  respostaEscolhida: varchar("respostaEscolhida", { length: 10 }).notNull(), // "a", "b", "c"...
+  isCorrect: int("isCorrect").notNull(), // 0/1
+  answeredAt: timestamp("answeredAt").defaultNow().notNull(),
+});
 
 /**
  * Group Activity Grades - Notas lançadas pelos monitores para grupos de Kahoot e Casos Clínicos
