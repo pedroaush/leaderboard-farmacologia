@@ -1428,7 +1428,8 @@ submitSelfAssessment: publicProcedure
       // presentationScore/participationScore/peerRating REMOVIDOS da resposta ao aluno.
       // Ficam disponíveis só em endpoints autenticados como professor/monitor.
     } : null;
-  });
+  })
+);
 homeGroup = {
   ...hg[0],
   members: memberDetails.filter(Boolean),
