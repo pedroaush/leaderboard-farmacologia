@@ -264,7 +264,7 @@ export const jigsawCompleteRouter = router({
           
           // Buscar membros e tópico para cada grupo
           const groupsWithDetails = await Promise.all(
-            groups.map(async (group) => {
+            groups.map(async (group: any) => {
               // Buscar membros do grupo
               const groupMembers = await db
                 .select()
