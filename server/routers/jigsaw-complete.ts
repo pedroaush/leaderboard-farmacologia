@@ -16,6 +16,8 @@ import {
   jigsawHomeMembers,
   jigsawScores,
   jigsawPeerEvaluations,
+  jigsawExpertPeerEvaluations,
+  jigsawSelfAssessments,
   studentAccounts,
   members,
 } from "../../drizzle/schema";
@@ -1436,6 +1438,17 @@ homeGroup = {
   myTopicName: (await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, homeMembership[0].topicId)).limit(1))[0]?.name || "Tópico",
   // myPresentationScore / myParticipationScore / myPeerRating REMOVIDOS.
 };
+          }
+        }
+
+        return { expertGroup, homeGroup };
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Erro ao buscar grupos do jigsaw",
+        });
+      }
+    }),
 
   /**
    * ========================================
