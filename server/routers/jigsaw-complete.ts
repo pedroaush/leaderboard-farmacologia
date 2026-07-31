@@ -1402,10 +1402,6 @@ submitSelfAssessment: publicProcedure
         const homeMembership = await db
           .select()
           .from(jigsawHomeMembers)
-             // Find home group (mosaico)
-        const homeMembership = await db
-          .select()
-          .from(jigsawHomeMembers)
           .where(eq(jigsawHomeMembers.memberId, input.memberId))
           .limit(1);
 
@@ -1432,8 +1428,7 @@ submitSelfAssessment: publicProcedure
       // presentationScore/participationScore/peerRating REMOVIDOS da resposta ao aluno.
       // Ficam disponíveis só em endpoints autenticados como professor/monitor.
     } : null;
-  })
-);
+  }));
 
 homeGroup = {
   ...hg[0],
@@ -1441,7 +1436,6 @@ homeGroup = {
   myTopicName: (await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, homeMembership[0].topicId)).limit(1))[0]?.name || "Tópico",
   // myPresentationScore / myParticipationScore / myPeerRating REMOVIDOS.
 };
-
 
   /**
    * ========================================
