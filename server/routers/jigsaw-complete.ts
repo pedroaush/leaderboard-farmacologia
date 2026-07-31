@@ -1402,6 +1402,10 @@ submitSelfAssessment: publicProcedure
         const homeMembership = await db
           .select()
           .from(jigsawHomeMembers)
+             // Find home group (mosaico)
+        const homeMembership = await db
+          .select()
+          .from(jigsawHomeMembers)
           .where(eq(jigsawHomeMembers.memberId, input.memberId))
           .limit(1);
 
@@ -1430,12 +1434,14 @@ submitSelfAssessment: publicProcedure
     } : null;
   })
 );
+
 homeGroup = {
   ...hg[0],
   members: memberDetails.filter(Boolean),
   myTopicName: (await db.select().from(jigsawTopics).where(eq(jigsawTopics.id, homeMembership[0].topicId)).limit(1))[0]?.name || "Tópico",
   // myPresentationScore / myParticipationScore / myPeerRating REMOVIDOS.
 };
+
 
   /**
    * ========================================
