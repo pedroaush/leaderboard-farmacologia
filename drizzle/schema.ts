@@ -1629,6 +1629,64 @@ export type JigsawSelfAssessment = typeof jigsawSelfAssessments.$inferSelect;
 export type InsertJigsawSelfAssessment = typeof jigsawSelfAssessments.$inferInsert;
 
 /**
+ * Jigsaw Integration Questions - Fase 3: quiz individual cobrindo TODOS os
+ * tópicos do módulo (não só o que o aluno estudou como especialista). As
+ * perguntas ficam no banco, não no código, porque os 6 artigos trocam a cada
+ * edição - assim professor/monitores atualizam sem precisar de deploy.
+ */
+export const jigsawIntegrationQuestions = mysqlTable("jigsawIntegrationQuestions", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  topico: varchar("topico", { length: 200 }).notNull(), // ex.: "Farmacogenômica"
+  enunciado: text("enunciado").notNull(),
+  // alternativas como JSON: [{ id: "a", texto: "...", correta: true }, ...]
+  alternativas: json("alternativas").notNull(),
+  explicacao: text("explicacao"), // mostrada ao aluno DEPOIS de responder
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type JigsawIntegrationQuestion = typeof jigsawIntegrationQuestions.$inferSelect;
+export type InsertJigsawIntegrationQuestion = typeof jigsawIntegrationQuestions.$inferInsert;
+
+/**
+ * Jigsaw Integration Answers - respostas individuais dos alunos ao quiz da Fase 3.
+ */
+export const jigsawIntegrationAnswers = mysqlTable("jigsawIntegrationAnswers", {
+  id: int("id").autoincrement().primaryKey(),
+  questionId: int("questionId").notNull(),
+  memberId: int("memberId").notNull(),
+  respostaEscolhida: varchar("respostaEscolhida", { length: 10 }).notNull(), // "a", "b", "c"...
+  isCorrect: int("isCorrect").notNull(), // 0/1
+  answeredAt: timestamp("answeredAt").defaultNow().notNull(),
+});
+
+export type JigsawIntegrationAnswer = typeof jigsawIntegrationAnswers.$inferSelect;
+export type InsertJigsawIntegrationAnswer = typeof jigsawIntegrationAnswers.$inferInsert;
+
+/**
+ * PF Redemptions - Troca de Pontos de Farmacologia (game.ts / gameProgress.farmacologiaPoints)
+ * por décimos de bônus em Jigsaw, Provas, Casos Clínicos e Kahoots.
+ * PF é MOEDA GASTA (spend): ao resgatar, o PF é deduzido do saldo do aluno
+ * (refletido também em gameTransactions, com pfAmount negativo) e não pode
+ * ser reutilizado. Esta tabela é a fonte da verdade para o teto por
+ * instrumento (quanto já foi resgatado para aquele instrumento específico).
+ */
+export const pfRedemptions = mysqlTable("pfRedemptions", {
+  id: int("id").autoincrement().primaryKey(),
+  memberId: int("memberId").notNull(),
+  classId: int("classId").notNull(),
+  instrumento: mysqlEnum("instrumento", ["jigsaw", "prova_p1", "prova_p2", "kahoot", "caso_clinico"]).notNull(),
+  instrumentoRefId: int("instrumentoRefId"), // ID da linha específica (groupActivityGrades.id, etc.) - null para jigsaw/prova
+  decimosResgatados: decimal("decimosResgatados", { precision: 3, scale: 1 }).notNull(),
+  pfGasto: int("pfGasto").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PfRedemption = typeof pfRedemptions.$inferSelect;
+export type InsertPfRedemption = typeof pfRedemptions.$inferInsert;
+
+/**
  * Group Activity Grades - Notas lançadas pelos monitores para grupos de Kahoot e Casos Clínicos
  * Os grupos de Kahoot são os mesmos da fase 2 do Jigsaw (jigsawHomeGroups)
  */
