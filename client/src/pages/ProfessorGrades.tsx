@@ -19,7 +19,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
   Save, RefreshCw, Download, FlaskConical, Trophy, CheckCircle2,
-  Info, ArrowLeft, Eye, EyeOff, AlertTriangle, BookOpen, Gamepad2,
+  Info, ArrowLeft, Eye, EyeOff, AlertTriangle, BookOpen,
   Star, ChevronDown, ChevronUp, Calendar, Mail, FileText,
   Award, Users, Plus, Trash2, Edit3, X, Loader2,
 } from "lucide-react";
@@ -40,30 +40,11 @@ function gradeToPF(grade: number): number {
 // ─── Constantes ────────────────────────────────────────────────────────────────
 const BASE_URL = "https://2026.conexaofarmacologia.com.br/api/trpc";
 const TEACHER_TOKEN_KEY = "prof_grades_teacher_token";
-const CLASS_ID = 22; // Farmacologia 1 - Medicina
-const BONUS_PF_THRESHOLD = 64;
+const CLASS_ID = 1; // Farmacologia 1 - Medicina 2026.2 (corrigido — o banco foi
+// reconstruído e os IDs mudaram; confirmado via SELECT id, name FROM classes)
+const BONUS_PF_THRESHOLD = 64; // NÃO USADO MAIS na elegibilidade do bônus (agora
+// é só gameCompleted) — mantido aqui só para não quebrar referências futuras.
 const BONUS_VALUE = 0.2;
-
-const TEAMS = [
-  { id: 46, name: "Paracetamol" },
-  { id: 47, name: "Varfarina" },
-  { id: 48, name: "Pilocarpina" },
-  { id: 49, name: "Neostigmina" },
-  { id: 50, name: "Atropina" },
-  { id: 51, name: "Morfina" },
-  { id: 52, name: "Amoxicilina" },
-  { id: 53, name: "Captopril" },
-  { id: 54, name: "Metformina" },
-  { id: 55, name: "Atorvastatina" },
-  { id: 56, name: "Omeprazol" },
-  { id: 57, name: "Fluoxetina" },
-  { id: 58, name: "Propranolol" },
-  { id: 59, name: "Dexametasona" },
-  { id: 60, name: "Azitromicina" },
-  { id: 61, name: "Dipirona" },
-];
-
-const KAHOOTS = ["Kahoot 1", "Kahoot 2", "Kahoot 3", "Kahoot 4"];
 const CASOS = ["Caso Clínico 1", "Caso Clínico 2", "Caso Clínico 3", "Caso Clínico 4"];
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -117,20 +98,28 @@ interface StudentRow {
 
 // ─── Cálculos ─────────────────────────────────────────────────────────────────
 function calcStudent(s: Omit<StudentRow, "totalActivityPF" | "eligible" | "p1Final" | "p2Final" | "mediaAtividades" | "mediaProvas" | "notaFinal">): StudentRow {
+  // Kahoot mantido só para exibição/histórico — NÃO entra em elegibilidade
+  // de bônus nem na média de atividades (removido a pedido do professor).
   const kahootPF = gradeToPF(s.kahoot1) + gradeToPF(s.kahoot2) + gradeToPF(s.kahoot3) + gradeToPF(s.kahoot4);
   const casoPF = gradeToPF(s.caso1) + gradeToPF(s.caso2) + gradeToPF(s.caso3) + gradeToPF(s.caso4);
-  const totalActivityPF = kahootPF + casoPF;
-  const eligible = totalActivityPF >= BONUS_PF_THRESHOLD && s.gameCompleted;
+  const totalActivityPF = kahootPF + casoPF; // mantido só para a coluna "PF Ativ." (exibição)
+
+  // Bônus de prova: única e exclusivamente vinculado ao jogo — 100% das
+  // semanas completadas (gameCompleted / isCompleted), mesmo com erros ou
+  // tentativas repetidas no caminho. Kahoot e Caso Clínico NÃO entram mais
+  // nesta decisão.
+  const eligible = s.gameCompleted;
   const p1Final = Math.min(10, s.p1 + (eligible ? BONUS_VALUE : 0));
   const p2Final = Math.min(10, s.p2 + (eligible ? BONUS_VALUE : 0));
 
-  // Converter PFs de atividades para nota 0-10
-  // Kahoot: max 40 PF → 0-10 | Caso: max 40 PF → 0-10 | Jigsaw: 0-10 PF → 0-10
-  const kahootNota = (kahootPF / 40) * 10;
-  const casoNota = (casoPF / 40) * 10;
+  // Casos Clínicos: soma DIRETA dos 4 casos (cada um já vale de 0 a 2,5 por
+  // grupo, então a soma dos 4 já fica naturalmente entre 0 e 10 — sem
+  // conversão de PF, diferente do Kahoot).
+  const casoNota = Math.min(10, s.caso1 + s.caso2 + s.caso3 + s.caso4);
   const jigsawNota = Math.min(10, s.jigsawPF);
 
-  const mediaAtividades = (kahootNota + casoNota + jigsawNota) / 3;
+  // Nota de Trabalhos = (Seminários + Casos Clínicos) / 2 — Kahoot excluído.
+  const mediaAtividades = (jigsawNota + casoNota) / 2;
   const mediaProvas = (p1Final + p2Final) / 2;
   const notaFinal = mediaAtividades * 0.25 + mediaProvas * 0.75;
 
@@ -953,13 +942,6 @@ export default function ProfessorGrades() {
                         Equipe <SortIcon col="teamName" />
                       </button>
                     </th>
-                    {/* Kahoots */}
-                    <th colSpan={4} className="text-center px-3 py-2 text-blue-400 font-medium border-l border-[#1e3a5f]">
-                      <div className="flex items-center justify-center gap-1">
-                        <Gamepad2 className="w-3 h-3" /> Kahoots
-                      </div>
-                      <div className="text-[9px] text-slate-500 font-normal">máx 2,5 cada</div>
-                    </th>
                     {/* Casos */}
                     <th colSpan={4} className="text-center px-3 py-2 text-purple-400 font-medium border-l border-[#1e3a5f]">
                       <div className="flex items-center justify-center gap-1">
@@ -1016,9 +998,6 @@ export default function ProfessorGrades() {
                   {/* Sub-headers para Kahoots e Casos */}
                   <tr className="border-b border-[#1e3a5f]/50 bg-[#0d1424]">
                     <th colSpan={2} className="sticky left-0 bg-[#0d1424]" />
-                    {KAHOOTS.map((k, i) => (
-                      <th key={k} className={`text-center px-2 py-1 text-[9px] text-blue-300/70 font-normal ${i === 0 ? "border-l border-[#1e3a5f]" : ""}`}>K{i + 1}</th>
-                    ))}
                     {CASOS.map((c, i) => (
                       <th key={c} className={`text-center px-2 py-1 text-[9px] text-purple-300/70 font-normal ${i === 0 ? "border-l border-[#1e3a5f]" : ""}`}>CC{i + 1}</th>
                     ))}
@@ -1033,14 +1012,6 @@ export default function ProfessorGrades() {
                       <tr key={s.memberId} className={`border-b border-[#1e3a5f]/30 hover:bg-[#1a2744]/50 transition-colors ${rowBg}`}>
                         <td className={`px-3 py-2 sticky left-0 ${rowBg} font-medium text-white truncate max-w-[180px]`}>{s.name}</td>
                         <td className="px-3 py-2 text-slate-400 truncate max-w-[100px]">{s.teamName}</td>
-                        {/* Kahoots */}
-                        {[s.kahoot1, s.kahoot2, s.kahoot3, s.kahoot4].map((v, i) => (
-                          <td key={i} className={`px-2 py-2 text-center ${i === 0 ? "border-l border-[#1e3a5f]/30" : ""}`}>
-                            <span className="font-mono" style={{ color: v > 0 ? (v >= 2.5 ? "#10b981" : v >= 2 ? "#3b82f6" : v >= 1.5 ? "#f59e0b" : "#ef4444") : "#475569" }}>
-                              {v > 0 ? v.toFixed(1) : "—"}
-                            </span>
-                          </td>
-                        ))}
                         {/* Casos */}
                         {[s.caso1, s.caso2, s.caso3, s.caso4].map((v, i) => (
                           <td key={i} className={`px-2 py-2 text-center ${i === 0 ? "border-l border-[#1e3a5f]/30" : ""}`}>

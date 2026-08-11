@@ -1,5 +1,10 @@
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean, uniqueIndex, tinyint } from "drizzle-orm/mysql-core";
-
+import { seminarioPosterRouter } from "./routers/seminarioPoster";
+// ...
+seminarioPoster: seminarioPosterRouter,
+import { casosClinicosRouter } from "./routers/casosClinicos";
+// ...
+casosClinicos: casosClinicosRouter,
 /**
  * Core user table backing auth flow.
  */
@@ -1589,59 +1594,52 @@ export type JigsawPeerEvaluation = typeof jigsawPeerEvaluations.$inferSelect;
 export type InsertJigsawPeerEvaluation = typeof jigsawPeerEvaluations.$inferInsert;
 
 /**
- * Jigsaw Expert Peer Evaluations - Checklist de comportamento observável entre
- * colegas do MESMO grupo de especialistas (Fase 1). Nota calculada a partir do
- * checklist, nunca digitada diretamente. Oculta dos alunos - só professor/monitor
- * enxergam o valor.
+ * ============================================================================
+ * SEMINÁRIO PÔSTER + QUIZ — substitui a mecânica clássica de Jigsaw
+ * (Grupo Especialista / Grupo Mosaico) a partir de 2026.2.
+ *
+ * Reaproveita jigsawHomeGroups/jigsawHomeMembers como "grupo de apresentação"
+ * (mesma tabela, sem precisar criar uma nova).
+ *
+ * Fluxo completo:
+ *   1. Grupo escreve 5 perguntas com gabarito -> pending_review
+ *   2. Professor revisa, pode AJUSTAR o enunciado/alternativas, aprova -> approved
+ *      (ainda não visível/respondível pelos alunos)
+ *   3. Professor libera as perguntas SÓ DEPOIS que o grupo termina de
+ *      apresentar (releasedAt + expiresAt = janela de tempo para responder)
+ *   4. Durante a janela: alunos respondem; alternativas embaralhadas de forma
+ *      DIFERENTE para cada aluno (contra vazamento tipo "a resposta é a C");
+ *      gabarito nunca é revelado durante a janela, nem para quem já respondeu
+ *   5. Ao expirar a janela: TODOS passam a ver as perguntas com o gabarito
+ *      (não precisa esperar responder — vira material de estudo)
+ *   6. Professor lança a nota do grupo por uma planilha de check (pôster +
+ *      qualidade das perguntas), convertida em nota 0-10
+ *   7. Nota final de Seminário do aluno = combinação da nota do grupo +
+ *      desempenho individual respondendo os outros grupos
+ * ============================================================================
  */
-export const jigsawExpertPeerEvaluations = mysqlTable("jigsawExpertPeerEvaluations", {
-  id: int("id").autoincrement().primaryKey(),
-  expertGroupId: int("expertGroupId").notNull(), // Grupo especialista
-  evaluatorMemberId: int("evaluatorMemberId").notNull(), // Aluno que está avaliando
-  evaluatedMemberId: int("evaluatedMemberId").notNull(), // Aluno sendo avaliado
-  chegouComLeitura: int("chegouComLeitura").default(0).notNull(), // 0/1
-  contribuiuDiscussao: int("contribuiuDiscussao").default(0).notNull(), // 0/1
-  ajudouResumo: int("ajudouResumo").default(0).notNull(), // 0/1
-  rating: decimal("rating", { precision: 2, scale: 1 }).notNull(), // 0-5, calculado do checklist
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type JigsawExpertPeerEvaluation = typeof jigsawExpertPeerEvaluations.$inferSelect;
-export type InsertJigsawExpertPeerEvaluation = typeof jigsawExpertPeerEvaluations.$inferInsert;
 
 /**
- * Jigsaw Self Assessments - Autoavaliação da Fase 2 (grupo mosaico). Exige
- * contribuição específica em texto (não uma nota), para reduzir a autoinflação.
- */
-export const jigsawSelfAssessments = mysqlTable("jigsawSelfAssessments", {
-  id: int("id").autoincrement().primaryKey(),
-  homeGroupId: int("homeGroupId").notNull(), // Grupo mosaico
-  memberId: int("memberId").notNull(), // Aluno que se autoavalia
-  contribuicaoEspecifica: text("contribuicaoEspecifica").notNull(), // obrigatório
-  explicouNoTempo: int("explicouNoTempo").notNull(), // 0/1
-  topicosNaoEntendidos: text("topicosNaoEntendidos"), // opcional, dado pedagógico
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type JigsawSelfAssessment = typeof jigsawSelfAssessments.$inferSelect;
-export type InsertJigsawSelfAssessment = typeof jigsawSelfAssessments.$inferInsert;
-
-/**
- * Jigsaw Integration Questions - Fase 3: quiz individual cobrindo TODOS os
- * tópicos do módulo (não só o que o aluno estudou como especialista). As
- * perguntas ficam no banco, não no código, porque os 6 artigos trocam a cada
- * edição - assim professor/monitores atualizam sem precisar de deploy.
+ * Perguntas do quiz — autoria por grupo, revisão/ajuste pelo professor, e
+ * ciclo de liberação por tempo (nunca visíveis antes de releasedAt, gabarito
+ * só aparece depois de expiresAt).
  */
 export const jigsawIntegrationQuestions = mysqlTable("jigsawIntegrationQuestions", {
   id: int("id").autoincrement().primaryKey(),
   classId: int("classId").notNull(),
-  topico: varchar("topico", { length: 200 }).notNull(), // ex.: "Farmacogenômica"
+  authorGroupId: int("authorGroupId"), // jigsawHomeGroups.id do grupo que escreveu; null = criada pelo professor
+  topico: varchar("topico", { length: 200 }).notNull(),
   enunciado: text("enunciado").notNull(),
-  // alternativas como JSON: [{ id: "a", texto: "...", correta: true }, ...]
-  alternativas: json("alternativas").notNull(),
-  explicacao: text("explicacao"), // mostrada ao aluno DEPOIS de responder
+  alternativas: json("alternativas").notNull(), // [{ id, texto, correta }, ...] — ordem "canônica"; embaralhada por aluno na entrega
+  explicacao: text("explicacao"),
+  status: mysqlEnum("status", ["pending_review", "approved", "rejected"]).default("approved").notNull(),
+  reviewedBy: int("reviewedBy"),
+  reviewedByName: varchar("reviewedByName", { length: 200 }),
+  reviewedAt: timestamp("reviewedAt"),
+  // Ciclo de liberação: null até o professor liberar (depois da apresentação
+  // do grupo). expiresAt = releasedAt + duração da janela de resposta.
+  releasedAt: timestamp("releasedAt"),
+  expiresAt: timestamp("expiresAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1649,14 +1647,11 @@ export const jigsawIntegrationQuestions = mysqlTable("jigsawIntegrationQuestions
 export type JigsawIntegrationQuestion = typeof jigsawIntegrationQuestions.$inferSelect;
 export type InsertJigsawIntegrationQuestion = typeof jigsawIntegrationQuestions.$inferInsert;
 
-/**
- * Jigsaw Integration Answers - respostas individuais dos alunos ao quiz da Fase 3.
- */
 export const jigsawIntegrationAnswers = mysqlTable("jigsawIntegrationAnswers", {
   id: int("id").autoincrement().primaryKey(),
   questionId: int("questionId").notNull(),
   memberId: int("memberId").notNull(),
-  respostaEscolhida: varchar("respostaEscolhida", { length: 10 }).notNull(), // "a", "b", "c"...
+  respostaEscolhida: varchar("respostaEscolhida", { length: 10 }).notNull(),
   isCorrect: int("isCorrect").notNull(), // 0/1
   answeredAt: timestamp("answeredAt").defaultNow().notNull(),
 });
@@ -1665,26 +1660,25 @@ export type JigsawIntegrationAnswer = typeof jigsawIntegrationAnswers.$inferSele
 export type InsertJigsawIntegrationAnswer = typeof jigsawIntegrationAnswers.$inferInsert;
 
 /**
- * PF Redemptions - Troca de Pontos de Farmacologia (game.ts / gameProgress.farmacologiaPoints)
- * por décimos de bônus em Jigsaw, Provas, Casos Clínicos e Kahoots.
- * PF é MOEDA GASTA (spend): ao resgatar, o PF é deduzido do saldo do aluno
- * (refletido também em gameTransactions, com pfAmount negativo) e não pode
- * ser reutilizado. Esta tabela é a fonte da verdade para o teto por
- * instrumento (quanto já foi resgatado para aquele instrumento específico).
+ * Nota do pôster/apresentação do grupo — planilha de check estruturada
+ * (critérios individuais), convertida automaticamente em nota 0-10. Lançada
+ * pelo professor/monitor. Combinada com o desempenho individual do aluno
+ * como plateia para formar a nota final de Seminário.
  */
-export const pfRedemptions = mysqlTable("pfRedemptions", {
+export const seminarioApresentacoes = mysqlTable("seminarioApresentacoes", {
   id: int("id").autoincrement().primaryKey(),
-  memberId: int("memberId").notNull(),
   classId: int("classId").notNull(),
-  instrumento: mysqlEnum("instrumento", ["jigsaw", "prova_p1", "prova_p2", "kahoot", "caso_clinico"]).notNull(),
-  instrumentoRefId: int("instrumentoRefId"), // ID da linha específica (groupActivityGrades.id, etc.) - null para jigsaw/prova
-  decimosResgatados: decimal("decimosResgatados", { precision: 3, scale: 1 }).notNull(),
-  pfGasto: int("pfGasto").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  groupId: int("groupId").notNull(), // jigsawHomeGroups.id
+  checklist: json("checklist").notNull(), // { posterClaro: true, achadoCorreto: true, ... } - critérios ajustáveis
+  notaPoster: decimal("notaPoster", { precision: 3, scale: 1 }).notNull(), // 0-10, calculada a partir do checklist
+  gradedBy: int("gradedBy").notNull(),
+  gradedByName: varchar("gradedByName", { length: 200 }),
+  gradedAt: timestamp("gradedAt").defaultNow().notNull(),
+  observacoes: text("observacoes"),
 });
 
-export type PfRedemption = typeof pfRedemptions.$inferSelect;
-export type InsertPfRedemption = typeof pfRedemptions.$inferInsert;
+export type SeminarioApresentacao = typeof seminarioApresentacoes.$inferSelect;
+export type InsertSeminarioApresentacao = typeof seminarioApresentacoes.$inferInsert;
 
 /**
  * Group Activity Grades - Notas lançadas pelos monitores para grupos de Kahoot e Casos Clínicos

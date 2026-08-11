@@ -3,12 +3,15 @@
  *
  * FÓRMULA:
  *   Nota Provas   = (P1 + P2) / 2                          → peso 0,75
- *   Nota Atividades = média(Kahoots, Casos Clínicos, Jigsaw) → peso 0,25
- *     - Kahoot 1-4: média dos 4 kahoots (0-10 cada)
+ *   Nota Atividades = média(Casos Clínicos, Jigsaw)         → peso 0,25
  *     - Caso Clínico 1-4: média dos 4 casos (0-10 cada)
  *     - Jigsaw Total (0-10)
  *   Média Final = (NotaProvas × 0,75) + (NotaAtividades × 0,25)
  *   Prova Final: Média Final < 6,0
+ *
+ *   NOTA: Kahoot foi removido da fórmula a pedido do professor. As notas de
+ *   Kahoot já lançadas continuam salvas e visíveis (coluna/exportação), só
+ *   não entram mais no cálculo da Nota Atividades / Média Final.
  */
 
 import { useState, useMemo, useCallback, useRef } from "react";
@@ -108,15 +111,21 @@ function calcNotaAtividades(row: GradeRow, localOverrides: Record<string, Record
     .map(f => get(f)).filter(v => v !== null) as number[];
   const jigsawNota = get("jigsaw_total");
 
+  // Kahoot mantido só para exibição (não usado na fórmula).
   const mediaKahoots = kahoots.length > 0 ? kahoots.reduce((s, v) => s + v, 0) / kahoots.length : null;
-  const mediaCasos = casos.length > 0 ? casos.reduce((s, v) => s + v, 0) / casos.length : null;
 
-  const cats: number[] = [];
-  if (mediaKahoots !== null) cats.push(mediaKahoots);
-  if (mediaCasos !== null) cats.push(mediaCasos);
-  if (jigsawNota !== null) cats.push(jigsawNota);
+  // Casos Clínicos: SOMA DIRETA dos 4 casos (cada um vale 0 a 2,5 por grupo,
+  // então a soma dos 4 já fica naturalmente entre 0 e 10) — não é mais média.
+  const mediaCasos = casos.length > 0 ? Math.min(10, casos.reduce((s, v) => s + v, 0)) : null;
 
-  const nota = cats.length > 0 ? cats.reduce((s, v) => s + v, 0) / cats.length : null;
+  // Nota de Trabalhos = (Seminários + Casos Clínicos) / 2. Se nenhum dos dois
+  // estiver disponível ainda, fica null (sem nota lançada). Se só um estiver
+  // disponível, o outro entra como 0 na soma (não é mais média entre "o que
+  // existir" — é sempre dividido por 2, como especificado).
+  const nota = (jigsawNota === null && mediaCasos === null)
+    ? null
+    : ((jigsawNota ?? 0) + (mediaCasos ?? 0)) / 2;
+
   return { nota, mediaKahoots, mediaCasos, jigsawNota };
 }
 

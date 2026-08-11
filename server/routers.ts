@@ -31,6 +31,8 @@ import { monitorsRouter } from "./routers/monitors";
 import { scheduleRouter } from "./routers/schedule";
 import { spreadsheetImportRouter } from "./routers/spreadsheetImport";
 import { ENV } from "./_core/env";
+import { seminarioPosterRouter } from "./routers/seminarioPoster";
+import { casosClinicosRouter } from "./routers/casosClinicos";
 
 // Helper: fire-and-forget notification (never blocks the main operation)
 function sendNotificationAsync(title: string, content: string) {
@@ -146,6 +148,8 @@ export const appRouter = router({
   results: resultsRouter,
   game: gameRouter,
   spreadsheetImport: spreadsheetImportRouter,
+  seminarioPoster: seminarioPosterRouter,
+  casosClinicos: casosClinicosRouter,
   qrcode: qrcodeRouter,
   studentNotifications: studentNotificationsRouter,
   studentStats: studentStatsRouter,
