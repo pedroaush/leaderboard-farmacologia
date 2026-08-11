@@ -1,8 +1,6 @@
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean, uniqueIndex, tinyint } from "drizzle-orm/mysql-core";
 import { seminarioPosterRouter } from "./routers/seminarioPoster";
-// ...
-seminarioPoster: seminarioPosterRouter,
-import { casosClinicosRouter } from "./routers/casosClinicos";
+
 // ...
 casosClinicos: casosClinicosRouter,
 /**
