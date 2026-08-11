@@ -1,8 +1,10 @@
+// Provide a lightweight ambient module declaration to satisfy TypeScript when
+// the drizzle mysql-core types are not available in the environment.
+// This avoids the "Cannot find module 'drizzle-orm/mysql-core'" error.
+declare module "drizzle-orm/mysql-core";
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean, uniqueIndex, tinyint } from "drizzle-orm/mysql-core";
-import { seminarioPosterRouter } from "./routers/seminarioPoster";
 
 // ...
-casosClinicos: casosClinicosRouter,
 /**
  * Core user table backing auth flow.
  */
