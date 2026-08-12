@@ -1594,6 +1594,46 @@ export type JigsawPeerEvaluation = typeof jigsawPeerEvaluations.$inferSelect;
 export type InsertJigsawPeerEvaluation = typeof jigsawPeerEvaluations.$inferInsert;
 
 /**
+ * Jigsaw Expert Peer Evaluations - Checklist de comportamento observável entre
+ * colegas do MESMO grupo de especialistas (Fase 1). Nota calculada a partir do
+ * checklist, nunca digitada diretamente. Oculta dos alunos - só professor/monitor
+ * enxergam o valor.
+ */
+export const jigsawExpertPeerEvaluations = mysqlTable("jigsawExpertPeerEvaluations", {
+  id: int("id").autoincrement().primaryKey(),
+  expertGroupId: int("expertGroupId").notNull(), // Grupo especialista
+  evaluatorMemberId: int("evaluatorMemberId").notNull(), // Aluno que está avaliando
+  evaluatedMemberId: int("evaluatedMemberId").notNull(), // Aluno sendo avaliado
+  chegouComLeitura: int("chegouComLeitura").default(0).notNull(), // 0/1
+  contribuiuDiscussao: int("contribuiuDiscussao").default(0).notNull(), // 0/1
+  ajudouResumo: int("ajudouResumo").default(0).notNull(), // 0/1
+  rating: decimal("rating", { precision: 2, scale: 1 }).notNull(), // 0-5, calculado do checklist
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type JigsawExpertPeerEvaluation = typeof jigsawExpertPeerEvaluations.$inferSelect;
+export type InsertJigsawExpertPeerEvaluation = typeof jigsawExpertPeerEvaluations.$inferInsert;
+
+/**
+ * Jigsaw Self Assessments - Autoavaliação da Fase 2 (grupo mosaico). Exige
+ * contribuição específica em texto (não uma nota), para reduzir a autoinflação.
+ */
+export const jigsawSelfAssessments = mysqlTable("jigsawSelfAssessments", {
+  id: int("id").autoincrement().primaryKey(),
+  homeGroupId: int("homeGroupId").notNull(), // Grupo mosaico
+  memberId: int("memberId").notNull(), // Aluno que se autoavalia
+  contribuicaoEspecifica: text("contribuicaoEspecifica").notNull(), // obrigatório
+  explicouNoTempo: int("explicouNoTempo").notNull(), // 0/1
+  topicosNaoEntendidos: text("topicosNaoEntendidos"), // opcional, dado pedagógico
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type JigsawSelfAssessment = typeof jigsawSelfAssessments.$inferSelect;
+export type InsertJigsawSelfAssessment = typeof jigsawSelfAssessments.$inferInsert;
+
+/**
  * ============================================================================
  * SEMINÁRIO PÔSTER + QUIZ — substitui a mecânica clássica de Jigsaw
  * (Grupo Especialista / Grupo Mosaico) a partir de 2026.2.
@@ -1679,6 +1719,57 @@ export const seminarioApresentacoes = mysqlTable("seminarioApresentacoes", {
 
 export type SeminarioApresentacao = typeof seminarioApresentacoes.$inferSelect;
 export type InsertSeminarioApresentacao = typeof seminarioApresentacoes.$inferInsert;
+
+/**
+ * Casos Clínicos — Pontos Corridos (estilo campeonato de futebol).
+ * 10 grupos (jigsawGroups com groupType='clinical_case'), 4 rodadas ao longo
+ * do semestre, 5 disputas por rodada (confrontos par a par). "Passa ou
+ * repassa" continua presencial — o professor/monitor apenas REGISTRA o
+ * resultado (quantas das 5 perguntas cada grupo acertou) depois da disputa.
+ * Vitória = 3 pts, empate = 1 pt cada, derrota = 0. A classificação final
+ * (1º ao 10º) vira a nota de Casos Clínicos pela escala combinada.
+ */
+export const casosClinicosDisputas = mysqlTable("casosClinicosDisputas", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  rodada: int("rodada").notNull(), // 1 a 4
+  grupoAId: int("grupoAId").notNull(), // jigsawGroups.id
+  grupoBId: int("grupoBId").notNull(),
+  tema: varchar("tema", { length: 200 }),
+  data: varchar("data", { length: 20 }), // "2026-09-01" etc.
+  grupoAAcertos: int("grupoAAcertos"), // 0-5, null até ser registrado
+  grupoBAcertos: int("grupoBAcertos"),
+  pontosGrupoA: int("pontosGrupoA"), // 3/1/0, calculado ao registrar
+  pontosGrupoB: int("pontosGrupoB"),
+  status: mysqlEnum("status", ["agendada", "concluida"]).default("agendada").notNull(),
+  registradoPor: int("registradoPor"),
+  registradoPorNome: varchar("registradoPorNome", { length: 200 }),
+  registradoEm: timestamp("registradoEm"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CasosClinicosDisputa = typeof casosClinicosDisputas.$inferSelect;
+export type InsertCasosClinicosDisputa = typeof casosClinicosDisputas.$inferInsert;
+
+/**
+ * PF Redemptions - Troca de Pontos de Farmacologia (game.ts / gameProgress.farmacologiaPoints)
+ * por décimos de bônus em Jigsaw, Provas, Casos Clínicos e Kahoots.
+ * PF é MOEDA GASTA (spend): ao resgatar, o PF é deduzido do saldo do aluno
+ * e não pode ser reutilizado.
+ */
+export const pfRedemptions = mysqlTable("pfRedemptions", {
+  id: int("id").autoincrement().primaryKey(),
+  memberId: int("memberId").notNull(),
+  classId: int("classId").notNull(),
+  instrumento: mysqlEnum("instrumento", ["jigsaw", "prova_p1", "prova_p2", "kahoot", "caso_clinico"]).notNull(),
+  instrumentoRefId: int("instrumentoRefId"), // ID da linha específica - null para jigsaw/prova
+  decimosResgatados: decimal("decimosResgatados", { precision: 3, scale: 1 }).notNull(),
+  pfGasto: int("pfGasto").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PfRedemption = typeof pfRedemptions.$inferSelect;
+export type InsertPfRedemption = typeof pfRedemptions.$inferInsert;
 
 /**
  * Group Activity Grades - Notas lançadas pelos monitores para grupos de Kahoot e Casos Clínicos
