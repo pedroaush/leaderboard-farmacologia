@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-ajustar_grupos_casos_clinicos.py — Ajuste manual dos grupos de Caso Clínico,
-para quando alunos entram ou saem da turma nas primeiras semanas.
-
-TRES MODOS:
-  listar   -> mostra a composicao atual dos 10 grupos
-  mover    -> move um aluno para um grupo especifico (novo entrando, ou
-              trocando de grupo — remove do grupo antigo automaticamente)
-  remover  -> tira um aluno de qualquer grupo (aluno trancou/saiu da turma)
-
-USO:
-  python ajustar_grupos_casos_clinicos.py --class-id 1 listar
-
-  python ajustar_grupos_casos_clinicos.py --class-id 1 mover --member-id 45 --grupo-id 3
-
-  python ajustar_grupos_casos_clinicos.py --class-id 1 remover --member-id 45
-"""
 import argparse
 import getpass
 import os
