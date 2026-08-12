@@ -76,6 +76,10 @@ interface StudentRow {
   // Notas de atividades (por equipe, vindas dos monitores)
   kahoot1: number; kahoot2: number; kahoot3: number; kahoot4: number;
   caso1: number; caso2: number; caso3: number; caso4: number;
+  // Casos Clínicos — Pontos Corridos (colocação no campeonato, substitui a
+  // soma dos 4 casos individuais acima; caso1-4 ficam só como referência
+  // histórica, sem efeito na nota)
+  casosClinicosNota: number;
   // Jigsaw (automático da plataforma)
   jigsawPF: number;
   // Provas (lançadas pelo professor)
@@ -112,10 +116,11 @@ function calcStudent(s: Omit<StudentRow, "totalActivityPF" | "eligible" | "p1Fin
   const p1Final = Math.min(10, s.p1 + (eligible ? BONUS_VALUE : 0));
   const p2Final = Math.min(10, s.p2 + (eligible ? BONUS_VALUE : 0));
 
-  // Casos Clínicos: soma DIRETA dos 4 casos (cada um já vale de 0 a 2,5 por
-  // grupo, então a soma dos 4 já fica naturalmente entre 0 e 10 — sem
-  // conversão de PF, diferente do Kahoot).
-  const casoNota = Math.min(10, s.caso1 + s.caso2 + s.caso3 + s.caso4);
+  // Casos Clínicos: nota pela colocação no campeonato de Pontos Corridos
+  // (jigsawScores.fase3PF, 1º=10, cai 0,5 por posição). caso1-4 (Kahoot-style
+  // antigo, soma de 4 casos individuais) fica só como referência histórica —
+  // não entra mais na nota, substituído pela colocação no campeonato.
+  const casoNota = Math.min(10, s.casosClinicosNota);
   const jigsawNota = Math.min(10, s.jigsawPF);
 
   // Nota de Trabalhos = (Seminários + Casos Clínicos) / 2 — Kahoot excluído.
@@ -356,6 +361,14 @@ export default function ProfessorGrades() {
       for (const score of (jigsawScores as any[])) {
         jigsawMap[score.memberId] = parseFloat(score.totalJigsawPF) || 0;
       }
+      // Mapear Casos Clínicos (Pontos Corridos) por memberId — mesma chamada
+      // de API que já traz o Jigsaw, só que lendo o campo fase3PF em vez de
+      // totalJigsawPF (fase3PF foi reaproveitado para guardar a nota pela
+      // colocação no campeonato, ver casosClinicos.ts)
+      const casosClinicosMap: Record<number, number> = {};
+      for (const score of (jigsawScores as any[])) {
+        casosClinicosMap[score.memberId] = parseFloat(score.fase3PF) || 0;
+      }
       // Mapear notas de prova da API (lançadas pelo módulo de correção) por memberId
       const provaAPIMap: Record<number, { p1: number; p2: number }> = {};
       for (const row of (provaGradesAPI as any[])) {
@@ -380,6 +393,7 @@ export default function ProfessorGrades() {
         const teamKey = String(teamId);
         const act = actMap[teamKey] || {};
         const jigsaw = jigsawMap[m.id] || 0;
+        const casosClinicosNota = casosClinicosMap[m.id] || 0;
         const game = gameMap[m.id];
         const savedProva = { p1: provaAPIMap[m.id]?.p1 || provaGradesRef.current[m.id]?.p1 || 0, p2: provaAPIMap[m.id]?.p2 || provaGradesRef.current[m.id]?.p2 || 0 };
 
@@ -396,6 +410,7 @@ export default function ProfessorGrades() {
           caso2: act["Caso Clínico 2"] || 0,
           caso3: act["Caso Clínico 3"] || 0,
           caso4: act["Caso Clínico 4"] || 0,
+          casosClinicosNota,
           jigsawPF: jigsaw,
           p1: savedProva.p1,
           p2: savedProva.p2,
@@ -1001,7 +1016,8 @@ export default function ProfessorGrades() {
                     {CASOS.map((c, i) => (
                       <th key={c} className={`text-center px-2 py-1 text-[9px] text-purple-300/70 font-normal ${i === 0 ? "border-l border-[#1e3a5f]" : ""}`}>CC{i + 1}</th>
                     ))}
-                    <th colSpan={10} />
+                    <th className="text-center px-2 py-1 text-[9px] text-emerald-300/70 font-normal">Campeon.</th>
+                    <th colSpan={9} />
                   </tr>
                 </thead>
                 <tbody>
@@ -1020,6 +1036,10 @@ export default function ProfessorGrades() {
                             </span>
                           </td>
                         ))}
+                        {/* Casos Clínicos - Campeonato (Pontos Corridos) */}
+                        <td className="px-2 py-2 text-center">
+                          <span className="font-mono text-emerald-300">{s.casosClinicosNota > 0 ? s.casosClinicosNota.toFixed(1) : "—"}</span>
+                        </td>
                         {/* Jigsaw */}
                         <td className="px-2 py-2 text-center border-l border-[#1e3a5f]/30">
                           <span className="font-mono text-yellow-300">{s.jigsawPF > 0 ? s.jigsawPF.toFixed(1) : "—"}</span>
