@@ -34,37 +34,40 @@ const WEEK_TITLES: Record<number, string> = {
   17: "Revisão Geral — Boss Final",
 };
 
-// Turmas do semestre 2026.1 (IDs reais do banco de dados)
-const TURMAS = [
-  { id: 22, name: "Medicina I" },
-  { id: 27, name: "Medicina II" },
-  { id: 24, name: "Biomedicina" },
-  { id: 25, name: "Biomedicina II" },
-  { id: 26, name: "Enfermagem" },
-  { id: 23, name: "Nutrição Integral" },
-  { id: 28, name: "Nutrição Noturno" },
-];
-
 type Tab = "overview" | "releases" | "students" | "reports" | "bosses";
 
 export default function AdminGamePanel() {
+  // Esta tela é montada como rota própria (/admin/jogo), não como aba dentro do
+  // Admin.tsx — por isso não recebe teacherToken via prop, igual o AdminJigsawPanel
+  // recebe. Busca direto do localStorage, mesma chave usada no Admin.tsx.
+  const [teacherToken, setTeacherToken] = useState<string>("");
+  useEffect(() => {
+    const t = localStorage.getItem("teacherSessionToken") || "";
+    setTeacherToken(t);
+  }, []);
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [expandedStudent, setExpandedStudent] = useState<number | null>(null);
   const [respondingReport, setRespondingReport] = useState<number | null>(null);
   const [responseText, setResponseText] = useState("");
   const [scheduleDates, setScheduleDates] = useState<Record<number, string>>({});
-  const [classId, setClassId] = useState<number>(22); // Padrão: Medicina I (classId=22)
+  const [classId, setClassId] = useState<number>(0); // Corrigido automaticamente assim que a lista real de turmas chega
+
+  // Turmas reais (nunca mais hardcoded — mesma fonte que o AdminJigsawPanel usa)
+  const { data: classesList = [] } = trpc.classes.list.useQuery(
+    { sessionToken: teacherToken || "" },
+    { enabled: !!teacherToken && teacherToken.length > 10, retry: false }
+  );
 
   // Queries
-  const { data: stats } = trpc.game.getClassStats.useQuery({ classId });
-  const { data: releases, refetch: refetchReleases } = trpc.game.getWeeklyReleases.useQuery({ classId });
-  const { data: allProgress, refetch: refetchProgress } = trpc.game.getAllProgress.useQuery({ classId });
-  const { data: reports, refetch: refetchReports } = trpc.game.getErrorReports.useQuery({ classId, status: "all" });
+  const { data: stats } = trpc.game.getClassStats.useQuery({ classId }, { enabled: classId > 0 });
+  const { data: releases, refetch: refetchReleases } = trpc.game.getWeeklyReleases.useQuery({ classId }, { enabled: classId > 0 });
+  const { data: allProgress, refetch: refetchProgress } = trpc.game.getAllProgress.useQuery({ classId }, { enabled: classId > 0 });
+  const { data: reports, refetch: refetchReports } = trpc.game.getErrorReports.useQuery({ classId, status: "all" }, { enabled: classId > 0 });
   const { data: allQuests } = trpc.game.getAllQuests.useQuery();
-  const { data: leaderboard } = trpc.game.getLeaderboard.useQuery({ classId, limit: 10 });
-  const { data: classMembers } = trpc.game.getMembersForClass.useQuery({ classId });
-  const { data: bossStats, refetch: refetchBossStats } = trpc.game.getAdminBossStats.useQuery({ classId });
+  const { data: leaderboard } = trpc.game.getLeaderboard.useQuery({ classId, limit: 10 }, { enabled: classId > 0 });
+  const { data: classMembers } = trpc.game.getMembersForClass.useQuery({ classId }, { enabled: classId > 0 });
+  const { data: bossStats, refetch: refetchBossStats } = trpc.game.getAdminBossStats.useQuery({ classId }, { enabled: classId > 0 });
   const [selectedTestMemberId, setSelectedTestMemberId] = useState<number>(0);
   const [expandedBossWeek, setExpandedBossWeek] = useState<number | null>(null);
   const [previewBoss, setPreviewBoss] = useState<BossData | null>(null);
@@ -77,15 +80,29 @@ export default function AdminGamePanel() {
   const scheduleMutation = trpc.game.scheduleWeekRelease.useMutation();
   const checkScheduledMutation = trpc.game.checkScheduledReleases.useMutation();
 
-  // Auto-check scheduled releases on mount
+  // Assim que a lista real de turmas chega, escolhe a turma correta (Medicina I por
+  // padrão, ou a primeira disponível). Substitui o antigo classId fixo (22) que ficava
+  // desatualizado sempre que as turmas eram reimportadas/reconstruídas.
   useEffect(() => {
+    if (classesList.length === 0) return;
+    const stillValid = (classesList as any[]).some((c: any) => c.id === classId);
+    if (classId > 0 && stillValid) return;
+    const medicina1 = (classesList as any[]).find(
+      (c: any) => /medicina/i.test(c.name || "") && /\bI\b/.test(c.name || "") && !/II/i.test(c.name || "")
+    );
+    setClassId((medicina1 || (classesList as any[])[0]).id);
+  }, [classesList]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-check scheduled releases on mount (só depois que temos um classId válido)
+  useEffect(() => {
+    if (classId <= 0) return;
     checkScheduledMutation.mutateAsync({ classId }).then(result => {
       if (result.released.length > 0) {
         toast.success(`Semanas ${result.released.join(", ")} liberadas automaticamente!`);
         refetchReleases();
       }
     }).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [classId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derived data
   const releasedWeeks = useMemo(() => {
@@ -172,15 +189,19 @@ export default function AdminGamePanel() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Seletor de Turma */}
+            {/* Seletor de Turma (dados reais, nunca mais lista fixa) */}
             <select
               value={classId}
               onChange={(e) => setClassId(Number(e.target.value))}
               className="px-3 py-1.5 rounded-lg bg-white/10 border border-emerald-500/30 text-white text-sm"
             >
-              {TURMAS.map(t => (
-                <option key={t.id} value={t.id} className="bg-gray-900">{t.name}</option>
-              ))}
+              {classesList.length === 0 ? (
+                <option value={0} className="bg-gray-900">Carregando turmas...</option>
+              ) : (
+                (classesList as any[]).map((c: any) => (
+                  <option key={c.id} value={c.id} className="bg-gray-900">{c.name}</option>
+                ))
+              )}
             </select>
 
             {/* Botão Testar Jogo como Admin - com seletor de aluno real */}
