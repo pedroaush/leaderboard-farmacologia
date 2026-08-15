@@ -19,7 +19,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   Download, RefreshCw, Settings2, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle, Info, Search, Loader2, FileSpreadsheet, Save
+  AlertTriangle, CheckCircle, Info, Search, Loader2, FileSpreadsheet, Save, Users
 } from "lucide-react";
 
 // ─── Tipos ───
@@ -44,6 +44,18 @@ interface GradeRow {
   jigsawFase2: number | null;
   jigsawFase3: number | null;
   jigsawTotal: number | null;
+  // Grupo de Casos Clínicos (pontos corridos) e de Seminário (pôster + quiz)
+  // — vêm de jigsawGroups/jigsawHomeGroups, independentes da tabela genérica
+  // "teams" (que não é usada por essas duas dinâmicas).
+  ccGroupId: number | null;
+  ccGroupName: string | null;
+  seminarioGroupId: number | null;
+  seminarioGroupName: string | null;
+}
+
+interface GroupOption {
+  id: number;
+  name: string;
 }
 
 interface WeightConfig {
@@ -253,6 +265,51 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
   );
 
   const rows = (gradeSheet?.rows ?? []) as GradeRow[];
+  const ccGroups = (gradeSheet?.ccGroups ?? []) as GroupOption[];
+  const seminarioGroups = (gradeSheet?.seminarioGroups ?? []) as GroupOption[];
+
+  // ─── Lançamento em bloco por grupo (Casos Clínicos ou Seminário) ───
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkKind, setBulkKind] = useState<"cc" | "seminario">("cc");
+  const [bulkGroupId, setBulkGroupId] = useState<number | "">("");
+  const [bulkField, setBulkField] = useState<GradeField>("jigsaw_fase3");
+  const [bulkValue, setBulkValue] = useState("");
+  const utilsBulk = trpc.useUtils();
+  const bulkMutation = trpc.teacherAuth.saveGradeCellBulk.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Nota aplicada a ${res.atualizados} aluno(s)!`);
+      setBulkValue("");
+      setLocalOverrides({});
+      utilsBulk.teacherAuth.getGradeSheet.invalidate();
+    },
+    onError: (e) => toast.error(`Erro ao lançar em bloco: ${e.message}`),
+  });
+
+  const bulkGroupMembers = useMemo(() => {
+    if (!bulkGroupId) return [];
+    const key = bulkKind === "cc" ? "ccGroupId" : "seminarioGroupId";
+    return rows.filter(r => (r as any)[key] === bulkGroupId);
+  }, [rows, bulkKind, bulkGroupId]);
+
+  const handleApplyBulk = () => {
+    const raw = bulkValue.replace(",", ".").trim();
+    const parsed = raw === "" ? null : parseFloat(raw);
+    if (raw !== "" && (isNaN(parsed!) || parsed! < 0 || parsed! > 100)) {
+      toast.error("Nota inválida (0–100)");
+      return;
+    }
+    if (!bulkGroupMembers.length) {
+      toast.error("Nenhum aluno encontrado nesse grupo");
+      return;
+    }
+    bulkMutation.mutate({
+      sessionToken: teacherToken,
+      classId: selectedClassId!,
+      memberIds: bulkGroupMembers.map(m => m.memberId),
+      field: bulkField,
+      value: parsed,
+    });
+  };
 
   const handleCellSaved = useCallback((memberId: number, field: GradeField, value: number | null) => {
     setLocalOverrides(prev => ({
@@ -412,6 +469,10 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
           <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">Clique em qualquer célula para editar</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => setShowBulk(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary border border-border text-xs text-foreground hover:bg-secondary/80 transition-colors">
+            <Users size={13} /> Lançar em bloco
+          </button>
           <button onClick={() => setShowWeights(v => !v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary border border-border text-xs text-foreground hover:bg-secondary/80 transition-colors">
             <Settings2 size={13} /> Pesos
@@ -438,6 +499,92 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
         <span className="mx-2 text-border">|</span>
         <span className="text-red-300 font-semibold">Prova Final se Média &lt; {weights.minPassGrade}</span>
       </div>
+
+      {/* Lançamento em bloco por grupo */}
+      {showBulk && (
+        <div className="rounded-lg border border-primary/30 p-4 space-y-3" style={{ backgroundColor: "oklch(0.18 0.025 264)" }}>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Users size={14} className="text-primary" /> Lançar nota em bloco por grupo
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Escolha o grupo (Casos Clínicos ou Seminário) e o campo — a nota é aplicada a todos os alunos daquele grupo de uma vez.
+            Isso <b>não</b> é a mesma coisa que a coluna "Equipe" da tabela, que usa outro agrupamento (hoje sem uso).
+          </p>
+          {!selectedClassId ? (
+            <p className="text-xs text-amber-400">Selecione uma turma primeiro.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Dinâmica</label>
+                <select value={bulkKind}
+                  onChange={e => {
+                    const kind = e.target.value as "cc" | "seminario";
+                    setBulkKind(kind);
+                    setBulkGroupId("");
+                    setBulkField(kind === "cc" ? "jigsaw_fase3" : "jigsaw_fase1");
+                  }}
+                  className="w-full px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground">
+                  <option value="cc">Casos Clínicos</option>
+                  <option value="seminario">Seminário</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Grupo</label>
+                <select value={bulkGroupId}
+                  onChange={e => setBulkGroupId(e.target.value ? parseInt(e.target.value) : "")}
+                  className="w-full px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground">
+                  <option value="">Selecione...</option>
+                  {(bulkKind === "cc" ? ccGroups : seminarioGroups).map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Campo</label>
+                <select value={bulkField} onChange={e => setBulkField(e.target.value as GradeField)}
+                  className="w-full px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground">
+                  {bulkKind === "cc" ? (
+                    <>
+                      <option value="jigsaw_fase3">Casos Clínicos (campeonato)</option>
+                      <option value="caso_1">Caso Clínico 1 (legado)</option>
+                      <option value="caso_2">Caso Clínico 2 (legado)</option>
+                      <option value="caso_3">Caso Clínico 3 (legado)</option>
+                      <option value="caso_4">Caso Clínico 4 (legado)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="jigsaw_fase1">Seminário — Fase 1 (pôster)</option>
+                      <option value="jigsaw_fase2">Seminário — Fase 2 (quiz individual)</option>
+                      <option value="jigsaw_total">Seminário — Nota total</option>
+                    </>
+                  )}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Nota (0–10)</label>
+                <input type="text" value={bulkValue} onChange={e => setBulkValue(e.target.value)}
+                  placeholder="ex: 8,5"
+                  className="w-full px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground font-mono" />
+              </div>
+              <div className="col-span-2 sm:col-span-4 flex items-center gap-3">
+                <button
+                  onClick={handleApplyBulk}
+                  disabled={!bulkGroupId || bulkMutation.isPending}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+                >
+                  {bulkMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                  Aplicar a todos
+                </button>
+                {bulkGroupId !== "" && (
+                  <span className="text-xs text-muted-foreground">
+                    {bulkGroupMembers.length} aluno(s) neste grupo{bulkGroupMembers.length === 0 ? " — carregue a turma primeiro" : ""}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pesos */}
       {showWeights && (
@@ -594,7 +741,11 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
                     {/* Nome */}
                     <td className="sticky left-0 z-10 px-3 py-2 border-b border-r border-border" style={{ backgroundColor: rowBg, minWidth: 200 }}>
                       <div className="font-medium text-foreground text-xs leading-tight">{row.memberName}</div>
-                      <div className="text-[10px] text-muted-foreground">{row.teamEmoji} {row.teamName}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {row.ccGroupName || row.seminarioGroupName
+                          ? [row.ccGroupName, row.seminarioGroupName].filter(Boolean).join(" · ")
+                          : `${row.teamEmoji} ${row.teamName}`}
+                      </div>
                     </td>
                     {/* P1 */}
                     <EditableCell {...cellProps} field="p1" value={p1} onSaved={onSaved} />
