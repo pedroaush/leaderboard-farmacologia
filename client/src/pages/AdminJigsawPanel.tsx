@@ -343,7 +343,7 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
     );
 
   const { data: classData } = trpc.classes.getById.useQuery(
-    { id: classId!, sessionToken: teacherToken || "" }, { enabled: classId !== null }
+    { classId: classId!, sessionToken: teacherToken || "" }, { enabled: classId !== null }
   );
   const classMembers: any[] = (classData as any)?.members || [];
 
