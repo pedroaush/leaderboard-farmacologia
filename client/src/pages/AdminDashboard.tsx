@@ -214,6 +214,7 @@ function BuscaGeralTab({ sessionToken }: { sessionToken: string }) {
   const teamsQuery = trpc.teams.list.useQuery({ sessionToken });
   const classesQuery = trpc.classes.list.useQuery({ sessionToken });
   const teachersQuery = trpc.teacherManagement.listAll.useQuery({ sessionToken });
+  const groupsQuery = trpc.teacherAuth.listAllGroups.useQuery({ sessionToken });
   const utils = trpc.useUtils();
 
   const updateMember = trpc.members.update.useMutation({
@@ -248,6 +249,18 @@ function BuscaGeralTab({ sessionToken }: { sessionToken: string }) {
 
   const teamById = useMemo(() => new Map(teams.map((t: any) => [t.id, t])), [teams]);
   const classById = useMemo(() => new Map((classes as any[]).map((c: any) => [c.id, c])), [classes]);
+  const grupoRealPorAluno = useMemo(() => {
+    const m = new Map<number, string>();
+    const todos = [...(groupsQuery.data?.casosClinicos || []), ...(groupsQuery.data?.seminario || [])];
+    for (const g of todos) {
+      for (const membro of g.members) {
+        const label = g.tipo === "casos_clinicos" ? `⚕️ ${g.name}` : `📋 ${g.name}`;
+        const existente = m.get(membro.id);
+        m.set(membro.id, existente ? `${existente} · ${label}` : label);
+      }
+    }
+    return m;
+  }, [groupsQuery.data]);
 
   const termo = search.trim().toLowerCase();
   const buscaAtiva = termo.length >= 2;
@@ -325,7 +338,7 @@ function BuscaGeralTab({ sessionToken }: { sessionToken: string }) {
                     <div>
                       <p className="text-sm font-medium text-white">{m.name}</p>
                       <p className="text-xs text-gray-500">
-                        {team ? `${team.emoji} ${team.name}` : "Sem equipe"} · {cls?.name || "Sem turma"} · {parseFloat(m.xp || "0").toFixed(1)} PF
+                        {grupoRealPorAluno.get(m.id) || "Sem grupo (Casos Clínicos/Seminário)"} · {cls?.name || "Sem turma"} · {parseFloat(m.xp || "0").toFixed(1)} PF
                       </p>
                     </div>
                     {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
@@ -702,6 +715,10 @@ function TurmasAdminTab({ sessionToken }: { sessionToken: string }) {
     { sessionToken, classId: selectedClass! },
     { enabled: !!selectedClass }
   );
+  const groupsDetail = trpc.teacherAuth.listAllGroups.useQuery(
+    { sessionToken, classId: selectedClass! },
+    { enabled: !!selectedClass }
+  );
 
   const updateClass = trpc.classes.update.useMutation({
     onSuccess: () => {
@@ -718,6 +735,18 @@ function TurmasAdminTab({ sessionToken }: { sessionToken: string }) {
   // Detail view
   if (selectedClass && classDetail.data) {
     const cls = classDetail.data;
+    const casosClinicos = groupsDetail.data?.casosClinicos || [];
+    const seminario = groupsDetail.data?.seminario || [];
+    const gruposReais = [...casosClinicos, ...seminario];
+    const totalGruposReais = gruposReais.length;
+    const grupoRealPorAluno = new Map<number, string>();
+    for (const g of gruposReais) {
+      const label = g.tipo === "casos_clinicos" ? `⚕️ ${g.name}` : `📋 ${g.name}`;
+      for (const membro of g.members) {
+        const existente = grupoRealPorAluno.get(membro.id);
+        grupoRealPorAluno.set(membro.id, existente ? `${existente} · ${label}` : label);
+      }
+    }
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
@@ -794,8 +823,8 @@ function TurmasAdminTab({ sessionToken }: { sessionToken: string }) {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div className="rounded-lg p-5 border border-gray-700" style={{ backgroundColor: CARD_BG }}>
-            <p className="text-xs text-gray-400 uppercase">Equipes</p>
-            <p className="text-3xl font-bold text-white mt-1">{cls.teams.length}</p>
+            <p className="text-xs text-gray-400 uppercase">Grupos (CC + Sem.)</p>
+            <p className="text-3xl font-bold text-white mt-1">{totalGruposReais}</p>
           </div>
           <div className="rounded-lg p-5 border border-gray-700" style={{ backgroundColor: CARD_BG }}>
             <p className="text-xs text-gray-400 uppercase">Alunos</p>
@@ -809,68 +838,57 @@ function TurmasAdminTab({ sessionToken }: { sessionToken: string }) {
           </div>
         </div>
 
-        {/* Teams */}
+        {/* Grupos reais (Casos Clínicos + Seminário) */}
         <div className="rounded-lg border border-gray-700" style={{ backgroundColor: CARD_BG }}>
           <div className="p-4 border-b border-gray-700">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Users size={18} style={{ color: ORANGE }} /> Equipes da Turma
+              <Users size={18} style={{ color: ORANGE }} /> Grupos da Turma (Casos Clínicos + Seminário)
             </h3>
+            <p className="text-xs text-gray-500 mt-1">Não é a tabela genérica de "equipes" — são os grupos reais usados este semestre.</p>
           </div>
-          {cls.teams.length === 0 ? (
-            <div className="p-6 text-center text-gray-400">Nenhuma equipe nesta turma.</div>
+          {gruposReais.length === 0 ? (
+            <div className="p-6 text-center text-gray-400">Nenhum grupo encontrado para esta turma.</div>
           ) : (
             <div>
-              {cls.teams.map((team: any) => {
-                const teamMembers = cls.members.filter((m: any) => m.teamId === team.id);
-                const totalPF = teamMembers.reduce((s: number, m: any) => s + parseFloat(m.xp || "0"), 0);
+              {gruposReais.map((g: any) => {
+                const color = g.tipo === "casos_clinicos" ? ORANGE : "#64C8FF";
+                const key = `${g.tipo}-${g.id}`;
                 return (
-                  <div key={team.id} className="border-b border-gray-700/50 last:border-0">
+                  <div key={key} className="border-b border-gray-700/50 last:border-0">
                     <button
-                      onClick={() => setExpandedTeam(expandedTeam === team.id ? null : team.id)}
+                      onClick={() => setExpandedTeam(expandedTeam === g.id ? null : g.id)}
                       className="w-full p-4 flex items-center justify-between text-left"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="text-xl">{team.emoji}</span>
-                        <span className="font-bold text-white">{team.name}</span>
+                        <span className="text-xl">{g.tipo === "casos_clinicos" ? "⚕️" : "📋"}</span>
+                        <span className="font-bold text-white">{g.name}</span>
                         <span className="text-xs text-gray-400 px-2 py-0.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}>
-                          {teamMembers.length} alunos
+                          {g.members.length} alunos
                         </span>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="font-mono text-sm" style={{ color: team.color || ORANGE }}>{totalPF.toFixed(1)} PF</span>
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: team.color || ORANGE }} />
-                        {expandedTeam === team.id ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+                        {expandedTeam === g.id ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
                       </div>
                     </button>
                     <AnimatePresence>
-                      {expandedTeam === team.id && teamMembers.length > 0 && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="overflow-hidden"
-                        >
+                      {expandedTeam === g.id && g.members.length > 0 && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                           <div className="px-4 pb-4">
                             <table className="w-full text-sm">
                               <thead>
                                 <tr>
                                   <th className="px-3 py-2 text-left text-gray-500 text-xs">#</th>
                                   <th className="px-3 py-2 text-left text-gray-500 text-xs">Nome</th>
-                                  <th className="px-3 py-2 text-right text-gray-500 text-xs">PF</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {teamMembers
-                                  .sort((a: any, b: any) => parseFloat(b.xp || "0") - parseFloat(a.xp || "0"))
-                                  .map((m: any, idx: number) => (
-                                    <tr key={m.id} className="border-t border-gray-700/30">
-                                      <td className="px-3 py-2 text-gray-500 text-xs">{idx + 1}</td>
-                                      <td className="px-3 py-2 text-white">{m.name}</td>
-                                      <td className="px-3 py-2 text-right font-mono" style={{ color: team.color || ORANGE }}>
-                                        {parseFloat(m.xp || "0").toFixed(1)}
-                                      </td>
-                                    </tr>
-                                  ))}
+                                {g.members.map((m: any, idx: number) => (
+                                  <tr key={m.id} className="border-t border-gray-700/30">
+                                    <td className="px-3 py-2 text-gray-500 text-xs">{idx + 1}</td>
+                                    <td className="px-3 py-2 text-white">{m.name}</td>
+                                  </tr>
+                                ))}
                               </tbody>
                             </table>
                           </div>
@@ -908,18 +926,18 @@ function TurmasAdminTab({ sessionToken }: { sessionToken: string }) {
                   {cls.members
                     .sort((a: any, b: any) => parseFloat(b.xp || "0") - parseFloat(a.xp || "0"))
                     .map((m: any, idx: number) => {
-                      const team = cls.teams.find((t: any) => t.id === m.teamId);
+                      const grupoReal = grupoRealPorAluno.get(m.id);
                       return (
                         <tr key={m.id} className="border-t border-gray-700/50">
                           <td className="px-4 py-3 text-gray-500 text-xs">{idx + 1}</td>
                           <td className="px-4 py-3 text-white">{m.name}</td>
                           <td className="px-4 py-3">
-                            {team ? (
-                              <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: `${team.color}22`, color: team.color }}>
-                                {team.emoji} {team.name}
+                            {grupoReal ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "rgba(247,148,29,0.15)", color: ORANGE }}>
+                                {grupoReal}
                               </span>
                             ) : (
-                              <span className="text-xs text-gray-500">Sem equipe</span>
+                              <span className="text-xs text-gray-500">Sem grupo</span>
                             )}
                           </td>
                           <td className="px-4 py-3 text-right font-mono" style={{ color: ORANGE }}>
@@ -1342,36 +1360,42 @@ function StudentsTab({ sessionToken }: { sessionToken: string }) {
 }
 
 // ─── Teams Tab ───
+// ─── Teams Tab (agora mostra os grupos REAIS: Casos Clínicos + Seminário) ───
 function TeamsTab({ sessionToken }: { sessionToken: string }) {
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const groupsQuery = trpc.teacherAuth.listAllGroups.useQuery({ sessionToken });
 
-  const teamsQuery = trpc.teams.list.useQuery({ sessionToken });
-  const membersQuery = trpc.members.list.useQuery({ sessionToken });
-  const deleteTeam = trpc.teams.delete.useMutation({
-    onSuccess: () => {
-      toast.success("Equipe removida com sucesso");
-      teamsQuery.refetch();
-      setConfirmDelete(null);
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  if (teamsQuery.isLoading || membersQuery.isLoading) {
-    return <LoadingState text="Carregando equipes..." />;
+  if (groupsQuery.isLoading) {
+    return <LoadingState text="Carregando grupos..." />;
+  }
+  if (groupsQuery.error) {
+    return <ErrorState text="Erro ao carregar grupos." />;
   }
 
-  const teams = teamsQuery.data || [];
-  const members = membersQuery.data || [];
+  const casosClinicos = groupsQuery.data?.casosClinicos || [];
+  const seminario = groupsQuery.data?.seminario || [];
+
+  const GroupCard = ({ g, color }: { g: any; color: string }) => (
+    <div className="rounded-lg p-4 border border-gray-700" style={{ backgroundColor: CARD_BG }}>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-bold text-white">{g.name}</h4>
+        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+      </div>
+      <p className="text-xs text-gray-500 mb-2">{g.className || "Sem turma"}</p>
+      <p className="text-xs text-gray-400">👥 {g.members.length} integrante{g.members.length !== 1 ? "s" : ""}</p>
+      {g.members.length > 0 && (
+        <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">
+          {g.members.map((m: any) => m.name).filter(Boolean).join(", ")}
+        </p>
+      )}
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">
-          Gerenciar Equipes
-          <span className="text-sm font-normal text-gray-400 ml-3">({teams.length} equipes)</span>
-        </h2>
+        <h2 className="text-2xl font-bold text-white">Grupos Reais da Plataforma</h2>
         <button
-          onClick={() => { teamsQuery.refetch(); membersQuery.refetch(); }}
+          onClick={() => groupsQuery.refetch()}
           className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all hover:scale-105"
           style={{ backgroundColor: "rgba(255,255,255,0.1)", color: "#fff" }}
         >
@@ -1379,63 +1403,35 @@ function TeamsTab({ sessionToken }: { sessionToken: string }) {
           Atualizar
         </button>
       </div>
+      <p className="text-xs text-gray-500 -mt-4">
+        Mostra os grupos de verdade usados este semestre (Casos Clínicos e Seminário), não a tabela genérica de "equipes"
+        antiga — que não é usada por essas duas dinâmicas.
+      </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {teams.map((team: any, i: number) => {
-          const teamMembers = members.filter((m: any) => m.teamId === team.id);
-          const totalPF = teamMembers.reduce((sum: number, m: any) => sum + parseFloat(m.xp || "0"), 0);
-          const avgPF = teamMembers.length > 0 ? totalPF / teamMembers.length : 0;
+      <div>
+        <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+          <FlaskConical size={18} style={{ color: ORANGE }} /> Casos Clínicos ({casosClinicos.length})
+        </h3>
+        {casosClinicos.length === 0 ? (
+          <p className="text-sm text-gray-500">Nenhum grupo de Casos Clínicos encontrado.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {casosClinicos.map((g: any) => <GroupCard key={`cc-${g.id}`} g={g} color={ORANGE} />)}
+          </div>
+        )}
+      </div>
 
-          return (
-            <motion.div
-              key={team.id}
-              className="rounded-lg p-5 border border-gray-700"
-              style={{ backgroundColor: CARD_BG }}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">{team.emoji}</span>
-                  <h3 className="text-lg font-bold text-white">{team.name}</h3>
-                </div>
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: team.color || ORANGE }} />
-              </div>
-              <div className="space-y-1.5 text-sm text-gray-400 mb-4">
-                <p>👥 {teamMembers.length} membros</p>
-                <p style={{ color: team.color || ORANGE }}>⭐ {totalPF.toFixed(1)} PF total</p>
-                <p className="text-xs">📊 Média: {avgPF.toFixed(1)} PF/aluno</p>
-              </div>
-              <div className="flex gap-2">
-                {confirmDelete === team.id ? (
-                  <>
-                    <button
-                      onClick={() => deleteTeam.mutate({ sessionToken, id: team.id })}
-                      className="flex-1 px-3 py-2 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700"
-                      disabled={deleteTeam.isPending}
-                    >
-                      {deleteTeam.isPending ? "Removendo..." : "Confirmar"}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDelete(null)}
-                      className="flex-1 px-3 py-2 rounded-lg text-sm bg-gray-600 text-white hover:bg-gray-700"
-                    >
-                      Cancelar
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDelete(team.id)}
-                    className="flex-1 px-3 py-2 rounded-lg transition-all hover:bg-red-900/30 text-sm text-red-400 border border-red-800/30"
-                  >
-                    <Trash2 size={14} className="inline mr-1" /> Deletar
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          );
-        })}
+      <div>
+        <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+          <Users size={18} style={{ color: "#64C8FF" }} /> Seminário ({seminario.length})
+        </h3>
+        {seminario.length === 0 ? (
+          <p className="text-sm text-gray-500">Nenhum grupo de Seminário encontrado.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {seminario.map((g: any) => <GroupCard key={`sem-${g.id}`} g={g} color="#64C8FF" />)}
+          </div>
+        )}
       </div>
     </div>
   );
