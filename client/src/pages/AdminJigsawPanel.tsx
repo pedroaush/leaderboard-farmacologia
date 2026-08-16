@@ -1,23 +1,31 @@
 /**
- * AdminJigsawPanel — Painel completo de gerenciamento do Seminário Jigsaw
- * Fase 1: Grupos Especialistas (visualização + notas)
- * Fase 2: Grupos Mosaico (lançamento de notas: apresentação + participação + avaliação por pares)
- * Notificações: Envio em massa para todos os alunos
- * Exportação PDF dos grupos
+ * AdminJigsawPanel — Painel do Seminário Pôster + Quiz
+ *
+ * Fase 1 — Pôster e Perguntas: cada grupo apresenta um artigo em formato de
+ *   pôster e elabora 5 perguntas com gabarito. O professor revisa (podendo
+ *   ajustar enunciado/alternativas), aprova ou rejeita, e lança a nota do
+ *   pôster por um checklist de critérios.
+ * Fase 2 — Quiz e Notas: depois que o grupo apresenta, o professor libera as
+ *   perguntas aprovadas por uma janela de tempo. A turma responde
+ *   individualmente (alternativas embaralhadas por aluno, gabarito só depois
+ *   que a janela expira). A nota final de Seminário combina a nota do pôster
+ *   com o desempenho individual respondendo — calculada automaticamente pelo
+ *   back-end (seminarioPoster.ts) e refletida em jigsawScores.totalJigsawPF.
+ *
+ * Não existe mais "Fase 3" aqui — Casos Clínicos agora é uma dinâmica própria
+ * (liga de pontos corridos), fora do Jigsaw.
  */
-import { useState, useMemo, useRef } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Users, ChevronDown, ChevronUp, Save, Loader2,
-  Bell, Shuffle, CheckCircle2, BookOpen,
-  RefreshCw, Trash2, Eye, EyeOff, Search, FlaskConical,
-  Puzzle, GraduationCap, FileDown, Calculator, Stethoscope, ClipboardList
+  Puzzle, Users, ChevronDown, ChevronUp, Loader2, Save,
+  CheckCircle2, XCircle, Clock, Unlock, Edit3, X, FileText,
+  ClipboardCheck, GraduationCap, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// ─── Color palette for groups ───
 const GROUP_COLORS = [
   { accent: "#10b981", light: "oklch(0.696 0.17 162.48 / 0.15)" },
   { accent: "#6366f1", light: "oklch(0.585 0.233 277.12 / 0.15)" },
@@ -27,610 +35,310 @@ const GROUP_COLORS = [
   { accent: "#ef4444", light: "oklch(0.637 0.237 25.33 / 0.15)" },
 ];
 
-// ─── Score input component ───
-function ScoreInput({ label, value, max, onChange, color }: {
-  label: string; value: number; max: number; onChange: (v: number) => void; color: string;
-}) {
+const CARD_BG = "oklch(0.195 0.03 264.052)";
+const CARD_BORDER = "oklch(0.3 0.03 264.052)";
+
+const CRITERIOS_LABEL: Record<string, string> = {
+  posterClaro: "Pôster claro e bem organizado",
+  achadoCorreto: "Identificou corretamente o principal achado do artigo",
+  relevanciaClinica: "Explicou a relevância clínica do achado",
+  perguntasBemFormuladas: "As 5 perguntas estão bem formuladas",
+  gabaritoCorreto: "O gabarito enviado está correto",
+};
+const CRITERIOS_PADRAO = Object.keys(CRITERIOS_LABEL);
+
+function fmtData(d: string | Date | null | undefined) {
+  if (!d) return "—";
+  return new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+// ─── Cartão de revisão de UMA pergunta (Fase 1) ───
+function PerguntaReviewCard({ pergunta, teacherToken, onChanged }: { pergunta: any; teacherToken: string; onChanged: () => void }) {
+  const [editando, setEditando] = useState(false);
+  const [enunciado, setEnunciado] = useState(pergunta.enunciado);
+  const [alternativas, setAlternativas] = useState<{ id: string; texto: string; correta: boolean }[]>(pergunta.alternativas);
+
+  const revisar = trpc.seminarioPoster.revisarPergunta.useMutation({
+    onSuccess: () => { toast.success("Pergunta atualizada!"); onChanged(); },
+    onError: (e) => toast.error(e.message || "Erro ao revisar pergunta"),
+  });
+
+  const aprovar = () => {
+    const numCorretas = alternativas.filter(a => a.correta).length;
+    if (numCorretas !== 1) { toast.error("Precisa ter exatamente 1 alternativa correta"); return; }
+    revisar.mutate({
+      sessionToken: teacherToken, questionId: pergunta.id, decisao: "approved",
+      enunciadoAjustado: editando ? enunciado : undefined,
+      alternativasAjustadas: editando ? alternativas : undefined,
+    });
+  };
+  const rejeitar = () => {
+    if (!confirm("Rejeitar esta pergunta? O grupo precisará escrever outra.")) return;
+    revisar.mutate({ sessionToken: teacherToken, questionId: pergunta.id, decisao: "rejected" });
+  };
+
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{label}</span>
-      <div className="flex gap-1 flex-wrap">
-        {Array.from({ length: max + 1 }, (_, i) => (
-          <button key={i} onClick={() => onChange(i)}
-            className="w-7 h-7 rounded text-xs font-mono font-bold transition-all"
-            style={{
-              backgroundColor: value === i ? color : "oklch(0.245 0.03 264.052)",
-              color: value === i ? "#fff" : "oklch(0.7 0.02 264)",
-              border: `1px solid ${value === i ? color : "oklch(0.35 0.03 264.052)"}`,
-            }}>
-            {i}
-          </button>
+    <div className="rounded-lg border p-3 space-y-2" style={{ backgroundColor: "oklch(0.22 0.03 264.052)", borderColor: CARD_BORDER }}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">{pergunta.topico}</span>
+        <button onClick={() => setEditando(v => !v)} className="text-[10px] text-primary flex items-center gap-1 hover:underline shrink-0">
+          <Edit3 size={11} /> {editando ? "Cancelar edição" : "Ajustar"}
+        </button>
+      </div>
+
+      {editando ? (
+        <textarea value={enunciado} onChange={e => setEnunciado(e.target.value)}
+          className="w-full text-sm bg-transparent border border-border rounded p-2 text-foreground" rows={2} />
+      ) : (
+        <p className="text-sm text-foreground">{pergunta.enunciado}</p>
+      )}
+
+      <div className="space-y-1">
+        {alternativas.map((a, i) => (
+          <div key={a.id} className="flex items-center gap-2">
+            <button
+              onClick={() => setAlternativas(prev => prev.map((x, j) => ({ ...x, correta: j === i })))}
+              disabled={!editando}
+              className="w-4 h-4 rounded-full border shrink-0 flex items-center justify-center"
+              style={{ borderColor: a.correta ? "#10b981" : "oklch(0.4 0.03 264)" }}
+              title={editando ? "Marcar como correta" : undefined}
+            >
+              {a.correta && <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#10b981" }} />}
+            </button>
+            {editando ? (
+              <input value={a.texto}
+                onChange={e => setAlternativas(prev => prev.map((x, j) => j === i ? { ...x, texto: e.target.value } : x))}
+                className="flex-1 text-xs bg-transparent border border-border rounded px-2 py-1 text-foreground" />
+            ) : (
+              <span className={`text-xs ${a.correta ? "text-emerald-400 font-medium" : "text-muted-foreground"}`}>{a.texto}</span>
+            )}
+          </div>
         ))}
+      </div>
+
+      {pergunta.status === "pending_review" ? (
+        <div className="flex gap-2 pt-1">
+          <Button size="sm" className="flex-1 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700" onClick={aprovar} disabled={revisar.isPending}>
+            {revisar.isPending ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Aprovar
+          </Button>
+          <Button size="sm" variant="outline" className="flex-1 text-xs gap-1.5 text-destructive border-destructive/40" onClick={rejeitar} disabled={revisar.isPending}>
+            <XCircle size={13} /> Rejeitar
+          </Button>
+        </div>
+      ) : (
+        <span className={`text-[10px] font-medium ${pergunta.status === "approved" ? "text-emerald-400" : "text-destructive"}`}>
+          {pergunta.status === "approved" ? "✓ Aprovada" : "✕ Rejeitada"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── Cartão de grupo — Fase 1 (perguntas + nota do pôster) ───
+function GrupoFase1Card({ group, index, perguntasDoGrupo, teacherToken, classId, onChanged }: {
+  group: any; index: number; perguntasDoGrupo: any[]; teacherToken: string; classId: number; onChanged: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [checklist, setChecklist] = useState<Record<string, boolean>>(
+    Object.fromEntries(CRITERIOS_PADRAO.map(c => [c, false]))
+  );
+  const [observacoes, setObservacoes] = useState("");
+  const color = GROUP_COLORS[index % GROUP_COLORS.length];
+
+  const pendentes = perguntasDoGrupo.filter(p => p.status === "pending_review");
+  const aprovadas = perguntasDoGrupo.filter(p => p.status === "approved");
+
+  const lancarNota = trpc.seminarioPoster.lancarNotaPoster.useMutation({
+    onSuccess: (data) => { toast.success(`Nota do pôster salva: ${data.notaPoster}`); onChanged(); },
+    onError: (e) => toast.error(e.message || "Erro ao salvar nota"),
+  });
+
+  const salvarNota = () => {
+    lancarNota.mutate({ sessionToken: teacherToken, classId, groupId: group.id, checklist, observacoes: observacoes || undefined });
+  };
+
+  return (
+    <motion.div layout className="rounded-xl border overflow-hidden" style={{ backgroundColor: CARD_BG, borderColor: CARD_BORDER }}>
+      <button onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between p-4 text-left">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: color.light, color: color.accent }}>
+            <Users size={15} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">{group.name}</p>
+            <p className="text-[11px] text-muted-foreground">{group.members?.length || 0} integrantes</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {pendentes.length > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "oklch(0.769 0.188 70.08 / 0.2)", color: "#f59e0b" }}>
+              {pendentes.length} pendente{pendentes.length > 1 ? "s" : ""}
+            </span>
+          )}
+          {aprovadas.length > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "oklch(0.696 0.17 162.48 / 0.2)", color: "#10b981" }}>
+              {aprovadas.length} aprovada{aprovadas.length > 1 ? "s" : ""}
+            </span>
+          )}
+          {expanded ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+            <div className="px-4 pb-4 space-y-4 border-t" style={{ borderColor: CARD_BORDER }}>
+              {/* Perguntas */}
+              <div className="pt-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><FileText size={13} /> Perguntas ({perguntasDoGrupo.length}/5 enviadas)</p>
+                {perguntasDoGrupo.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">O grupo ainda não enviou perguntas.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {perguntasDoGrupo.map(p => (
+                      <PerguntaReviewCard key={p.id} pergunta={p} teacherToken={teacherToken} onChanged={onChanged} />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Nota do pôster */}
+              <div className="space-y-2 pt-2 border-t" style={{ borderColor: CARD_BORDER }}>
+                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5 pt-2"><ClipboardCheck size={13} /> Nota do pôster (checklist)</p>
+                <div className="space-y-1.5">
+                  {CRITERIOS_PADRAO.map(c => (
+                    <label key={c} className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                      <input type="checkbox" checked={checklist[c]} onChange={e => setChecklist(prev => ({ ...prev, [c]: e.target.checked }))} />
+                      {CRITERIOS_LABEL[c]}
+                    </label>
+                  ))}
+                </div>
+                <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} placeholder="Observações (opcional)"
+                  className="w-full text-xs bg-transparent border border-border rounded p-2 text-foreground" rows={2} />
+                <Button size="sm" className="text-xs gap-1.5" style={{ backgroundColor: color.accent }} onClick={salvarNota} disabled={lancarNota.isPending}>
+                  {lancarNota.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Salvar nota do pôster
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+// ─── Cartão de grupo — Fase 2 (liberar quiz) ───
+function GrupoFase2Card({ group, index, perguntasDoGrupo, teacherToken, classId, onChanged }: {
+  group: any; index: number; perguntasDoGrupo: any[]; teacherToken: string; classId: number; onChanged: () => void;
+}) {
+  const [duracao, setDuracao] = useState(5);
+  const color = GROUP_COLORS[index % GROUP_COLORS.length];
+  const aprovadas = perguntasDoGrupo.filter(p => p.status === "approved");
+  const agora = new Date();
+  const jaLiberou = aprovadas.some(p => p.releasedAt);
+  const janelaAberta = aprovadas.some(p => p.releasedAt && p.expiresAt && agora >= new Date(p.releasedAt) && agora < new Date(p.expiresAt));
+  const janelaExpirada = jaLiberou && !janelaAberta;
+  const expiraEm = aprovadas.find(p => p.expiresAt)?.expiresAt;
+
+  const liberar = trpc.seminarioPoster.liberarPerguntasDoGrupo.useMutation({
+    onSuccess: (data) => { toast.success(`${data.liberadas} perguntas liberadas por ${duracao} min!`); onChanged(); },
+    onError: (e) => toast.error(e.message || "Erro ao liberar perguntas"),
+  });
+
+  return (
+    <div className="rounded-xl border p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between" style={{ backgroundColor: CARD_BG, borderColor: CARD_BORDER }}>
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: color.light, color: color.accent }}>
+          <Users size={15} />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">{group.name}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {aprovadas.length} pergunta{aprovadas.length !== 1 ? "s" : ""} aprovada{aprovadas.length !== 1 ? "s" : ""}
+            {janelaAberta && <span className="text-emerald-400"> · janela aberta até {fmtData(expiraEm)}</span>}
+            {janelaExpirada && <span className="text-muted-foreground"> · janela encerrada em {fmtData(expiraEm)} (virou material de estudo)</span>}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {!janelaAberta && (
+          <>
+            <input type="number" min={1} max={60} value={duracao} onChange={e => setDuracao(Number(e.target.value))}
+              className="w-16 text-xs text-center bg-transparent border border-border rounded px-1 py-1.5 text-foreground" />
+            <span className="text-[10px] text-muted-foreground">min</span>
+          </>
+        )}
+        <Button size="sm" className="text-xs gap-1.5" style={{ backgroundColor: color.accent }}
+          onClick={() => liberar.mutate({ sessionToken: teacherToken, classId, groupId: group.id, duracaoMinutos: duracao })}
+          disabled={liberar.isPending || aprovadas.length === 0 || janelaAberta}>
+          {liberar.isPending ? <Loader2 size={13} className="animate-spin" /> : <Unlock size={13} />}
+          {janelaAberta ? "Janela aberta" : janelaExpirada ? "Liberar de novo" : "Liberar perguntas"}
+        </Button>
       </div>
     </div>
   );
 }
 
-// ─── Expert Group Card ───
-function ExpertGroupCard({ group, index, onScoresSaved }: {
-  group: any; index: number; onScoresSaved: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [showScoring, setShowScoring] = useState(false);
-  const [scores, setScores] = useState<Record<number, { presentation: number; participation: number }>>({});
-  const [search, setSearch] = useState("");
-  const color = GROUP_COLORS[index % GROUP_COLORS.length];
-  const utils = trpc.useUtils();
-
-  const { data: existingScores } = trpc.jigsawComplete.expertGroups.getScores.useQuery(
-    { expertGroupId: group.id }, { enabled: showScoring }
-  );
-
-  const scoreMutation = trpc.jigsawComplete.expertGroups.scorePresentation.useMutation({
-    onSuccess: () => {
-      toast.success(`Notas do ${group.name} salvas!`);
-      utils.jigsawComplete.expertGroups.getByClass.invalidate();
-      setShowScoring(false); setScores({}); onScoresSaved();
-    },
-    onError: (e) => toast.error(e.message || "Erro ao salvar notas"),
-  });
-
-  const filteredMembers = useMemo(() =>
-    (group.members || []).filter((m: any) => !search || m.name?.toLowerCase().includes(search.toLowerCase())),
-    [group.members, search]
-  );
-
-  const handleSaveScores = () => {
-    const arr = Object.entries(scores).map(([memberId, s]) => ({
-      memberId: Number(memberId),
-      presentationScore: s.presentation,
-      participationScore: s.participation,
-    }));
-    if (arr.length === 0) { toast.error("Preencha ao menos uma nota."); return; }
-    scoreMutation.mutate({ expertGroupId: group.id, scores: arr });
-  };
-
-  const isCompleted = group.status === "completed";
-
-  return (
-    <motion.div layout className="rounded-xl overflow-hidden border"
-      style={{ borderColor: isCompleted ? color.accent + "60" : "oklch(0.35 0.03 264.052)", backgroundColor: "oklch(0.195 0.03 264.052)" }}
-      initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.06 }}>
-      <div className="p-4 cursor-pointer" style={{ backgroundColor: isCompleted ? color.light : "transparent" }}
-        onClick={() => setExpanded(!expanded)}>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold shrink-0"
-            style={{ backgroundColor: color.accent + "22", color: color.accent }}>{index + 1}</div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-foreground text-sm">{group.name}</span>
-              {isCompleted && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                style={{ backgroundColor: color.accent + "20", color: color.accent }}>✓ Notas lançadas</span>}
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{group.topicTitle}</p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="text-right hidden sm:block">
-              <div className="font-mono font-bold text-sm" style={{ color: color.accent }}>{group.members?.length || 0}</div>
-              <div className="text-[10px] text-muted-foreground">alunos</div>
-            </div>
-            {expanded ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
-          </div>
-        </div>
-      </div>
-      <AnimatePresence>
-        {expanded && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25 }} className="overflow-hidden">
-            <div className="border-t px-4 pb-4 pt-3 space-y-3" style={{ borderColor: "oklch(0.3 0.03 264.052)" }}>
-              <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: color.light }}>
-                <BookOpen size={14} style={{ color: color.accent }} className="mt-0.5 shrink-0" />
-                <div><span className="text-xs font-semibold" style={{ color: color.accent }}>Tema: </span>
-                  <span className="text-xs text-foreground">{group.topicTitle}</span></div>
-              </div>
-              <div className="relative">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input type="text" placeholder="Buscar aluno..." value={search} onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md bg-background border border-border text-foreground" />
-              </div>
-              <div className="space-y-1 max-h-64 overflow-y-auto">
-                {filteredMembers.map((member: any, mIdx: number) => {
-                  const existing = existingScores?.find((s: any) => s.memberId === member.id);
-                  const current = scores[member.id];
-                  const hasScore = existing?.presentationScore != null;
-                  return (
-                    <div key={member.id} className="flex items-center gap-2 px-3 py-2 rounded-md"
-                      style={{ backgroundColor: "oklch(0.22 0.03 264.052)" }}>
-                      <span className="text-[10px] text-muted-foreground font-mono w-5 text-center">{mIdx + 1}</span>
-                      <span className="flex-1 text-xs text-foreground truncate">{member.name}</span>
-                      {hasScore && !showScoring && (
-                        <span className="text-[10px] font-mono" style={{ color: color.accent }}>
-                          {Number(existing.presentationScore).toFixed(1)} + {Number(existing.participationScore).toFixed(1)}
-                        </span>
-                      )}
-                      {showScoring && (
-                        <div className="flex gap-3 items-center">
-                          <ScoreInput label="Apres." value={current?.presentation ?? (existing ? Number(existing.presentationScore) : 0)} max={5}
-                            onChange={(v) => setScores(prev => ({ ...prev, [member.id]: { ...prev[member.id], presentation: v, participation: prev[member.id]?.participation ?? 0 } }))} color={color.accent} />
-                          <ScoreInput label="Part." value={current?.participation ?? (existing ? Number(existing.participationScore) : 0)} max={2}
-                            onChange={(v) => setScores(prev => ({ ...prev, [member.id]: { ...prev[member.id], participation: v, presentation: prev[member.id]?.presentation ?? 0 } }))} color={color.accent} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex gap-2 pt-1">
-                <Button size="sm" variant="outline" className="flex-1 text-xs gap-1.5" onClick={() => setShowScoring(!showScoring)}>
-                  {showScoring ? <EyeOff size={13} /> : <Eye size={13} />}
-                  {showScoring ? "Ocultar notas" : "Lançar notas"}
-                </Button>
-                {showScoring && (
-                  <Button size="sm" className="flex-1 text-xs gap-1.5" style={{ backgroundColor: color.accent }}
-                    onClick={handleSaveScores} disabled={scoreMutation.isPending}>
-                    {scoreMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                    Salvar notas
-                  </Button>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-// ─── Home Group Card (Fase 2) with scoring ───
-function HomeGroupCard({ group, index, onScoresSaved, teacherToken }: {
-  group: any; index: number; onScoresSaved: () => void; teacherToken?: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [showScoring, setShowScoring] = useState(false);
-  const [scores, setScores] = useState<Record<number, { presentation: number; participation: number; peer: number }>>({});
-  const [editingName, setEditingName] = useState<number | null>(null);
-  const [editNameValue, setEditNameValue] = useState("");
-  const color = GROUP_COLORS[index % GROUP_COLORS.length];
-  const utils = trpc.useUtils();
-
-  const { data: existingScores } = trpc.jigsawComplete.homeGroups.getScores.useQuery(
-    { homeGroupId: group.id }, { enabled: showScoring }
-  );
-
-  const scoreMutation = trpc.jigsawComplete.homeGroups.scoreParticipation.useMutation({
-    onSuccess: () => {
-      toast.success(`Notas do ${group.name} salvas!`);
-      utils.jigsawComplete.homeGroups.getByClass.invalidate();
-      setShowScoring(false); setScores({}); onScoresSaved();
-    },
-    onError: (e) => toast.error(e.message || "Erro ao salvar notas"),
-  });
-
-  const renameMutation = trpc.jigsawComplete.homeGroups.renameMember.useMutation({
-    onSuccess: (data) => {
-      toast.success(`Nome atualizado para "${data.newName}"`);
-      utils.jigsawComplete.homeGroups.getByClass.invalidate();
-      setEditingName(null);
-      setEditNameValue("");
-      onScoresSaved();
-    },
-    onError: (e) => toast.error(e.message || "Erro ao renomear"),
-  });
-
-  const handleStartRename = (memberId: number, currentName: string) => {
-    setEditingName(memberId);
-    setEditNameValue(currentName);
-  };
-
-  const handleConfirmRename = (memberId: number) => {
-    const trimmed = editNameValue.trim();
-    if (!trimmed || trimmed.length < 2) { toast.error("Nome deve ter ao menos 2 caracteres"); return; }
-    renameMutation.mutate({ memberId, newName: trimmed, sessionToken: teacherToken || undefined });
-  };
-
-  const handleSaveScores = () => {
-    const arr = Object.entries(scores).map(([memberId, s]) => ({
-      memberId: Number(memberId),
-      presentationScore: s.presentation,
-      participationScore: s.participation,
-      peerRating: s.peer,
-    }));
-    if (arr.length === 0) { toast.error("Preencha ao menos uma nota."); return; }
-    scoreMutation.mutate({ homeGroupId: group.id, scores: arr, sessionToken: teacherToken || undefined });
-  };
-
-  const isCompleted = group.status === "completed";
-  const memberCount = group.members?.length || 0;
-
-  return (
-    <motion.div className="rounded-xl border overflow-hidden"
-      style={{ borderColor: isCompleted ? color.accent + "60" : "oklch(0.35 0.03 264.052)", backgroundColor: "oklch(0.195 0.03 264.052)" }}
-      initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: index * 0.04 }}>
-      <div className="p-3 cursor-pointer flex items-center gap-3" onClick={() => setExpanded(!expanded)}>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
-          style={{ backgroundColor: color.accent + "22", color: color.accent }}>{index + 1}</div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-foreground">{group.name}</span>
-            {isCompleted && <span className="text-[10px] px-1.5 py-0.5 rounded-full"
-              style={{ backgroundColor: color.accent + "20", color: color.accent }}>✓</span>}
-          </div>
-          <p className="text-xs text-muted-foreground">{memberCount} especialistas</p>
-        </div>
-        {expanded ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
-      </div>
-      <AnimatePresence>
-        {expanded && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-            <div className="border-t px-3 pb-3 pt-2 space-y-2" style={{ borderColor: "oklch(0.3 0.03 264.052)" }}>
-              {/* Members list */}
-              <div className="space-y-1 max-h-72 overflow-y-auto">
-                {(group.members || []).map((m: any, mIdx: number) => {
-                  const existing = existingScores?.find((s: any) => s.memberId === m.id);
-                  const current = scores[m.id];
-                  const topicColor = GROUP_COLORS[mIdx % GROUP_COLORS.length];
-                  return (
-                    <div key={m.id} className="rounded px-2 py-2 space-y-1.5"
-                      style={{ backgroundColor: "oklch(0.22 0.03 264.052)" }}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-muted-foreground font-mono w-4">{mIdx + 1}</span>
-                        {editingName === m.id ? (
-                          <div className="flex-1 flex items-center gap-1">
-                            <input
-                              autoFocus
-                              className="flex-1 text-xs bg-transparent border-b border-primary outline-none text-foreground font-medium px-0.5"
-                              value={editNameValue}
-                              onChange={(e) => setEditNameValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleConfirmRename(m.id);
-                                if (e.key === "Escape") { setEditingName(null); setEditNameValue(""); }
-                              }}
-                            />
-                            <button
-                              className="text-[10px] px-1.5 py-0.5 rounded text-white shrink-0"
-                              style={{ backgroundColor: color.accent }}
-                              onClick={() => handleConfirmRename(m.id)}
-                              disabled={renameMutation.isPending}
-                            >
-                              {renameMutation.isPending ? "..." : "OK"}
-                            </button>
-                            <button
-                              className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground border border-muted shrink-0"
-                              onClick={() => { setEditingName(null); setEditNameValue(""); }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <span
-                            className="flex-1 text-xs text-foreground truncate font-medium cursor-pointer hover:underline hover:text-primary transition-colors"
-                            title="Clique para editar o nome"
-                            onClick={() => handleStartRename(m.id, m.name)}
-                          >
-                            {m.name}
-                          </span>
-                        )}
-                        <span className="text-[10px] px-1.5 py-0.5 rounded text-white truncate max-w-[110px]"
-                          style={{ backgroundColor: topicColor.accent + "cc" }}>
-                          {m.topicName?.split(" ").slice(0, 3).join(" ")}
-                        </span>
-                      </div>
-                      {/* Scores display or input */}
-                      {!showScoring && existing && (
-                        <div className="flex gap-3 pl-6 text-[10px] text-muted-foreground">
-                          <span>Apres: <strong style={{ color: color.accent }}>{Number(existing.presentationScore).toFixed(1)}</strong></span>
-                          <span>Part: <strong style={{ color: color.accent }}>{Number(existing.participationScore).toFixed(1)}</strong></span>
-                          <span>Pares: <strong style={{ color: color.accent }}>{Number(existing.peerRating).toFixed(1)}</strong></span>
-                          <span>Total: <strong style={{ color: color.accent }}>{(Number(existing.presentationScore) + Number(existing.participationScore) + Number(existing.peerRating)).toFixed(1)}</strong></span>
-                        </div>
-                      )}
-                      {showScoring && (
-                        <div className="pl-6 flex gap-2 flex-wrap">
-                          <ScoreInput label="Apres.(0-5)" value={current?.presentation ?? (existing ? Number(existing.presentationScore) : 0)} max={5}
-                            onChange={(v) => setScores(prev => ({ ...prev, [m.id]: { ...prev[m.id], presentation: v, participation: prev[m.id]?.participation ?? 0, peer: prev[m.id]?.peer ?? 0 } }))} color={color.accent} />
-                          <ScoreInput label="Part.(0-2)" value={current?.participation ?? (existing ? Number(existing.participationScore) : 0)} max={2}
-                            onChange={(v) => setScores(prev => ({ ...prev, [m.id]: { ...prev[m.id], participation: v, presentation: prev[m.id]?.presentation ?? 0, peer: prev[m.id]?.peer ?? 0 } }))} color={color.accent} />
-                          <ScoreInput label="Pares(0-5)" value={current?.peer ?? (existing ? Number(existing.peerRating) : 0)} max={5}
-                            onChange={(v) => setScores(prev => ({ ...prev, [m.id]: { ...prev[m.id], peer: v, presentation: prev[m.id]?.presentation ?? 0, participation: prev[m.id]?.participation ?? 0 } }))} color={color.accent} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Action buttons */}
-              <div className="flex gap-2 pt-1">
-                <Button size="sm" variant="outline" className="flex-1 text-xs gap-1.5" onClick={() => setShowScoring(!showScoring)}>
-                  {showScoring ? <EyeOff size={13} /> : <Eye size={13} />}
-                  {showScoring ? "Ocultar notas" : "Lançar notas"}
-                </Button>
-                {showScoring && (
-                  <Button size="sm" className="flex-1 text-xs gap-1.5" style={{ backgroundColor: color.accent }}
-                    onClick={handleSaveScores} disabled={scoreMutation.isPending}>
-                    {scoreMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                    Salvar notas
-                  </Button>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-// ─── PDF Export function ───
-function exportGroupsPDF(expertGroups: any[], homeGroups: any[]) {
-  const now = new Date().toLocaleDateString("pt-BR");
-  let html = `
-    <html><head><meta charset="utf-8">
-    <style>
-      body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a2e; margin: 20px; }
-      h1 { font-size: 18px; color: #0d4f3c; margin-bottom: 4px; }
-      h2 { font-size: 14px; color: #10b981; margin: 20px 0 8px; border-bottom: 2px solid #10b981; padding-bottom: 4px; }
-      h3 { font-size: 12px; color: #1a1a2e; margin: 12px 0 4px; background: #f0fdf4; padding: 6px 8px; border-left: 3px solid #10b981; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-      th { background: #0d4f3c; color: white; padding: 5px 8px; text-align: left; font-size: 10px; }
-      td { padding: 4px 8px; border-bottom: 1px solid #e5e7eb; font-size: 10px; }
-      tr:nth-child(even) td { background: #f9fafb; }
-      .badge { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: bold; }
-      .topic { color: #6366f1; font-style: italic; }
-      .page-break { page-break-before: always; }
-      .footer { margin-top: 20px; font-size: 9px; color: #9ca3af; text-align: center; }
-    </style></head><body>
-    <h1>🧩 Seminário Jigsaw — Farmacologia I</h1>
-    <p style="color:#6b7280;font-size:10px;">Gerado em ${now} · Conexão em Farmacologia</p>
-    <h2>FASE 1 — Grupos Especialistas (${expertGroups.length} grupos)</h2>`;
-
-  expertGroups.forEach((g, i) => {
-    html += `<h3>${i + 1}. ${g.name}</h3>
-    <p class="topic">Tema: ${g.topicTitle}</p>
-    <table><tr><th>#</th><th>Aluno</th><th>Apres. (0-5)</th><th>Part. (0-2)</th><th>Total</th></tr>`;
-    (g.members || []).forEach((m: any, mIdx: number) => {
-      html += `<tr><td>${mIdx + 1}</td><td>${m.name}</td><td>—</td><td>—</td><td>—</td></tr>`;
-    });
-    html += `</table>`;
-  });
-
-  html += `<div class="page-break"></div>
-    <h2>FASE 2 — Grupos Mosaico (${homeGroups.length} grupos)</h2>`;
-
-  homeGroups.forEach((g, i) => {
-    html += `<h3>${i + 1}. ${g.name}</h3>
-    <table><tr><th>#</th><th>Aluno</th><th>Tema Especialista</th><th>Apres.</th><th>Part.</th><th>Pares</th><th>Total</th></tr>`;
-    (g.members || []).forEach((m: any, mIdx: number) => {
-      html += `<tr><td>${mIdx + 1}</td><td>${m.name}</td><td class="topic">${m.topicName || "—"}</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`;
-    });
-    html += `</table>`;
-  });
-
-  html += `<div class="footer">Conexão em Farmacologia · Seminário Jigsaw ${new Date().getFullYear()}</div></body></html>`;
-
-  const win = window.open("", "_blank");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    setTimeout(() => win.print(), 500);
-  }
-}
-
-// ─── Export CSV function ───
-function exportGradesCSV(expertGroups: any[], homeGroups: any[]) {
-  // Build a map of memberId -> all scores
-  const memberMap: Record<number, {
-    name: string;
-    expertGroup: string;
-    expertTopic: string;
-    expertPresentation: number;
-    expertParticipation: number;
-    homeGroup: string;
-    homeTopic: string;
-    homePresentation: number;
-    homeParticipation: number;
-    homePeerRating: number;
-    totalPF: number;
-  }> = {};
-
-  expertGroups.forEach((g: any) => {
-    (g.members || []).forEach((m: any) => {
-      if (!memberMap[m.id]) {
-        memberMap[m.id] = {
-          name: m.name,
-          expertGroup: g.name,
-          expertTopic: g.topicTitle || "",
-          expertPresentation: Number(m.presentationScore) || 0,
-          expertParticipation: Number(m.participationScore) || 0,
-          homeGroup: "",
-          homeTopic: "",
-          homePresentation: 0,
-          homeParticipation: 0,
-          homePeerRating: 0,
-          totalPF: 0,
-        };
-      } else {
-        memberMap[m.id].expertGroup = g.name;
-        memberMap[m.id].expertTopic = g.topicTitle || "";
-        memberMap[m.id].expertPresentation = Number(m.presentationScore) || 0;
-        memberMap[m.id].expertParticipation = Number(m.participationScore) || 0;
-      }
-    });
-  });
-
-  homeGroups.forEach((g: any) => {
-    (g.members || []).forEach((m: any) => {
-      if (!memberMap[m.id]) {
-        memberMap[m.id] = {
-          name: m.name,
-          expertGroup: "",
-          expertTopic: "",
-          expertPresentation: 0,
-          expertParticipation: 0,
-          homeGroup: g.name,
-          homeTopic: m.topicName || "",
-          homePresentation: Number(m.presentationScore) || 0,
-          homeParticipation: Number(m.participationScore) || 0,
-          homePeerRating: Number(m.peerRating) || 0,
-          totalPF: 0,
-        };
-      } else {
-        memberMap[m.id].homeGroup = g.name;
-        memberMap[m.id].homeTopic = m.topicName || "";
-        memberMap[m.id].homePresentation = Number(m.presentationScore) || 0;
-        memberMap[m.id].homeParticipation = Number(m.participationScore) || 0;
-        memberMap[m.id].homePeerRating = Number(m.peerRating) || 0;
-      }
-    });
-  });
-
-  // Normalização das notas por fase:
-  // Fase 1: (apres 0-5 + part 0-2 = máx 7 brutos) -> 0-2 pts
-  // Fase 2: (apres 0-5 + part 0-2 + pares 0-5 = máx 12 brutos) -> 0-5 pts
-  // Fase 3: Casos Clínicos (0-3 pts) - lançada separadamente pelo professor
-  const memberMapWithPF = Object.entries(memberMap).reduce((acc, [id, m]) => {
-    const fase1Raw = m.expertPresentation + m.expertParticipation; // máx 7
-    const fase2Raw = m.homePresentation + m.homeParticipation + m.homePeerRating; // máx 12
-    const fase1PF = fase1Raw > 0 ? Math.min(2, (fase1Raw / 7) * 2) : 0;
-    const fase2PF = fase2Raw > 0 ? Math.min(5, (fase2Raw / 12) * 5) : 0;
-    acc[Number(id)] = { ...m, fase1PF, fase2PF, totalPF: fase1PF + fase2PF };
-    return acc;
-  }, {} as Record<number, typeof memberMap[number] & { fase1PF: number; fase2PF: number }>);
-
-  const header = [
-    "Nome",
-    "Grupo Especialista",
-    "Tema Especialista",
-    "Apres. Fase 1 (bruto 0-5)",
-    "Part. Fase 1 (bruto 0-2)",
-    "Fase 1 PF (0-2 pts)",
-    "Grupo Mosaico",
-    "Tema Ensinado",
-    "Apres. Fase 2 (bruto 0-5)",
-    "Part. Fase 2 (bruto 0-2)",
-    "Aval. Pares (bruto 0-5)",
-    "Fase 2 PF (0-5 pts)",
-    "PF F1+F2 (sem Fase 3)",
-    "Fase 3 PF (0-3 pts) - lan\u00e7ar separado",
-    "PF Total Jigsaw (0-10 pts)",
-  ].join(",");
-
-  const rows = Object.values(memberMapWithPF)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((m) =>
-      [
-        `"${m.name}"`,
-        `"${m.expertGroup}"`,
-        `"${m.expertTopic}"`,
-        m.expertPresentation.toFixed(1),
-        m.expertParticipation.toFixed(1),
-        m.fase1PF.toFixed(2),
-        `"${m.homeGroup}"`,
-        `"${m.homeTopic}"`,
-        m.homePresentation.toFixed(1),
-        m.homeParticipation.toFixed(1),
-        m.homePeerRating.toFixed(1),
-        m.fase2PF.toFixed(2),
-        m.totalPF.toFixed(2),
-        "0.00",
-        m.totalPF.toFixed(2),
-      ].join(",")
-    );
-
-  const csv = [header, ...rows].join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `jigsaw_notas_${new Date().toISOString().split("T")[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ─── Main Component ───
 export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: string }) {
-  const [activePhase, setActivePhase] = useState<"fase1" | "fase2" | "fase3">("fase1");
   const [classId, setClassId] = useState<number | null>(null);
+  const [activePhase, setActivePhase] = useState<"fase1" | "fase2">("fase1");
+  const [searchAluno, setSearchAluno] = useState("");
 
-  // Buscar lista de turmas para seleção
   const { data: classesList = [], error: classesError } = trpc.classes.list.useQuery(
     { sessionToken: teacherToken || "" },
     { enabled: !!teacherToken && teacherToken.length > 10, retry: false }
   );
-  const utils = trpc.useUtils();
 
-  const { data: expertGroups = [], isLoading: loadingExpert, refetch: refetchExpert } =
-    trpc.jigsawComplete.expertGroups.getByClass.useQuery(
-      { classId: classId! },
-      { enabled: classId !== null }
+  const { data: homeGroups = [], isLoading: loadingGroups, refetch: refetchGroups } =
+    trpc.jigsawComplete.homeGroups.getByClass.useQuery({ classId: classId! }, { enabled: classId !== null });
+
+  const { data: todasPerguntas = [], refetch: refetchPerguntas } =
+    trpc.seminarioPoster.getTodasPerguntas.useQuery(
+      { sessionToken: teacherToken || "", classId: classId! },
+      { enabled: classId !== null && !!teacherToken }
     );
 
-  const { data: homeGroups = [], isLoading: loadingHome, refetch: refetchHome } =
-    trpc.jigsawComplete.homeGroups.getByClass.useQuery(
-      { classId: classId! },
-      { enabled: classId !== null }
-    );
-
-  const notifyMutation = trpc.jigsawComplete.notifyAllGroups.useMutation({
-    onSuccess: (data) => toast.success(`✅ ${data.totalNotified} alunos notificados!`),
-    onError: (e) => toast.error(e.message || "Erro ao enviar notificações"),
-  });
-
-  const generateHomeMutation = trpc.jigsawComplete.generateHomeGroups.useMutation({
-    onSuccess: (data) => {
-      toast.success(`🎉 ${data.totalHomeGroups} grupos mosaico criados!`);
-      refetchHome(); setActivePhase("fase2");
-    },
-    onError: (e) => toast.error(e.message || "Erro ao gerar grupos mosaico"),
-  });
-
-  const deleteHomeMutation = trpc.jigsawComplete.deleteHomeGroups.useMutation({
-    onSuccess: (data) => { toast.success(`${data.deleted} grupos mosaico removidos.`); refetchHome(); },
-    onError: (e) => toast.error(e.message || "Erro ao deletar grupos"),
-  });
-
-  const calcTotalsMutation = trpc.jigsawComplete.calculateAllTotals.useMutation({
-    onSuccess: (data) => toast.success(`PF Jigsaw calculado para ${data.updated} alunos!`),
-    onError: (e) => toast.error(e.message || "Erro ao calcular totais"),
-  });
-
-  // ── Fase 3: Casos Clínicos ──
-  const [fase3Scores, setFase3Scores] = useState<Record<number, number>>({});
-  const [fase3Search, setFase3Search] = useState("");
-
-  const { data: classData, isLoading: loadingClassMembers } = trpc.classes.getById.useQuery(
-    { id: classId!, sessionToken: teacherToken || "" },
-    { enabled: classId !== null }
+  const { data: classData } = trpc.classes.getById.useQuery(
+    { id: classId!, sessionToken: teacherToken || "" }, { enabled: classId !== null }
   );
   const classMembers: any[] = (classData as any)?.members || [];
 
   const { data: jigsawScoresByClass = [], refetch: refetchScores } = trpc.jigsawComplete.scores.getByClass.useQuery(
-    { classId: classId!, sessionToken: teacherToken || "" },
-    { enabled: classId !== null }
+    { classId: classId!, sessionToken: teacherToken || "" }, { enabled: classId !== null }
   );
 
-  const setFase3BulkMutation = trpc.jigsawComplete.setFase3PFBulk.useMutation({
-    onSuccess: (data) => {
-      toast.success(`✅ Fase 3 salva para ${data.updated} alunos!`);
-      refetchScores();
-      setFase3Scores({});
-    },
-    onError: (e) => toast.error(e.message || "Erro ao salvar notas da Fase 3"),
-  });
+  const refetchAll = () => { refetchGroups(); refetchPerguntas(); refetchScores(); };
 
-  const completedExpert = expertGroups.filter((g: any) => g.status === "completed").length;
-  const completedHome = homeGroups.filter((g: any) => g.status === "completed").length;
-  const totalMembers = expertGroups.reduce((sum: number, g: any) => sum + (g.members?.length || 0), 0);
+  const perguntasPorGrupo = useMemo(() => {
+    const m = new Map<number, any[]>();
+    for (const p of todasPerguntas as any[]) {
+      if (p.authorGroupId === null) continue;
+      if (!m.has(p.authorGroupId)) m.set(p.authorGroupId, []);
+      m.get(p.authorGroupId)!.push(p);
+    }
+    return m;
+  }, [todasPerguntas]);
 
-  // Seletor de turma: se nenhuma turma selecionada, mostrar grade de turmas
+  const totalPendentes = (todasPerguntas as any[]).filter(p => p.status === "pending_review").length;
+  const totalAprovadas = (todasPerguntas as any[]).filter(p => p.status === "approved").length;
+  const gruposComNota = new Set(
+    (jigsawScoresByClass as any[]).filter(s => Number(s.totalJigsawPF) > 0).map(s => s.memberId)
+  ).size;
+
+  const alunosOrdenados = useMemo(() => {
+    const scoreMap = new Map((jigsawScoresByClass as any[]).map(s => [s.memberId, s]));
+    return classMembers
+      .map(m => ({ ...m, score: scoreMap.get(m.id) }))
+      .filter(m => !searchAluno || m.name?.toLowerCase().includes(searchAluno.toLowerCase()))
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [classMembers, jigsawScoresByClass, searchAluno]);
+
+  // ── Seletor de turma ──
   if (classId === null) {
     if (classesError) {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Puzzle size={20} className="text-primary" />
-            <h2 className="font-display font-bold text-xl text-foreground">Seminário Jigsaw</h2>
-          </div>
+          <div className="flex items-center gap-2 mb-1"><Puzzle size={20} className="text-primary" /><h2 className="font-display font-bold text-xl text-foreground">Seminário Pôster + Quiz</h2></div>
           <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/10 text-sm text-destructive">
             Erro ao carregar turmas. Verifique se você está autenticado como professor.
           </div>
@@ -640,25 +348,16 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
     return (
       <div className="space-y-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Puzzle size={20} className="text-primary" />
-            <h2 className="font-display font-bold text-xl text-foreground">Seminário Jigsaw</h2>
-          </div>
-          <p className="text-sm text-muted-foreground">Selecione uma turma para gerenciar os grupos Jigsaw</p>
+          <div className="flex items-center gap-2 mb-1"><Puzzle size={20} className="text-primary" /><h2 className="font-display font-bold text-xl text-foreground">Seminário Pôster + Quiz</h2></div>
+          <p className="text-sm text-muted-foreground">Selecione uma turma para gerenciar os grupos</p>
         </div>
         {(classesList as any[]).length === 0 && (
-          <div className="p-4 rounded-lg border border-border text-sm text-muted-foreground">
-            Carregando turmas...
-          </div>
+          <div className="p-4 rounded-lg border border-border text-sm text-muted-foreground">Carregando turmas...</div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
           {(classesList as any[]).map((cls: any) => (
-            <button
-              key={cls.id}
-              onClick={() => setClassId(cls.id)}
-              className="border border-border rounded-lg p-4 text-left hover:border-primary/50 transition-colors"
-              style={{ backgroundColor: "oklch(0.195 0.03 264.052)" }}
-            >
+            <button key={cls.id} onClick={() => setClassId(cls.id)}
+              className="border border-border rounded-lg p-4 text-left hover:border-primary/50 transition-colors" style={{ backgroundColor: CARD_BG }}>
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cls.color }} />
                 <span className="font-semibold text-sm text-foreground">{cls.name}</span>
@@ -681,319 +380,111 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <button onClick={() => setClassId(null)} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mb-1">
-            ← Voltar às turmas
-          </button>
-          <div className="flex items-center gap-2 mb-1">
-            <Puzzle size={20} className="text-primary" />
-            <h2 className="font-display font-bold text-xl text-foreground">Seminário Jigsaw — {selectedClassData?.name || "Turma"}</h2>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Grupos especialistas (Fase 1), grupos mosaico (Fase 2), notas e notificações.
-          </p>
+          <button onClick={() => setClassId(null)} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mb-1">← Voltar às turmas</button>
+          <div className="flex items-center gap-2 mb-1"><Puzzle size={20} className="text-primary" /><h2 className="font-display font-bold text-xl text-foreground">Seminário — {selectedClassData?.name || "Turma"}</h2></div>
+          <p className="text-sm text-muted-foreground">Fase 1: pôster e perguntas. Fase 2: liberação do quiz e acompanhamento das notas.</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" className="gap-2"
-            onClick={() => exportGroupsPDF(expertGroups, homeGroups)}
-            disabled={expertGroups.length === 0}>
-            <FileDown size={14} /> Exportar PDF
-          </Button>
-          <Button variant="outline" size="sm" className="gap-2"
-            onClick={() => exportGradesCSV(expertGroups, homeGroups)}
-            disabled={expertGroups.length === 0}
-            title="Exportar notas de todos os alunos em CSV">
-            <FileDown size={14} /> Exportar CSV
-          </Button>
-          <Button variant="outline" size="sm" className="gap-2"
-            onClick={() => calcTotalsMutation.mutate({ classId, sessionToken: teacherToken || "" })}
-            disabled={calcTotalsMutation.isPending}>
-            {calcTotalsMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Calculator size={14} />}
-            Calcular PF
-          </Button>
-          <Button variant="outline" size="sm" className="gap-2"
-            onClick={() => notifyMutation.mutate({ classId, sessionToken: teacherToken || "" })}
-            disabled={notifyMutation.isPending || expertGroups.length === 0}>
-            {notifyMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />}
-            Notificar alunos
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" className="gap-2" onClick={refetchAll}>
+          <RefreshCw size={14} /> Atualizar
+        </Button>
       </div>
 
-      {/* Stats bar */}
+      {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { icon: <Users size={16} />, label: "Grupos Especialistas", value: expertGroups.length.toString(), color: "#10b981" },
-          { icon: <GraduationCap size={16} />, label: "Alunos alocados", value: totalMembers.toString(), color: "#6366f1" },
-          { icon: <CheckCircle2 size={16} />, label: "Fase 1 com notas", value: `${completedExpert}/${expertGroups.length}`, color: "#f59e0b" },
-          { icon: <Shuffle size={16} />, label: "Fase 2 com notas", value: `${completedHome}/${homeGroups.length}`, color: "#ec4899" },
+          { icon: <Users size={16} />, label: "Grupos", value: (homeGroups as any[]).length.toString(), color: "#10b981" },
+          { icon: <Clock size={16} />, label: "Perguntas pendentes", value: totalPendentes.toString(), color: "#f59e0b" },
+          { icon: <CheckCircle2 size={16} />, label: "Perguntas aprovadas", value: totalAprovadas.toString(), color: "#6366f1" },
+          { icon: <GraduationCap size={16} />, label: "Alunos com nota", value: gruposComNota.toString(), color: "#ec4899" },
         ].map((stat, i) => (
-          <div key={i} className="rounded-lg p-3 border"
-            style={{ backgroundColor: "oklch(0.195 0.03 264.052)", borderColor: "oklch(0.3 0.03 264.052)" }}>
-            <div className="flex items-center gap-1.5 mb-1" style={{ color: stat.color }}>
-              {stat.icon}
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">{stat.label}</span>
-            </div>
+          <div key={i} className="rounded-lg p-3 border" style={{ backgroundColor: CARD_BG, borderColor: CARD_BORDER }}>
+            <div className="flex items-center gap-1.5 mb-1" style={{ color: stat.color }}>{stat.icon}<span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">{stat.label}</span></div>
             <div className="font-mono font-bold text-xl text-foreground">{stat.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Phase tabs */}
+      {/* Tabs — só 2 fases */}
       <div className="flex gap-1 p-1 rounded-lg w-fit flex-wrap" style={{ backgroundColor: "oklch(0.22 0.03 264.052)" }}>
         {[
-          { key: "fase1" as const, label: "Fase 1 — Especialistas", icon: <FlaskConical size={14} /> },
-          { key: "fase2" as const, label: "Fase 2 — Mosaico", icon: <Shuffle size={14} /> },
-          { key: "fase3" as const, label: "Fase 3 — Casos Clínicos", icon: <Stethoscope size={14} /> },
+          { key: "fase1" as const, label: "Fase 1 — Pôster e Perguntas", icon: <FileText size={14} /> },
+          { key: "fase2" as const, label: "Fase 2 — Quiz e Notas", icon: <Unlock size={14} /> },
         ].map((tab) => (
           <button key={tab.key} onClick={() => setActivePhase(tab.key)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-            style={{
-              backgroundColor: activePhase === tab.key ? "oklch(0.696 0.17 162.48)" : "transparent",
-              color: activePhase === tab.key ? "#fff" : "oklch(0.7 0.02 264)",
-            }}>
+            style={{ backgroundColor: activePhase === tab.key ? "oklch(0.696 0.17 162.48)" : "transparent", color: activePhase === tab.key ? "#fff" : "oklch(0.7 0.02 264)" }}>
             {tab.icon}{tab.label}
           </button>
         ))}
       </div>
 
-      {/* ── FASE 1 ── */}
+      {/* FASE 1 */}
       {activePhase === "fase1" && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-sm text-foreground">{expertGroups.length} grupos especialistas</h3>
-            <button onClick={() => refetchExpert()} className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground"><RefreshCw size={14} /></button>
-          </div>
-          {loadingExpert ? (
+          {loadingGroups ? (
             <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>
-          ) : expertGroups.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Puzzle size={32} className="mx-auto mb-3 opacity-40" />
-              <p className="text-sm">Nenhum grupo especialista encontrado.</p>
+          ) : (homeGroups as any[]).length === 0 ? (
+            <div className="p-6 rounded-lg border border-border text-sm text-muted-foreground text-center" style={{ backgroundColor: CARD_BG }}>
+              Nenhum grupo encontrado para esta turma. Os grupos de Seminário precisam ser criados previamente (mesma tabela usada pelos grupos "mosaico").
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {expertGroups.map((group: any, idx: number) => (
-                <ExpertGroupCard key={group.id} group={group} index={idx} onScoresSaved={() => refetchExpert()} />
-              ))}
-            </div>
+            (homeGroups as any[]).map((group, i) => (
+              <GrupoFase1Card key={group.id} group={group} index={i} classId={classId}
+                perguntasDoGrupo={perguntasPorGrupo.get(group.id) || []} teacherToken={teacherToken || ""} onChanged={refetchAll} />
+            ))
           )}
         </div>
       )}
 
-      {/* ── FASE 3 ── */}
-      {activePhase === "fase3" && (() => {
-        // Mapa de notas já salvas no banco
-        const savedScoresMap: Record<number, any> = {};
-        (jigsawScoresByClass as any[]).forEach((s: any) => { savedScoresMap[s.memberId] = s; });
-
-        // Filtrar membros por busca
-        const filteredMembers = classMembers.filter((m: any) =>
-          !fase3Search || m.name?.toLowerCase().includes(fase3Search.toLowerCase())
-        );
-
-        // Contar quantos já têm nota lançada
-        const withFase3 = (jigsawScoresByClass as any[]).filter((s: any) => Number(s.fase3PF) > 0).length;
-
-        const handleSaveFase3 = () => {
-          const scores = classMembers.map((m: any) => ({
-            memberId: m.id,
-            fase3PF: fase3Scores[m.id] ?? Number(savedScoresMap[m.id]?.fase3PF) ?? 0,
-          }));
-          setFase3BulkMutation.mutate({ classId: classId!, scores, sessionToken: teacherToken || "" });
-        };
-
-        return (
-          <div className="space-y-4">
-            {/* Header */}
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
-                  <Stethoscope size={16} className="text-cyan-400" />
-                  Fase 3 — Casos Clínicos
-                </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Lance a nota de cada aluno de 0 a 3 pontos. {withFase3}/{classMembers.length} alunos com nota lançada.
-                  Após salvar, clique em <strong>Calcular PF</strong> para atualizar o total.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                className="gap-1.5 text-xs"
-                style={{ backgroundColor: "#06b6d4" }}
-                onClick={handleSaveFase3}
-                disabled={setFase3BulkMutation.isPending || classMembers.length === 0}
-              >
-                {setFase3BulkMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                Salvar todas as notas
-              </Button>
-            </div>
-
-            {/* Resumo de pontuação */}
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Fase 1 (máx. 2 pts)", color: "#10b981" },
-                { label: "Fase 2 (máx. 5 pts)", color: "#ec4899" },
-                { label: "Fase 3 (máx. 3 pts)", color: "#06b6d4" },
-              ].map((f, i) => (
-                <div key={i} className="rounded-lg p-3 border text-center"
-                  style={{ backgroundColor: "oklch(0.195 0.03 264.052)", borderColor: f.color + "44" }}>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{f.label}</div>
-                  <div className="font-mono font-bold text-lg" style={{ color: f.color }}>
-                    {i === 0 ? "0–2" : i === 1 ? "0–5" : "0–3"}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Busca */}
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Buscar aluno..."
-                value={fase3Search}
-                onChange={(e) => setFase3Search(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-cyan-400"
-                style={{ borderColor: "oklch(0.35 0.03 264.052)" }}
-              />
-            </div>
-
-            {/* Lista de alunos */}
-            {loadingClassMembers ? (
-              <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>
-            ) : classMembers.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Users size={32} className="mx-auto mb-3 opacity-40" />
-                <p className="text-sm">Nenhum aluno encontrado nesta turma.</p>
+      {/* FASE 2 */}
+      {activePhase === "fase2" && (
+        <div className="space-y-6">
+          <div className="space-y-3">
+            {(homeGroups as any[]).length === 0 ? (
+              <div className="p-6 rounded-lg border border-border text-sm text-muted-foreground text-center" style={{ backgroundColor: CARD_BG }}>
+                Nenhum grupo encontrado para esta turma.
               </div>
             ) : (
-              <div className="space-y-2">
-                {filteredMembers.map((member: any) => {
-                  const saved = savedScoresMap[member.id];
-                  const currentFase3 = fase3Scores[member.id] ?? Number(saved?.fase3PF ?? 0);
-                  const fase1PF = Number(saved?.fase1PF ?? 0);
-                  const fase2PF = Number(saved?.fase2PF ?? 0);
-                  const totalPF = Math.min(10, fase1PF + fase2PF + currentFase3);
-                  const hasUnsaved = fase3Scores[member.id] !== undefined;
-
-                  return (
-                    <div key={member.id}
-                      className="flex items-center gap-3 p-3 rounded-lg border transition-all"
-                      style={{
-                        backgroundColor: hasUnsaved ? "oklch(0.22 0.05 215 / 0.3)" : "oklch(0.195 0.03 264.052)",
-                        borderColor: hasUnsaved ? "#06b6d4" : "oklch(0.3 0.03 264.052)",
-                      }}
-                    >
-                      {/* Nome */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{member.name}</p>
-                        <div className="flex gap-3 mt-0.5">
-                          <span className="text-[10px] text-muted-foreground">F1: <span style={{ color: "#10b981" }}>{fase1PF.toFixed(2)}</span></span>
-                          <span className="text-[10px] text-muted-foreground">F2: <span style={{ color: "#ec4899" }}>{fase2PF.toFixed(2)}</span></span>
-                          <span className="text-[10px] text-muted-foreground">F3: <span style={{ color: "#06b6d4" }}>{currentFase3.toFixed(2)}</span></span>
-                          <span className="text-[10px] font-bold" style={{ color: totalPF >= 7 ? "#10b981" : totalPF >= 5 ? "#f59e0b" : "#ef4444" }}>
-                            Total: {totalPF.toFixed(2)}/10
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Seletor de nota 0-3 */}
-                      <div className="flex gap-1">
-                        {[0, 0.5, 1, 1.5, 2, 2.5, 3].map((val) => (
-                          <button
-                            key={val}
-                            onClick={() => setFase3Scores(prev => ({ ...prev, [member.id]: val }))}
-                            className="w-8 h-8 rounded text-xs font-mono font-bold transition-all"
-                            style={{
-                              backgroundColor: currentFase3 === val ? "#06b6d4" : "oklch(0.245 0.03 264.052)",
-                              color: currentFase3 === val ? "#fff" : "oklch(0.7 0.02 264)",
-                              border: `1px solid ${currentFase3 === val ? "#06b6d4" : "oklch(0.35 0.03 264.052)"}`,
-                            }}
-                          >
-                            {val}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Botão salvar no final */}
-            {classMembers.length > 0 && (
-              <div className="flex justify-end pt-2">
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  style={{ backgroundColor: "#06b6d4" }}
-                  onClick={handleSaveFase3}
-                  disabled={setFase3BulkMutation.isPending}
-                >
-                  {setFase3BulkMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  Salvar notas da Fase 3
-                </Button>
-              </div>
+              (homeGroups as any[]).map((group, i) => (
+                <GrupoFase2Card key={group.id} group={group} index={i} classId={classId}
+                  perguntasDoGrupo={perguntasPorGrupo.get(group.id) || []} teacherToken={teacherToken || ""} onChanged={refetchAll} />
+              ))
             )}
           </div>
-        );
-      })()}
 
-      {/* ── FASE 2 ── */}
-      {activePhase === "fase2" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <h3 className="font-semibold text-sm text-foreground">
-                {homeGroups.length > 0 ? `${homeGroups.length} grupos mosaico` : "Nenhum grupo mosaico criado"}
-              </h3>
-              {homeGroups.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Notas brutas: Apres. (0–5) + Part. (0–2) + Pares (0–5) = máx. 12 brutos → normalizado para <strong>0–5 pts (Fase 2)</strong>. Após lançar, clique em <strong>Calcular PF</strong>.
-                </p>
-              )}
+          {/* Acompanhamento de notas */}
+          <div className="rounded-xl border p-4 space-y-3" style={{ backgroundColor: CARD_BG, borderColor: CARD_BORDER }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm font-semibold text-foreground flex items-center gap-1.5"><GraduationCap size={15} /> Nota de Seminário por aluno</p>
+              <input value={searchAluno} onChange={e => setSearchAluno(e.target.value)} placeholder="Buscar aluno..."
+                className="text-xs bg-transparent border border-border rounded px-2 py-1.5 text-foreground w-48" />
             </div>
-            <div className="flex gap-2">
-              {homeGroups.length > 0 && (
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
-                  onClick={() => { if (confirm(`Deletar todos os ${homeGroups.length} grupos mosaico?`)) deleteHomeMutation.mutate({ classId, sessionToken: teacherToken || "" }); }}
-                  disabled={deleteHomeMutation.isPending}>
-                  {deleteHomeMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                  Deletar grupos
-                </Button>
-              )}
-              <Button size="sm" className="gap-1.5 text-xs" style={{ backgroundColor: "#ec4899" }}
-                onClick={() => generateHomeMutation.mutate({ classId, sessionToken: teacherToken || "" })}
-                disabled={generateHomeMutation.isPending || homeGroups.length > 0}>
-                {generateHomeMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Shuffle size={13} />}
-                Gerar grupos mosaico
-              </Button>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b" style={{ borderColor: CARD_BORDER }}>
+                    <th className="py-1.5 pr-3">Aluno</th>
+                    <th className="py-1.5 text-center">Nota Seminário</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {alunosOrdenados.map(m => (
+                    <tr key={m.id} className="border-b" style={{ borderColor: "oklch(0.25 0.03 264.052)" }}>
+                      <td className="py-1.5 pr-3 text-foreground">{m.name}</td>
+                      <td className="py-1.5 text-center font-mono font-semibold text-foreground">{m.score ? Number(m.score.totalJigsawPF || 0).toFixed(1) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {alunosOrdenados.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Nenhum aluno encontrado.</p>}
             </div>
+            <p className="text-[10px] text-muted-foreground">
+              Nota Seminário = 50% nota do pôster (do grupo) + 50% desempenho individual respondendo as perguntas dos outros grupos.
+              Calculada automaticamente sempre que o aluno responde uma pergunta ou o professor lança a nota do pôster — mas só é
+              recalculada quando o próprio aluno consulta sua nota (getNotaSeminario) ou quando o professor lança a nota do pôster do
+              grupo dele. Se um aluno nunca abriu a tela de nota, o valor pode aparecer "—" mesmo já tendo respondido perguntas.
+            </p>
           </div>
-
-          {homeGroups.length === 0 ? (
-            <div className="rounded-xl border p-8 text-center"
-              style={{ borderColor: "oklch(0.35 0.03 264.052)", backgroundColor: "oklch(0.195 0.03 264.052)" }}>
-              <Shuffle size={36} className="mx-auto mb-3 text-muted-foreground opacity-40" />
-              <p className="text-sm font-medium text-foreground mb-1">Grupos Mosaico não gerados</p>
-              <p className="text-xs text-muted-foreground max-w-sm mx-auto mb-4">
-                Cada grupo mosaico reúne 1 especialista de cada tema (6 alunos por grupo), criando ~14 grupos. Fase 2 vale <strong>5 pts</strong> (normalizado de máx. 12 brutos).
-              </p>
-              <Button size="sm" className="gap-2" style={{ backgroundColor: "#ec4899" }}
-                onClick={() => generateHomeMutation.mutate({ classId, sessionToken: teacherToken || "" })} disabled={generateHomeMutation.isPending}>
-                {generateHomeMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Shuffle size={14} />}
-                Gerar grupos mosaico agora
-              </Button>
-            </div>
-          ) : loadingHome ? (
-            <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {homeGroups.map((group: any, idx: number) => (
-                <HomeGroupCard key={group.id} group={group} index={idx} onScoresSaved={() => refetchHome()} teacherToken={teacherToken} />
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

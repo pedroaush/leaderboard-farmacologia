@@ -120,6 +120,21 @@ export const seminarioPosterRouter = router({
         .where(and(eq(jigsawIntegrationQuestions.classId, input.classId), eq(jigsawIntegrationQuestions.status, "pending_review")));
     }),
 
+  // ─── Todas as perguntas da turma, em qualquer status (pending_review, ───
+  // ─── approved, rejected) — usado pelo painel do admin para mostrar, por ───
+  // ─── grupo, quantas perguntas estão pendentes/aprovadas/liberadas. ───
+  getTodasPerguntas: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+      return db.select().from(jigsawIntegrationQuestions)
+        .where(eq(jigsawIntegrationQuestions.classId, input.classId));
+    }),
+
   revisarPergunta: publicProcedure
     .input(z.object({
       sessionToken: z.string(),
