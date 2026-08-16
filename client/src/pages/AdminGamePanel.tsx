@@ -13,26 +13,9 @@ import {
 import { BOSSES } from "@/components/game/BossBattle";
 import type { BossData } from "@/components/game/BossBattle";
 
-// Week titles (17 weeks)
-const WEEK_TITLES: Record<number, string> = {
-  1: "Farmacocinética (ADME)",
-  2: "Farmacodinâmica (Receptores e Dose-Resposta)",
-  3: "Agonistas e Antagonistas",
-  4: "Sistema Nervoso Autônomo e Colinérgicos",
-  5: "Adrenérgicos e Anestésicos Locais",
-  6: "Analgésicos Opioides",
-  7: "Anti-inflamatórios (AINEs e Corticoides)",
-  8: "Antimicrobianos I (Beta-lactâmicos)",
-  9: "Antimicrobianos II (Outros grupos)",
-  10: "Cardiovasculares I (Anti-hipertensivos)",
-  11: "Cardiovasculares II (Antiarrítmicos)",
-  12: "Psicotrópicos I (Ansiolíticos e Hipnóticos)",
-  13: "Psicotrópicos II (Antidepressivos)",
-  14: "Psicotrópicos III (Antipsicóticos)",
-  15: "Endocrinologia (Insulina e Hipoglicemiantes)",
-  16: "Oncologia (Quimioterápicos)",
-  17: "Revisão Geral — Boss Final",
-};
+// Título genérico usado apenas como fallback, quando a turma ainda não tem
+// cronograma cadastrado para aquela semana em scheduleEntries.
+const FALLBACK_WEEK_TITLE = "Desafios";
 
 type Tab = "overview" | "releases" | "students" | "reports" | "bosses";
 
@@ -68,6 +51,25 @@ export default function AdminGamePanel() {
   const { data: leaderboard } = trpc.game.getLeaderboard.useQuery({ classId, limit: 10 }, { enabled: classId > 0 });
   const { data: classMembers } = trpc.game.getMembersForClass.useQuery({ classId }, { enabled: classId > 0 });
   const { data: bossStats, refetch: refetchBossStats } = trpc.game.getAdminBossStats.useQuery({ classId }, { enabled: classId > 0 });
+
+  // Cronograma real da turma — cada turma pode ter seu próprio tema por
+  // semana (gameWeekNumber liga scheduleEntries à semana do jogo). Substitui
+  // o antigo WEEK_TITLES fixo, que era o mesmo pra qualquer turma.
+  const { data: scheduleData = [] } = trpc.schedule.getAll.useQuery(
+    classId > 0 ? { classId } : undefined,
+    { enabled: classId > 0 }
+  );
+  const weekTitleMap = useMemo(() => {
+    const m: Record<number, string> = {};
+    for (const e of scheduleData as any[]) {
+      if (e.gameWeekNumber) m[e.gameWeekNumber] = e.title;
+    }
+    return m;
+  }, [scheduleData]);
+  const totalWeeks = useMemo(() => {
+    const nums = (scheduleData as any[]).map(e => e.gameWeekNumber).filter((n): n is number => !!n);
+    return nums.length > 0 ? Math.max(...nums) : 17; // fallback: 17 semanas se a turma ainda não tem cronograma ligado ao jogo
+  }, [scheduleData]);
   const [selectedTestMemberId, setSelectedTestMemberId] = useState<number>(0);
   const [expandedBossWeek, setExpandedBossWeek] = useState<number | null>(null);
   const [previewBoss, setPreviewBoss] = useState<BossData | null>(null);
@@ -353,13 +355,13 @@ export default function AdminGamePanel() {
             </div>
 
             <div className="space-y-3">
-              {Array.from({ length: 17 }, (_, i) => i + 1).map(weekNum => {
+              {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(weekNum => {
                 const isReleased = releasedWeeks.has(weekNum);
                 const releaseEntry = (releases || []).find((r: any) => r.weekNumber === weekNum);
                 const scheduledDate = releaseEntry?.scheduledReleaseDate
                   ? new Date(releaseEntry.scheduledReleaseDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
                   : null;
-                const isBossWeek = weekNum === 17;
+                const isBossWeek = weekNum === totalWeeks;
 
                 return (
                   <div
@@ -385,7 +387,7 @@ export default function AdminGamePanel() {
                         </div>
                         <div>
                           <p className="font-semibold">Semana {weekNum} {isBossWeek ? "👑" : ""}</p>
-                          <p className="text-sm text-gray-400">{WEEK_TITLES[weekNum]}</p>
+                          <p className="text-sm text-gray-400">{weekTitleMap[weekNum] || FALLBACK_WEEK_TITLE}</p>
                           {scheduledDate && !isReleased && (
                             <p className="text-xs text-amber-400 mt-0.5 flex items-center gap-1">
                               <Clock size={11} /> Agendada: {scheduledDate}

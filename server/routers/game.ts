@@ -4,11 +4,38 @@ import { getDb, getRawDb, getMembersByClass, createStudentNotification } from ".
 import {
   gameProgress, gameQuests, gameCombats, gameAchievements,
   members, gameTransactions, gameWeeklyReleases, playerAvatars,
-  gameErrorReports, questionBank, classes, bossBattles
+  gameErrorReports, questionBank, classes, bossBattles, scheduleEntries
 } from "../../drizzle/schema";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { QUEST_EXTRA_QUESTIONS } from "../../shared/questExtraQuestions";
 import { ALL_GAME_QUESTIONS } from "../../shared/gameQuestions";
+
+// ─── Helper: título real da semana, vindo do cronograma da turma ───
+// Busca em scheduleEntries (classId + gameWeekNumber) o título verdadeiro
+// daquela semana para aquela turma específica. Antes disso, cada rota tinha
+// sua própria lista de títulos genéricos fixa no código (e as duas listas
+// nem batiam entre si) — agora as duas leem daqui, e cada turma pode ter seu
+// próprio cronograma/tema por semana.
+async function getScheduleWeekTitle(db: any, classId: number, weekNumber: number): Promise<string | null> {
+  try {
+    const rows = await db
+      .select({ title: scheduleEntries.title })
+      .from(scheduleEntries)
+      .where(
+        and(
+          eq(scheduleEntries.classId, classId),
+          eq(scheduleEntries.gameWeekNumber, weekNumber),
+          eq(scheduleEntries.isActive, true)
+        )
+      )
+      .limit(1);
+    return rows[0]?.title ?? null;
+  } catch (e) {
+    console.warn("[getScheduleWeekTitle] erro ao buscar título do cronograma:", e);
+    return null;
+  }
+}
+
 
 // ─── Helper: find memberId from user openId ───
 async function findMemberId(db: any, userId: number): Promise<number | null> {
@@ -700,24 +727,15 @@ export const gameRouter = router({
           .where(eq(gameWeeklyReleases.id, existing[0].id));
       } else {
         // Create new
-        const weekTitles: Record<number, string> = {
-          1: "Farmacocinética (ADME)",
-          2: "Farmacodinâmica (Receptores e Dose-Resposta)",
-          3: "Agonistas e Antagonistas",
-          4: "Sistema Nervoso Autônomo e Colinérgicos",
-          5: "Adrenérgicos e Anestésicos",
-          6: "Analgésicos",
-          7: "Anti-inflamatórios",
-          8: "Antimicrobianos",
-          9: "Cardiovasculares e Psicotrópicos",
-          10: "Boss Final - Revisão Geral",
-        };
+        const scheduleTitle = await getScheduleWeekTitle(db, input.classId, input.weekNumber);
 
         await db.insert(gameWeeklyReleases).values({
           classId: input.classId,
           weekNumber: input.weekNumber,
           questIds: JSON.stringify(questIds),
-          title: `Semana ${input.weekNumber} - ${weekTitles[input.weekNumber] || "Desafios"}`,
+          title: scheduleTitle
+            ? `Semana ${input.weekNumber} - ${scheduleTitle}`
+            : `Semana ${input.weekNumber} - Desafios`,
           isReleased: true,
           releasedAt: new Date(),
           releasedBy: input.teacherId || null,
@@ -764,17 +782,7 @@ export const gameRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const scheduledDate = new Date(input.scheduledDate);
-      const WEEK_TITLES_17: Record<number, string> = {
-        1: "Farmacocinética (ADME)", 2: "Farmacodinâmica (Receptores e Dose-Resposta)",
-        3: "Agonistas e Antagonistas", 4: "Sistema Nervoso Autônomo e Colinérgicos",
-        5: "Adrenérgicos e Anestésicos Locais", 6: "Analgésicos Opioides",
-        7: "Anti-inflamatórios (AINEs e Corticoides)", 8: "Antimicrobianos I (Beta-lactâmicos)",
-        9: "Antimicrobianos II (Outros grupos)", 10: "Cardiovasculares I (Anti-hipertensivos)",
-        11: "Cardiovasculares II (Antiarrítmicos)", 12: "Psicotrópicos I (Ansiolíticos e Hipnóticos)",
-        13: "Psicotrópicos II (Antidepressivos)", 14: "Psicotrópicos III (Antipsicóticos)",
-        15: "Endocrinologia (Insulina e Hipoglicemiantes)", 16: "Oncologia (Quimioterápicos)",
-        17: "Revisão Geral — Boss Final",
-      };
+      const scheduleTitle = await getScheduleWeekTitle(db, input.classId, input.weekNumber);
       const questIds = BUILTIN_QUESTS.filter(q => q.weekNumber === input.weekNumber).map(q => q.id);
       const existing = await db.select().from(gameWeeklyReleases)
         .where(and(eq(gameWeeklyReleases.classId, input.classId), eq(gameWeeklyReleases.weekNumber, input.weekNumber)))
@@ -787,7 +795,9 @@ export const gameRouter = router({
         await db.insert(gameWeeklyReleases).values({
           classId: input.classId, weekNumber: input.weekNumber,
           questIds: JSON.stringify(questIds),
-          title: `Semana ${input.weekNumber} - ${WEEK_TITLES_17[input.weekNumber] || "Desafios"}`,
+          title: scheduleTitle
+            ? `Semana ${input.weekNumber} - ${scheduleTitle}`
+            : `Semana ${input.weekNumber} - Desafios`,
           isReleased: false, scheduledReleaseDate: scheduledDate,
           releasedBy: input.teacherId || null,
         });

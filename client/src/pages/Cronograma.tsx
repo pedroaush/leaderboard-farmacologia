@@ -16,16 +16,9 @@ import { trpc } from "@/lib/trpc";
 
 const ORANGE = "#F7941D";
 
-// Mapeamento de classId para nome amigável da turma
-const CLASS_NAMES: Record<number, { short: string; full: string }> = {
-  26: { short: "Nutrição Integral", full: "Farmacologia — Nutrição (Integral) — 2026.1" },
-  27: { short: "Nutrição Noturno", full: "Farmacologia — Nutrição (Noturno) — 2026.1" },
-  28: { short: "Enfermagem", full: "Farmacologia — Enfermagem — 2026.1" },
-  29: { short: "Biomedicina II", full: "Farmacologia II — Biomedicina — 2026.1" },
-  30: { short: "Medicina II", full: "Farmacologia II — Medicina — 2026.1" },
-  31: { short: "Biomedicina I", full: "Farmacologia I — Biomedicina — 2026.1" },
-  32: { short: "Medicina I", full: "Farmacologia I — Medicina — 2026.1" },
-};
+// Nome amigável da turma agora vem de trpc.classes.getPublicInfo (dados reais,
+// sempre atualizados) — antes era um mapa fixo com IDs do semestre passado
+// (2026.1) que ficava desatualizado a cada reimportação/reconstrução de turmas.
 
 // Static fallback data (used if DB is empty or loading fails)
 const staticTimeline = [
@@ -35,8 +28,8 @@ const staticTimeline = [
   { weekLabel: "Semana 4", weekDate: "31/03/2026", title: "Boas Práticas de Prescrição", detail: "Prescrição racional, farmacovigilância, interações medicamentosas. TBL 2.", type: "tbl", highlight: false },
   { weekLabel: "Semana 5", weekDate: "07/04/2026", title: "SNA — Transmissão Colinérgica", detail: "Agonistas e antagonistas muscarínicos, inibidores da colinesterase. Caso Clínico 2.", type: "caso", highlight: false },
   { weekLabel: "Semana 6", weekDate: "14/04/2026", title: "Bloqueadores Colinérgicos e Neuromusculares", detail: "Despolarizantes e não-despolarizantes, uso clínico em anestesia. Seminário Jigsaw 1.", type: "jigsaw", highlight: false },
-  { weekLabel: "Semana 7", weekDate: "28/04/2026", title: "Primeiro Dia de Seminários Jigsaw", detail: "Apresentações dos grupos especialistas. Revisão integrativa pré-P1.", type: "jigsaw", highlight: false },
-  { weekLabel: "Semana 8", weekDate: "05/05/2026", title: "Prova P1 + Escape Room Farmacológico", detail: "Avaliação individual (P1): conteúdo até colinérgicos/BNM + 3 primeiros Jigsaw. Escape Room temático.", type: "prova", highlight: true },
+  { weekLabel: "Semana 7", weekDate: "28/04/2026", title: "Primeiro Dia de Seminários Jigsaw", detail: "Apresentações dos grupos especialistas. ", type: "jigsaw", highlight: false },
+  { weekLabel: "Semana 8", weekDate: "05/05/2026", title: "Prova P1", detail: "Avaliação individual (P1): conteúdo até colinérgicos/BNM + 3 primeiros Jigsaw.", type: "prova", highlight: true },
   { weekLabel: "Semana 9", weekDate: "12/05/2026", title: "SNA — Transmissão Adrenérgica", detail: "Agonistas alfa e beta-adrenérgicos, catecolaminas. TBL 3.", type: "tbl", highlight: false },
   { weekLabel: "Semana 10", weekDate: "19/05/2026", title: "SNA — Anti-adrenérgicos", detail: "Bloqueadores alfa e beta, uso clínico em hipertensão e ICC. Caso Clínico 3.", type: "caso", highlight: false },
   { weekLabel: "Semana 11", weekDate: "26/05/2026", title: "AINEs e Corticoides", detail: "Anti-inflamatórios Não Esteroidais (inibidores de COX), corticosteroides, mecanismo anti-inflamatório, efeitos adversos. TBL 4.", type: "tbl", highlight: false },
@@ -83,7 +76,13 @@ export default function Cronograma() {
   const searchParams = new URLSearchParams(window.location.search);
   const classIdParam = searchParams.get("classId");
   const classId = classIdParam ? parseInt(classIdParam) : null;
-  const classInfo = classId ? CLASS_NAMES[classId] : null;
+  const { data: classPublicInfo } = trpc.classes.getPublicInfo.useQuery(
+    { classId: classId! },
+    { enabled: !!classId, retry: 1 }
+  );
+  const classInfo = classPublicInfo
+    ? { short: classPublicInfo.discipline || classPublicInfo.course, full: `${classPublicInfo.discipline || ""} — ${classPublicInfo.name}`.replace(/^ — /, "") }
+    : null;
 
   // Fetch schedule from database (filtered by classId if available)
   const { data: dbEntries, isLoading } = trpc.schedule.getAll.useQuery(
@@ -194,7 +193,7 @@ export default function Cronograma() {
                 Jornada do Semestre
               </h1>
               <p className="text-xs truncate" style={{ color: "rgba(247,148,29,0.8)" }}>
-                {classInfo ? classInfo.full : "Farmacologia — 2026.1"}
+                {classInfo ? classInfo.full : "Farmacologia — 2026.2"}
               </p>
             </div>
           </div>
