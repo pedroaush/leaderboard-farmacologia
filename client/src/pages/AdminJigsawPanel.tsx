@@ -135,14 +135,16 @@ function PerguntaReviewCard({ pergunta, teacherToken, onChanged }: { pergunta: a
 }
 
 // ─── Cartão de grupo — Fase 1 (perguntas + nota do pôster) ───
-function GrupoFase1Card({ group, index, perguntasDoGrupo, teacherToken, classId, onChanged }: {
-  group: any; index: number; perguntasDoGrupo: any[]; teacherToken: string; classId: number; onChanged: () => void;
+function GrupoFase1Card({ group, index, perguntasDoGrupo, teacherToken, classId, alunosSemGrupo, onChanged }: {
+  group: any; index: number; perguntasDoGrupo: any[]; teacherToken: string; classId: number;
+  alunosSemGrupo: { id: number; name: string }[]; onChanged: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [checklist, setChecklist] = useState<Record<string, boolean>>(
     Object.fromEntries(CRITERIOS_PADRAO.map(c => [c, false]))
   );
   const [observacoes, setObservacoes] = useState("");
+  const [alunoParaAdicionar, setAlunoParaAdicionar] = useState<number | "">("");
   const color = GROUP_COLORS[index % GROUP_COLORS.length];
 
   const pendentes = perguntasDoGrupo.filter(p => p.status === "pending_review");
@@ -151,6 +153,15 @@ function GrupoFase1Card({ group, index, perguntasDoGrupo, teacherToken, classId,
   const lancarNota = trpc.seminarioPoster.lancarNotaPoster.useMutation({
     onSuccess: (data) => { toast.success(`Nota do pôster salva: ${data.notaPoster}`); onChanged(); },
     onError: (e) => toast.error(e.message || "Erro ao salvar nota"),
+  });
+
+  const adicionarAluno = trpc.teacherAuth.adicionarAlunosAoGrupoSeminario.useMutation({
+    onSuccess: () => { toast.success("Aluno adicionado ao grupo!"); setAlunoParaAdicionar(""); onChanged(); },
+    onError: (e) => toast.error(e.message || "Erro ao adicionar aluno"),
+  });
+  const removerAluno = trpc.teacherAuth.removerAlunoDoGrupoSeminario.useMutation({
+    onSuccess: () => { toast.success("Aluno removido do grupo"); onChanged(); },
+    onError: (e) => toast.error(e.message || "Erro ao remover aluno"),
   });
 
   const salvarNota = () => {
@@ -188,9 +199,42 @@ function GrupoFase1Card({ group, index, perguntasDoGrupo, teacherToken, classId,
         {expanded && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <div className="px-4 pb-4 space-y-4 border-t" style={{ borderColor: CARD_BORDER }}>
-              {/* Perguntas */}
+              {/* Gerenciar alunos */}
               <div className="pt-3 space-y-2">
-                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><FileText size={13} /> Perguntas ({perguntasDoGrupo.length}/5 enviadas)</p>
+                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><Users size={13} /> Alunos do grupo ({group.members?.length || 0})</p>
+                {group.members?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {group.members.map((m: any) => (
+                      <span key={m.id} className="text-[11px] pl-2 pr-1 py-1 rounded-full flex items-center gap-1"
+                        style={{ backgroundColor: color.light, color: color.accent }}>
+                        {m.name}
+                        <button onClick={() => { if (confirm(`Remover ${m.name} do grupo?`)) removerAluno.mutate({ sessionToken: teacherToken, groupId: group.id, memberId: m.id }); }}
+                          className="hover:opacity-70" title="Remover do grupo">
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <select value={alunoParaAdicionar} onChange={e => setAlunoParaAdicionar(e.target.value ? Number(e.target.value) : "")}
+                    className="flex-1 text-xs bg-transparent border border-border rounded px-2 py-1.5 text-foreground">
+                    <option value="" className="bg-background">
+                      {alunosSemGrupo.length === 0 ? "Todos os alunos já têm grupo" : "Selecione um aluno sem grupo..."}
+                    </option>
+                    {alunosSemGrupo.map(a => <option key={a.id} value={a.id} className="bg-background">{a.name}</option>)}
+                  </select>
+                  <Button size="sm" className="text-xs gap-1.5 shrink-0" style={{ backgroundColor: color.accent }}
+                    disabled={!alunoParaAdicionar || adicionarAluno.isPending}
+                    onClick={() => alunoParaAdicionar && adicionarAluno.mutate({ sessionToken: teacherToken, groupId: group.id, memberIds: [alunoParaAdicionar] })}>
+                    {adicionarAluno.isPending ? <Loader2 size={13} className="animate-spin" /> : "Adicionar"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Perguntas */}
+              <div className="pt-3 space-y-2 border-t" style={{ borderColor: CARD_BORDER }}>
+                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5 pt-2"><FileText size={13} /> Perguntas ({perguntasDoGrupo.length}/5 enviadas)</p>
                 {perguntasDoGrupo.length === 0 ? (
                   <p className="text-xs text-muted-foreground">O grupo ainda não enviou perguntas.</p>
                 ) : (
@@ -302,6 +346,19 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
     { id: classId!, sessionToken: teacherToken || "" }, { enabled: classId !== null }
   );
   const classMembers: any[] = (classData as any)?.members || [];
+
+  // Alunos da turma que ainda não estão em nenhum grupo de Seminário —
+  // disponíveis pro professor adicionar manualmente em qualquer grupo.
+  const alunosSemGrupo = useMemo(() => {
+    const idsComGrupo = new Set<number>();
+    for (const g of homeGroups as any[]) {
+      for (const m of g.members || []) idsComGrupo.add(m.id);
+    }
+    return classMembers
+      .filter(m => !idsComGrupo.has(m.id))
+      .map(m => ({ id: m.id, name: m.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [classMembers, homeGroups]);
 
   const { data: jigsawScoresByClass = [], refetch: refetchScores } = trpc.jigsawComplete.scores.getByClass.useQuery(
     { classId: classId!, sessionToken: teacherToken || "" }, { enabled: classId !== null }
@@ -429,7 +486,7 @@ export default function AdminJigsawPanel({ teacherToken }: { teacherToken?: stri
             </div>
           ) : (
             (homeGroups as any[]).map((group, i) => (
-              <GrupoFase1Card key={group.id} group={group} index={i} classId={classId}
+              <GrupoFase1Card key={group.id} group={group} index={i} classId={classId} alunosSemGrupo={alunosSemGrupo}
                 perguntasDoGrupo={perguntasPorGrupo.get(group.id) || []} teacherToken={teacherToken || ""} onChanged={refetchAll} />
             ))
           )}

@@ -833,15 +833,21 @@ if (!SUPER_ADMIN_SECRET) {
         const allTeams = await db.getAllTeams();
         const teamMap = new Map(allTeams.map((t: any) => [t.id, { name: t.name, emoji: t.emoji }]));
         // 4. Notas de monitores (groupActivityGrades) - por grupo
-        const { groupActivityGrades: gagTable, jigsawHomeMembers: jhmTable, teacherGrades: tgTable, jigsawScores: jsTable } = await import("../drizzle/schema");
+        const { groupActivityGrades: gagTable, jigsawHomeMembers: jhmTable, jigsawHomeGroups: jhgTable, jigsawMembers: jmTable, jigsawGroups: jgTable, teacherGrades: tgTable, jigsawScores: jsTable } = await import("../drizzle/schema");
         const { eq: eqOp } = await import("drizzle-orm");
         const dbConn = await db.getDb();
         let monitorGrades: any[] = [];
         let homeGroupMemberRows: any[] = [];
+        let homeGroupRows: any[] = [];
+        let ccMemberRows: any[] = [];
+        let ccGroupRows: any[] = [];
         try {
           if (dbConn) {
             monitorGrades = await dbConn.select().from(gagTable).where(eqOp(gagTable.classId, input.classId));
             homeGroupMemberRows = await dbConn.select().from(jhmTable);
+            homeGroupRows = await dbConn.select().from(jhgTable).where(eqOp(jhgTable.classId, input.classId));
+            ccMemberRows = await dbConn.select().from(jmTable);
+            ccGroupRows = await dbConn.select().from(jgTable).where(eqOp(jgTable.classId, input.classId));
           }
         } catch (e) { console.warn("[GradeSheet] monitorGrades error:", e); }
         // Map homeGroupId -> [memberId]
@@ -849,6 +855,26 @@ if (!SUPER_ADMIN_SECRET) {
         for (const row of homeGroupMemberRows) {
           if (!homeGroupMemberMap.has(row.homeGroupId)) homeGroupMemberMap.set(row.homeGroupId, []);
           homeGroupMemberMap.get(row.homeGroupId)!.push(row.memberId);
+        }
+        // Map homeGroupId -> nome (só desta turma)
+        const homeGroupNameMap = new Map<number, string>(homeGroupRows.map((g: any) => [g.id, g.name]));
+        const homeGroupIdsInClass = new Set(homeGroupRows.map((g: any) => g.id));
+        // Map memberId -> {id, name} do grupo de Seminário (jigsawHomeGroups, só desta turma)
+        const memberToSeminarioGroup = new Map<number, { id: number; name: string }>();
+        for (const row of homeGroupMemberRows) {
+          if (homeGroupIdsInClass.has(row.homeGroupId)) {
+            memberToSeminarioGroup.set(row.memberId, { id: row.homeGroupId, name: homeGroupNameMap.get(row.homeGroupId) || "" });
+          }
+        }
+        // Map memberId -> {id, name} do grupo de Casos Clínicos (jigsawGroups groupType='clinical_case', só desta turma)
+        const ccGroupNameMap = new Map<number, string>(
+          ccGroupRows.filter((g: any) => g.groupType === "clinical_case").map((g: any) => [g.id, g.name])
+        );
+        const memberToCCGroup = new Map<number, { id: number; name: string }>();
+        for (const row of ccMemberRows) {
+          if (ccGroupNameMap.has(row.jigsawGroupId)) {
+            memberToCCGroup.set(row.memberId, { id: row.jigsawGroupId, name: ccGroupNameMap.get(row.jigsawGroupId) || "" });
+          }
         }
         // 5. Notas do professor (teacherGrades)
         let teacherGradesList: any[] = [];
@@ -905,6 +931,8 @@ if (!SUPER_ADMIN_SECRET) {
           }
           // Notas do Jigsaw
           const jigsaw = jigsawMap.get(memberId) || null;
+          const ccGroup = memberToCCGroup.get(memberId) || null;
+          const seminarioGroup = memberToSeminarioGroup.get(memberId) || null;
           return {
             memberId,
             memberName: member.name,
@@ -920,12 +948,24 @@ if (!SUPER_ADMIN_SECRET) {
             jigsawFase2: jigsaw?.fase2PF ?? null,
             jigsawFase3: jigsaw?.fase3PF ?? null,
             jigsawTotal: jigsaw?.totalJigsawPF ?? null,
+            ccGroupId: ccGroup?.id ?? null,
+            ccGroupName: ccGroup?.name ?? null,
+            seminarioGroupId: seminarioGroup?.id ?? null,
+            seminarioGroupName: seminarioGroup?.name ?? null,
           };
         });
         // 8. Atividades únicas
         const monitorActivityKeys = [...new Set(monitorGrades.map((g: any) => `${g.activityType}:::${g.activityName}`))].sort();
         const teacherActivityKeys = [...new Set(teacherGradesList.map((g: any) => `${g.activityType}:::${g.activityName}`))].sort();
-        return { rows, monitorActivityKeys, teacherActivityKeys };
+        // 9. Grupos únicos da turma, para o painel de lançamento em bloco
+        const ccGroups = ccGroupRows
+          .filter((g: any) => g.groupType === "clinical_case")
+          .map((g: any) => ({ id: g.id, name: g.name }))
+          .sort((a: any, b: any) => a.name.localeCompare(b.name));
+        const seminarioGroups = homeGroupRows
+          .map((g: any) => ({ id: g.id, name: g.name }))
+          .sort((a: any, b: any) => a.name.localeCompare(b.name));
+        return { rows, monitorActivityKeys, teacherActivityKeys, ccGroups, seminarioGroups };
       }),
 
     // ─── Salvar nota individual (célula da planilha) ───
@@ -1035,7 +1075,301 @@ if (!SUPER_ADMIN_SECRET) {
         return { success: true };
       }),
 
-    // ─── Prova Digital: abrir sessao ───
+    // ─── Salvar nota em bloco para todos os membros de um grupo (Casos ───
+    // ─── Clínicos ou Seminário) de uma vez, reaproveitando a mesma lógica ───
+    // ─── de roteamento por campo que o saveGradeCell usa por aluno. ───
+    saveGradeCellBulk: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        memberIds: z.array(z.number()).min(1).max(50),
+        field: z.enum(["p1", "p2", "kahoot_1", "kahoot_2", "kahoot_3", "kahoot_4", "caso_1", "caso_2", "caso_3", "caso_4", "jigsaw_fase1", "jigsaw_fase2", "jigsaw_fase3", "jigsaw_total"]),
+        value: z.number().min(0).max(100).nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { teacherGrades: tgTable, examStudentGrades: esgTable, jigsawScores: jsTable } = await import("../drizzle/schema");
+        const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+        const teacherName = teacher.displayName || teacher.email.split("@")[0];
+
+        // Resolver nomes reais dos membros (a tabela examStudentGrades/teacherGrades
+        // guarda o nome cacheado; buscamos uma vez só, fora do loop).
+        const membersList = await db.getMembersByClass(input.classId);
+        const nameById = new Map(membersList.map((m: any) => [m.id, m.name as string]));
+
+        let atualizados = 0;
+        for (const memberId of input.memberIds) {
+          const memberName = nameById.get(memberId) || `Aluno #${memberId}`;
+
+          if (input.field === "p1" || input.field === "p2") {
+            const provaType = input.field.toUpperCase() as "P1" | "P2";
+            const existing = await dbConn.select().from(esgTable)
+              .where(andOp(eqOp(esgTable.classId, input.classId), eqOp(esgTable.memberId, memberId), eqOp(esgTable.provaType, provaType)))
+              .limit(1);
+            if (existing.length > 0) {
+              await dbConn.update(esgTable)
+                .set({ score: String(input.value ?? 0), updatedAt: new Date() })
+                .where(eqOp(esgTable.id, existing[0].id));
+            } else {
+              await dbConn.insert(esgTable).values({
+                classId: input.classId, memberId, memberName, provaType,
+                score: String(input.value ?? 0), examVersion: "A",
+                totalQuestions: 25, correctAnswers: 0, answers: "[]",
+              });
+            }
+            atualizados++;
+            continue;
+          }
+
+          if (input.field.startsWith("jigsaw_")) {
+            const colMap: Record<string, string> = {
+              jigsaw_fase1: "fase1PF", jigsaw_fase2: "fase2PF",
+              jigsaw_fase3: "fase3PF", jigsaw_total: "totalJigsawPF"
+            };
+            const col = colMap[input.field];
+            const existing = await dbConn.select().from(jsTable)
+              .where(andOp(eqOp(jsTable.classId, input.classId), eqOp(jsTable.memberId, memberId)))
+              .limit(1);
+            if (existing.length > 0) {
+              await dbConn.update(jsTable)
+                .set({ [col]: String(input.value ?? 0) })
+                .where(eqOp(jsTable.id, existing[0].id));
+            } else {
+              await dbConn.insert(jsTable).values({
+                classId: input.classId, memberId, [col]: String(input.value ?? 0),
+              });
+            }
+            atualizados++;
+            continue;
+          }
+
+          const fieldMap: Record<string, { activityType: string; activityName: string }> = {
+            kahoot_1: { activityType: "kahoot", activityName: "Kahoot 1" },
+            kahoot_2: { activityType: "kahoot", activityName: "Kahoot 2" },
+            kahoot_3: { activityType: "kahoot", activityName: "Kahoot 3" },
+            kahoot_4: { activityType: "kahoot", activityName: "Kahoot 4" },
+            caso_1: { activityType: "clinical_case", activityName: "Caso Clínico 1" },
+            caso_2: { activityType: "clinical_case", activityName: "Caso Clínico 2" },
+            caso_3: { activityType: "clinical_case", activityName: "Caso Clínico 3" },
+            caso_4: { activityType: "clinical_case", activityName: "Caso Clínico 4" },
+          };
+          const { activityType, activityName } = fieldMap[input.field];
+          const existing = await dbConn.select().from(tgTable)
+            .where(andOp(
+              eqOp(tgTable.classId, input.classId),
+              eqOp(tgTable.memberId, memberId),
+              eqOp(tgTable.activityType, activityType as any),
+              eqOp(tgTable.activityName, activityName)
+            )).limit(1);
+          if (existing.length > 0) {
+            await dbConn.update(tgTable)
+              .set({ grade: String(input.value ?? 0), editedByTeacherName: teacherName })
+              .where(eqOp(tgTable.id, existing[0].id));
+          } else {
+            await dbConn.insert(tgTable).values({
+              classId: input.classId, activityType: activityType as any, activityName,
+              memberId, memberName, grade: String(input.value ?? 0),
+              maxGrade: "10", editedByTeacherName: teacherName,
+            });
+          }
+          atualizados++;
+        }
+
+        return { success: true, atualizados };
+      }),
+
+    // ─── Lista os grupos REAIS de uma turma — Casos Clínicos (jigsawGroups, ───
+    // ─── groupType='clinical_case') e Seminário (jigsawHomeGroups). A tabela ───
+    // ─── genérica "teams" não é usada por essas duas dinâmicas este semestre, ───
+    // ─── então o painel admin (aba Equipes / Busca Geral) lê daqui em vez dela. ───
+    listAllGroups: publicProcedure
+      .input(z.object({ sessionToken: z.string(), classId: z.number().optional() }))
+      .query(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { jigsawGroups: jgTable, jigsawMembers: jmTable, jigsawHomeGroups: jhgTable, jigsawHomeMembers: jhmTable, members: membersTable, classes: classesTable } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+
+        const ccGroupsRaw = input.classId
+          ? await dbConn.select().from(jgTable).where(eqOp(jgTable.classId, input.classId))
+          : await dbConn.select().from(jgTable);
+        const ccMembersRaw = await dbConn.select().from(jmTable);
+        const semGroupsRaw = input.classId
+          ? await dbConn.select().from(jhgTable).where(eqOp(jhgTable.classId, input.classId))
+          : await dbConn.select().from(jhgTable);
+        const semMembersRaw = await dbConn.select().from(jhmTable);
+        const allMembers = await dbConn.select().from(membersTable);
+        const memberById = new Map(allMembers.map((m: any) => [m.id, m]));
+        const allClasses = await dbConn.select().from(classesTable);
+        const classById = new Map(allClasses.map((c: any) => [c.id, c]));
+
+        const casosClinicos = ccGroupsRaw
+          .filter((g: any) => g.groupType === "clinical_case")
+          .map((g: any) => {
+            const membros = ccMembersRaw
+              .filter((m: any) => m.jigsawGroupId === g.id)
+              .map((m: any) => ({ id: m.memberId, name: memberById.get(m.memberId)?.name || m.memberName }));
+            return {
+              id: g.id, name: g.name, classId: g.classId,
+              className: classById.get(g.classId)?.name || null,
+              tipo: "casos_clinicos" as const,
+              members: membros,
+            };
+          })
+          .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+        const seminario = semGroupsRaw
+          .map((g: any) => {
+            const membros = semMembersRaw
+              .filter((m: any) => m.homeGroupId === g.id)
+              .map((m: any) => ({ id: m.memberId, name: memberById.get(m.memberId)?.name || "" }));
+            return {
+              id: g.id, name: g.name, classId: g.classId,
+              className: classById.get(g.classId)?.name || null,
+              tipo: "seminario" as const,
+              members: membros,
+            };
+          })
+          .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+        return { casosClinicos, seminario };
+      }),
+
+    // ─── Cria os grupos de Seminário (jigsawHomeGroups) de uma turma, com um ───
+    // ─── tema por grupo, distribuindo os alunos informados. Cada tema vira um ───
+    // ─── jigsawTopics (reaproveitado: agora representa o tema COMPARTILHADO ───
+    // ─── pelo grupo inteiro, não mais um tema individual por aluno como no ───
+    // ─── modelo antigo Especialista/Mosaico). ───
+    criarGruposSeminario: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        grupos: z.array(z.object({
+          name: z.string().min(1),
+          tema: z.string().min(1),
+          memberIds: z.array(z.number()).default([]),
+        })).min(1),
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { jigsawTopics: jtTable, jigsawHomeGroups: jhgTable, jigsawHomeMembers: jhmTable } = await import("../drizzle/schema");
+
+        const criados: { groupId: number; name: string; members: number }[] = [];
+        for (const grupo of input.grupos) {
+          // 1 tópico por grupo (reaproveitado como "tema do grupo"; jigsawTopics
+          // não tem classId, é global — reaproveita se já existir um com esse nome)
+          const existingTopics = await dbConn.select().from(jtTable);
+          const foundTopic = existingTopics.find((t: any) => t.name === grupo.tema);
+          let topicId: number;
+          if (foundTopic) {
+            topicId = foundTopic.id;
+          } else {
+            const resTopic = await dbConn.insert(jtTable).values({
+              name: grupo.tema,
+              description: `Tema do grupo de Seminário "${grupo.name}"`,
+            });
+            topicId = (resTopic as any)[0]?.insertId ?? (resTopic as any).insertId;
+          }
+          if (!topicId) throw new Error(`Não foi possível criar/achar o tema "${grupo.tema}"`);
+
+          const resGroup = await dbConn.insert(jhgTable).values({
+            classId: input.classId,
+            name: grupo.name,
+            description: grupo.tema,
+            meetingNumber: 1,
+            status: "active",
+          });
+          const groupId = (resGroup as any)[0]?.insertId ?? (resGroup as any).insertId;
+          if (!groupId) throw new Error(`Não foi possível criar o grupo "${grupo.name}"`);
+
+          for (const memberId of grupo.memberIds) {
+            await dbConn.insert(jhmTable).values({ homeGroupId: groupId, memberId, topicId });
+          }
+          criados.push({ groupId, name: grupo.name, members: grupo.memberIds.length });
+        }
+        return { success: true, grupos: criados };
+      }),
+
+    // ─── Remove TODOS os grupos de Seminário de uma turma (jigsawHomeGroups + ───
+    // ─── jigsawHomeMembers) — útil pra recomeçar a distribuição do zero. ───
+    limparGruposSeminario: publicProcedure
+      .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { jigsawHomeGroups: jhgTable, jigsawHomeMembers: jhmTable } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const grupos = await dbConn.select().from(jhgTable).where(eq(jhgTable.classId, input.classId));
+        for (const g of grupos) {
+          await dbConn.delete(jhmTable).where(eq(jhmTable.homeGroupId, g.id));
+        }
+        await dbConn.delete(jhgTable).where(eq(jhgTable.classId, input.classId));
+        return { success: true, removidos: grupos.length };
+      }),
+
+    // ─── Adiciona um ou mais alunos a um grupo de Seminário já existente. ───
+    // ─── Descobre o tema do grupo (guardado em description) e reaproveita/cria ───
+    // ─── o jigsawTopics correspondente, igual ao que criarGruposSeminario faz. ───
+    adicionarAlunosAoGrupoSeminario: publicProcedure
+      .input(z.object({ sessionToken: z.string(), groupId: z.number(), memberIds: z.array(z.number()).min(1) }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { jigsawTopics: jtTable, jigsawHomeGroups: jhgTable, jigsawHomeMembers: jhmTable } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+
+        const grupoRows = await dbConn.select().from(jhgTable).where(eq(jhgTable.id, input.groupId)).limit(1);
+        const grupo = grupoRows[0];
+        if (!grupo) throw new Error("Grupo não encontrado");
+        const tema = grupo.description || grupo.name;
+
+        const existingTopics = await dbConn.select().from(jtTable);
+        const foundTopic = existingTopics.find((t: any) => t.name === tema);
+        let topicId: number;
+        if (foundTopic) {
+          topicId = foundTopic.id;
+        } else {
+          const resTopic = await dbConn.insert(jtTable).values({ name: tema, description: `Tema do grupo "${grupo.name}"` });
+          topicId = (resTopic as any)[0]?.insertId ?? (resTopic as any).insertId;
+        }
+
+        // Evita duplicar: só adiciona quem ainda não está neste grupo
+        const jaNoGrupo = await dbConn.select().from(jhmTable).where(eq(jhmTable.homeGroupId, input.groupId));
+        const jaIds = new Set(jaNoGrupo.map((m: any) => m.memberId));
+        let adicionados = 0;
+        for (const memberId of input.memberIds) {
+          if (jaIds.has(memberId)) continue;
+          await dbConn.insert(jhmTable).values({ homeGroupId: input.groupId, memberId, topicId });
+          adicionados++;
+        }
+        return { success: true, adicionados };
+      }),
+
+    // ─── Remove um aluno de um grupo de Seminário ───
+    removerAlunoDoGrupoSeminario: publicProcedure
+      .input(z.object({ sessionToken: z.string(), groupId: z.number(), memberId: z.number() }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { jigsawHomeMembers: jhmTable } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        await dbConn.delete(jhmTable).where(and(eq(jhmTable.homeGroupId, input.groupId), eq(jhmTable.memberId, input.memberId)));
+        return { success: true };
+      }),
     openDigitalExam: publicProcedure
       .input(z.object({
         sessionToken: z.string(),
@@ -1936,8 +2270,6 @@ if (!SUPER_ADMIN_SECRET) {
         classId: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        // Aceita login de super_admin/coordenador OU a senha de admin antiga —
-        // mesmo padrão já usado em members.list/members.delete.
         let authorized = false;
         if (input.sessionToken) {
           const teacherAuth = await db.getTeacherAccountBySessionToken(input.sessionToken);
