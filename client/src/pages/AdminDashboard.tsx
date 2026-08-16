@@ -13,7 +13,7 @@ import {
   ToggleLeft, ToggleRight, ChevronDown, ChevronUp,
   Copy, ExternalLink, FlaskConical, ArrowLeft, UserPlus, Edit2, X,
   Upload, Download, AlertCircle, GraduationCap as StudentIcon,
-  Database, Bell, FileText, Lock, Save, RotateCcw, Mail, Key, QrCode
+  Database, Bell, FileText, Lock, Save, RotateCcw, Mail, Key, QrCode, Search, Crown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -35,6 +35,7 @@ interface AdminTab {
 
 const ADMIN_TABS: AdminTab[] = [
   { id: "overview", label: "Visão Geral", icon: <BarChart3 size={20} /> },
+  { id: "busca", label: "Busca Geral", icon: <Search size={20} /> },
   { id: "turmas", label: "Turmas", icon: <FlaskConical size={20} /> },
   { id: "import", label: "Importar Alunos", icon: <Upload size={20} /> },
   { id: "teams", label: "Equipes", icon: <Users size={20} /> },
@@ -187,6 +188,7 @@ export default function AdminDashboard() {
       {/* Content Area */}
       <div className="max-w-7xl 2xl:max-w-[1600px] mx-auto p-4 sm:p-6 2xl:p-8">
         {activeTab === "overview" && <OverviewTab sessionToken={sessionToken} />}
+        {activeTab === "busca" && <BuscaGeralTab sessionToken={sessionToken} />}
         {activeTab === "turmas" && <TurmasAdminTab sessionToken={sessionToken} />}
         {activeTab === "import" && <ImportStudentsTab sessionToken={sessionToken} />}
 
@@ -195,6 +197,257 @@ export default function AdminDashboard() {
         {activeTab === "invites" && <InviteCodesTab sessionToken={sessionToken} />}
         {activeTab === "settings" && <SettingsTab />}
       </div>
+    </div>
+  );
+}
+
+// ─── Busca Geral Tab — busca unificada de alunos e professores ───
+function BuscaGeralTab({ sessionToken }: { sessionToken: string }) {
+  const [search, setSearch] = useState("");
+  const [expandedAluno, setExpandedAluno] = useState<number | null>(null);
+  const [expandedProf, setExpandedProf] = useState<number | null>(null);
+  const [editAluno, setEditAluno] = useState<{ name: string; xp: string; teamId: number; classId: number | null } | null>(null);
+  const [confirmDeleteAluno, setConfirmDeleteAluno] = useState<number | null>(null);
+  const [confirmDeleteProf, setConfirmDeleteProf] = useState<number | null>(null);
+
+  const membersQuery = trpc.members.list.useQuery({ sessionToken });
+  const teamsQuery = trpc.teams.list.useQuery({ sessionToken });
+  const classesQuery = trpc.classes.list.useQuery({ sessionToken });
+  const teachersQuery = trpc.teacherManagement.listAll.useQuery({ sessionToken });
+  const utils = trpc.useUtils();
+
+  const updateMember = trpc.members.update.useMutation({
+    onSuccess: () => { toast.success("Aluno atualizado!"); setEditAluno(null); membersQuery.refetch(); },
+    onError: (err) => toast.error(err.message || "Erro ao atualizar aluno"),
+  });
+  const deleteMember = trpc.members.delete.useMutation({
+    onSuccess: () => { toast.success("Aluno removido"); setConfirmDeleteAluno(null); membersQuery.refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const toggleActive = trpc.teacherManagement.toggleActive.useMutation({
+    onSuccess: (d) => { toast.success(d.message); teachersQuery.refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const promoteToCoord = trpc.teacherManagement.promoteToCoordinator.useMutation({
+    onSuccess: (d) => { toast.success(d.message); teachersQuery.refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const demoteToTeacher = trpc.teacherManagement.demoteToTeacher.useMutation({
+    onSuccess: (d) => { toast.success(d.message); teachersQuery.refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const deleteTeacher = trpc.teacherManagement.deleteTeacher.useMutation({
+    onSuccess: () => { toast.success("Professor removido"); setConfirmDeleteProf(null); teachersQuery.refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const members = membersQuery.data || [];
+  const teams = teamsQuery.data || [];
+  const classes = classesQuery.data || [];
+  const teachers = teachersQuery.data || [];
+
+  const teamById = useMemo(() => new Map(teams.map((t: any) => [t.id, t])), [teams]);
+  const classById = useMemo(() => new Map((classes as any[]).map((c: any) => [c.id, c])), [classes]);
+
+  const termo = search.trim().toLowerCase();
+  const buscaAtiva = termo.length >= 2;
+
+  const alunosFiltrados = useMemo(() => {
+    if (!buscaAtiva) return [];
+    return (members as any[])
+      .filter(m => (m.name || "").toLowerCase().includes(termo))
+      .slice(0, 25);
+  }, [members, termo, buscaAtiva]);
+
+  const professoresFiltrados = useMemo(() => {
+    if (!buscaAtiva) return [];
+    return (teachers as any[])
+      .filter(t => (t.name || "").toLowerCase().includes(termo) || (t.email || "").toLowerCase().includes(termo))
+      .slice(0, 25);
+  }, [teachers, termo, buscaAtiva]);
+
+  const abrirEdicaoAluno = (m: any) => {
+    setExpandedAluno(m.id);
+    setEditAluno({ name: m.name, xp: String(m.xp ?? "0"), teamId: m.teamId, classId: m.classId ?? null });
+  };
+
+  const salvarEdicaoAluno = (id: number) => {
+    if (!editAluno) return;
+    updateMember.mutate({
+      sessionToken, id,
+      name: editAluno.name, xp: editAluno.xp, teamId: editAluno.teamId, classId: editAluno.classId,
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+          <Search size={22} style={{ color: ORANGE }} /> Busca Geral
+        </h2>
+        <p className="text-sm text-gray-400 mt-1">Busque qualquer aluno ou professor da plataforma numa tela só.</p>
+      </div>
+
+      <div className="relative">
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Digite pelo menos 2 letras do nome (aluno) ou nome/email (professor)..."
+          className="w-full pl-10 pr-4 py-3 rounded-lg text-white text-sm focus:outline-none"
+          style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+        />
+      </div>
+
+      {!buscaAtiva && (
+        <div className="rounded-lg border border-gray-700 p-8 text-center text-sm text-gray-500" style={{ backgroundColor: CARD_BG }}>
+          Digite ao menos 2 letras para buscar entre {members.length} alunos e {teachers.length} professores.
+        </div>
+      )}
+
+      {buscaAtiva && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Alunos */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+              <GraduationCap size={16} style={{ color: "#64C8FF" }} /> Alunos ({alunosFiltrados.length}{alunosFiltrados.length === 25 ? "+" : ""})
+            </h3>
+            {alunosFiltrados.length === 0 ? (
+              <p className="text-xs text-gray-500">Nenhum aluno encontrado.</p>
+            ) : alunosFiltrados.map((m: any) => {
+              const team = teamById.get(m.teamId) as any;
+              const cls = m.classId ? (classById.get(m.classId) as any) : null;
+              const isExpanded = expandedAluno === m.id;
+              return (
+                <div key={m.id} className="rounded-lg border border-gray-700 overflow-hidden" style={{ backgroundColor: CARD_BG }}>
+                  <button onClick={() => { setExpandedAluno(isExpanded ? null : m.id); setEditAluno(null); }}
+                    className="w-full p-3 flex items-center justify-between text-left">
+                    <div>
+                      <p className="text-sm font-medium text-white">{m.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {team ? `${team.emoji} ${team.name}` : "Sem equipe"} · {cls?.name || "Sem turma"} · {parseFloat(m.xp || "0").toFixed(1)} PF
+                      </p>
+                    </div>
+                    {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                  </button>
+                  {isExpanded && (
+                    <div className="px-3 pb-3 space-y-3 border-t border-gray-700 pt-3">
+                      {editAluno ? (
+                        <div className="space-y-2">
+                          <input value={editAluno.name} onChange={e => setEditAluno({ ...editAluno, name: e.target.value })}
+                            className="w-full px-2 py-1.5 rounded text-xs text-white" style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} placeholder="Nome" />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input value={editAluno.xp} onChange={e => setEditAluno({ ...editAluno, xp: e.target.value })}
+                              className="px-2 py-1.5 rounded text-xs text-white" style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} placeholder="PF" />
+                            <select value={editAluno.teamId} onChange={e => setEditAluno({ ...editAluno, teamId: Number(e.target.value) })}
+                              className="px-2 py-1.5 rounded text-xs text-white" style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                              {teams.map((t: any) => <option key={t.id} value={t.id} className="bg-gray-900">{t.name}</option>)}
+                            </select>
+                          </div>
+                          <select value={editAluno.classId ?? ""} onChange={e => setEditAluno({ ...editAluno, classId: e.target.value ? Number(e.target.value) : null })}
+                            className="w-full px-2 py-1.5 rounded text-xs text-white" style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                            <option value="" className="bg-gray-900">Sem turma</option>
+                            {(classes as any[]).map((c: any) => <option key={c.id} value={c.id} className="bg-gray-900">{c.name}</option>)}
+                          </select>
+                          <div className="flex gap-2">
+                            <button onClick={() => salvarEdicaoAluno(m.id)} disabled={updateMember.isPending}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: ORANGE, color: "#000" }}>
+                              <Save size={12} /> {updateMember.isPending ? "Salvando..." : "Salvar"}
+                            </button>
+                            <button onClick={() => setEditAluno(null)} className="px-3 py-1.5 rounded text-xs text-gray-400" style={{ backgroundColor: "rgba(255,255,255,0.05)" }}>Cancelar</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button onClick={() => abrirEdicaoAluno(m)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: "rgba(100,200,255,0.15)", color: "#64C8FF" }}>
+                            <Edit2 size={12} /> Editar
+                          </button>
+                          {confirmDeleteAluno === m.id ? (
+                            <button onClick={() => deleteMember.mutate({ id: m.id, sessionToken })}
+                              className="flex-1 px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: "rgba(255,80,80,0.25)", color: "#FF6B6B" }}>
+                              Confirmar exclusão?
+                            </button>
+                          ) : (
+                            <button onClick={() => setConfirmDeleteAluno(m.id)}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: "rgba(255,80,80,0.1)", color: "#FF6B6B" }}>
+                              <Trash2 size={12} /> Remover
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Professores */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+              <BookOpen size={16} style={{ color: ORANGE }} /> Professores ({professoresFiltrados.length}{professoresFiltrados.length === 25 ? "+" : ""})
+            </h3>
+            {professoresFiltrados.length === 0 ? (
+              <p className="text-xs text-gray-500">Nenhum professor encontrado.</p>
+            ) : professoresFiltrados.map((t: any) => {
+              const isExpanded = expandedProf === t.id;
+              return (
+                <div key={t.id} className="rounded-lg border border-gray-700 overflow-hidden" style={{ backgroundColor: CARD_BG }}>
+                  <button onClick={() => setExpandedProf(isExpanded ? null : t.id)} className="w-full p-3 flex items-center justify-between text-left">
+                    <div>
+                      <p className="text-sm font-medium text-white flex items-center gap-1.5">
+                        {t.name}
+                        {t.role === "super_admin" && <Crown size={12} className="text-amber-400" />}
+                      </p>
+                      <p className="text-xs text-gray-500">{t.email} · {t.role} · {t.isActive ? "ativo" : "inativo"}</p>
+                    </div>
+                    {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                  </button>
+                  {isExpanded && (
+                    <div className="px-3 pb-3 space-y-2 border-t border-gray-700 pt-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => toggleActive.mutate({ sessionToken, teacherId: t.id, isActive: t.isActive ? 0 : 1 })}
+                          disabled={toggleActive.isPending}
+                          className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
+                          style={{ backgroundColor: t.isActive ? "rgba(255,80,80,0.1)" : "rgba(16,185,129,0.15)", color: t.isActive ? "#FF6B6B" : "#10B981" }}>
+                          {t.isActive ? <ToggleLeft size={12} /> : <ToggleRight size={12} />} {t.isActive ? "Desativar" : "Ativar"}
+                        </button>
+                        {t.role === "professor" ? (
+                          <button onClick={() => promoteToCoord.mutate({ sessionToken, teacherId: t.id })} disabled={promoteToCoord.isPending}
+                            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: "rgba(247,148,29,0.15)", color: ORANGE }}>
+                            <Crown size={12} /> Promover
+                          </button>
+                        ) : t.role === "coordenador" ? (
+                          <button onClick={() => demoteToTeacher.mutate({ sessionToken, teacherId: t.id })} disabled={demoteToTeacher.isPending}
+                            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "#9CA3AF" }}>
+                            Rebaixar
+                          </button>
+                        ) : (
+                          <span className="flex items-center justify-center text-[10px] text-gray-500">Super admin — sem ação de cargo</span>
+                        )}
+                      </div>
+                      {t.role !== "super_admin" && (
+                        confirmDeleteProf === t.id ? (
+                          <button onClick={() => deleteTeacher.mutate({ sessionToken, teacherId: t.id })}
+                            className="w-full px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: "rgba(255,80,80,0.25)", color: "#FF6B6B" }}>
+                            Confirmar exclusão?
+                          </button>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteProf(t.id)}
+                            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium" style={{ backgroundColor: "rgba(255,80,80,0.1)", color: "#FF6B6B" }}>
+                            <Trash2 size={12} /> Remover professor
+                          </button>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
