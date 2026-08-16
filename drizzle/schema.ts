@@ -2021,3 +2021,58 @@ export const liveQuizParticipants = mysqlTable("liveQuizParticipants", {
 }));
 export type LiveQuizParticipant = typeof liveQuizParticipants.$inferSelect;
 export type InsertLiveQuizParticipant = typeof liveQuizParticipants.$inferInsert;
+/**
+ * ADICIONAR ao schema.ts (mesmo arquivo onde ficam attendance, attendanceManualRequests, etc.)
+ *
+ * Justificativas de falta com documento anexado (atestado/laudo). Diferente
+ * de attendanceManualRequests (que é "eu estava lá mas o check-in falhou") —
+ * aqui é "eu faltei, mas tenho um documento justificando".
+ */
+export const attendanceJustifications = mysqlTable("attendanceJustifications", {
+  id: int("id").autoincrement().primaryKey(),
+  memberId: int("memberId").notNull(),
+  classId: int("classId").notNull(),
+  classDate: varchar("classDate", { length: 20 }).notNull(), // "YYYY-MM-DD"
+  week: int("week"),
+
+  // Texto do aluno explicando o motivo da falta
+  reason: text("reason").notNull(),
+
+  // Arquivo anexado (atestado/laudo) — guardado em base64 diretamente no
+  // banco por simplicidade (documentos são tipicamente pequenos, <1.5MB).
+  // Se a plataforma já tiver um pipeline de upload para S3 (como em
+  // materials.fileKey), pode valer a pena trocar por isso depois.
+  fileName: varchar("fileName", { length: 300 }).notNull(),
+  mimeType: varchar("mimeType", { length: 100 }).notNull(),
+  fileBase64: text("fileBase64", { length: "medium" }).notNull(),
+
+  // Sinais de possível alteração — SEMPRE apoio à decisão do professor,
+  // nunca veredito automático. suspicionScore é um heurístico 0-100 (quanto
+  // maior, mais sinais de edição/inconsistência foram encontrados — não é
+  // uma prova de fraude). suspicionSignals guarda a lista de sinais em JSON.
+  suspicionScore: int("suspicionScore").notNull().default(0),
+  suspicionSignals: text("suspicionSignals"), // JSON: string[]
+
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
+  reviewedBy: int("reviewedBy"),
+  reviewedByName: varchar("reviewedByName", { length: 200 }),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewNote: text("reviewNote"),
+
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+});
+
+export type AttendanceJustification = typeof attendanceJustifications.$inferSelect;
+export type InsertAttendanceJustification = typeof attendanceJustifications.$inferInsert;
+
+/**
+ * NOTA IMPORTANTE sobre o tipo da coluna fileBase64:
+ * `text("fileBase64", { length: "medium" })` assume que sua versão do
+ * drizzle-orm mysql-core aceita esse formato (equivale a MEDIUMTEXT, até
+ * ~16MB). Se o `drizzle-kit generate` reclamar dessa sintaxe, troque por:
+ *   fileBase64: mediumtext("fileBase64").notNull(),
+ * (import { mediumtext } from "drizzle-orm/mysql-core"), ou verifique a
+ * documentação da sua versão instalada — a API mudou entre versões do
+ * drizzle. Rode `npx drizzle-kit generate` e confira a migration gerada
+ * antes de aplicar, especialmente esse campo.
+ */

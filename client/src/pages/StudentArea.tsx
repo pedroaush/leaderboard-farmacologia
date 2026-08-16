@@ -5,11 +5,13 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import StudentNavBar from "@/components/StudentNavBar";
 import StudentNotificationBanner from "@/components/StudentNotificationBanner";
 import { useStudentAuth } from "@/pages/StudentLogin";
+import { useAudioContext } from "@/_core/contexts/AudioContext"; // C:\Users\pedro\Documents\Plataforma Conexao\GitHub\leaderboard-farmacologia\client\src\pages\StudentArea.tsx
 import {
   ArrowLeft, AlertCircle, Lock, Calendar, QrCode,
   BarChart3, BookOpen, Gamepad2, Target, Users,
   Download, Clock, CheckCircle, XCircle, FileText,
-  Puzzle, FlaskConical, Shuffle, Star, ChevronDown, ChevronUp, Zap
+  Puzzle, FlaskConical, Shuffle, Star, ChevronDown, ChevronUp, Zap,
+  Music, VolumeX, Upload, Paperclip
 } from "lucide-react";
 
 const DARK_BG = "#0A1628";
@@ -25,6 +27,57 @@ export default function StudentArea() {
   const { user } = useAuth();
   const { student: studentData, sessionToken: studentSessionToken } = useStudentAuth();
   const memberId = studentData?.memberId || null;
+  const { isMuted, toggleMuted } = useAudioContext();
+
+  // ─── Justificativa de falta (anexo de atestado/laudo) ───
+  const [justForm, setJustForm] = useState<{ classDate: string; reason: string; file: File | null }>({
+    classDate: "", reason: "", file: null,
+  });
+  const [justSubmitting, setJustSubmitting] = useState(false);
+  const { data: minhasJustificativas, refetch: refetchJustificativas } = trpc.attendance.getMinhasJustificativas.useQuery(
+    undefined, { enabled: !!studentSessionToken }
+  );
+  const submeterJustificativa = trpc.attendance.submeterJustificativa.useMutation({
+    onSuccess: () => {
+      setJustForm({ classDate: "", reason: "", file: null });
+      refetchJustificativas();
+    },
+  });
+
+  const handleEnviarJustificativa = async () => {
+    if (!justForm.file || !justForm.classDate || justForm.reason.trim().length < 5) return;
+    const tiposAceitos = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
+    if (!tiposAceitos.includes(justForm.file.type)) {
+      alert("Envie um PDF, JPEG ou PNG.");
+      return;
+    }
+    if (justForm.file.size > 2_000_000) {
+      alert("Arquivo muito grande (máx. 2MB). Tente uma foto com menos resolução ou comprima o PDF.");
+      return;
+    }
+    setJustSubmitting(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(",")[1] || "");
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(justForm.file!);
+      });
+      await submeterJustificativa.mutateAsync({
+        classId: classId || 0,
+        classDate: justForm.classDate,
+        reason: justForm.reason.trim(),
+        fileName: justForm.file.name,
+        mimeType: justForm.file.type as any,
+        fileBase64: base64,
+      });
+    } finally {
+      setJustSubmitting(false);
+    }
+  };
 
   // Verificar se há quiz ao vivo ativo
   const { data: activeLiveQuiz } = trpc.studentAuth.getActiveLiveQuiz.useQuery(
@@ -250,7 +303,19 @@ export default function StudentArea() {
                 <p className="text-sm text-white/60">{classData.name}</p>
               </div>
             </div>
-            {activeLiveQuiz?.found && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleMuted}
+                title={isMuted ? "Ligar música" : "Desligar música"}
+                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                {isMuted ? (
+                  <VolumeX size={20} className="text-white/50" />
+                ) : (
+                  <Music size={20} style={{ color: ORANGE }} />
+                )}
+              </button>
+              {activeLiveQuiz?.found && (
               <Link href="/quiz-ao-vivo">
                 <button
                   className="flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm"
@@ -262,6 +327,7 @@ export default function StudentArea() {
                 </button>
               </Link>
             )}
+            </div>
           </div>
         </div>
       </div>
@@ -475,6 +541,89 @@ export default function StudentArea() {
               >
                 Escanear QR Code
               </button>
+            </div>
+
+            {/* ─── Justificar falta com documento ─── */}
+            <div
+              className="rounded-lg p-5 sm:p-6 mt-6"
+              style={{ backgroundColor: CARD_BG, border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Paperclip size={20} style={{ color: ORANGE }} />
+                <h3 className="text-lg font-bold text-white">Justificar falta</h3>
+              </div>
+              <p className="text-sm text-white/60 mb-4">
+                Faltou e tem atestado, laudo ou outro documento? Anexe aqui — o professor vai revisar e, se aprovado, sua presença naquele dia é ajustada.
+              </p>
+
+              <div className="space-y-3 max-w-md">
+                <div>
+                  <label className="text-xs text-white/50 block mb-1">Data da aula que faltou</label>
+                  <input
+                    type="date"
+                    value={justForm.classDate}
+                    onChange={(e) => setJustForm((f) => ({ ...f, classDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg text-white text-sm"
+                    style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)" }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/50 block mb-1">Motivo</label>
+                  <textarea
+                    value={justForm.reason}
+                    onChange={(e) => setJustForm((f) => ({ ...f, reason: e.target.value }))}
+                    placeholder="Explique brevemente o motivo da falta..."
+                    rows={2}
+                    className="w-full px-3 py-2 rounded-lg text-white text-sm"
+                    style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)" }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/50 block mb-1">Documento (PDF, JPEG ou PNG, máx. 2MB)</label>
+                  <input
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/jpg,image/png"
+                    onChange={(e) => setJustForm((f) => ({ ...f, file: e.target.files?.[0] || null }))}
+                    className="w-full text-sm text-white/70 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:text-white"
+                    style={{ ["--file-bg" as any]: ORANGE }}
+                  />
+                </div>
+                <button
+                  onClick={handleEnviarJustificativa}
+                  disabled={justSubmitting || !justForm.file || !justForm.classDate || justForm.reason.trim().length < 5}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-white text-sm transition-all hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"
+                  style={{ backgroundColor: ORANGE }}
+                >
+                  <Upload size={16} />
+                  {justSubmitting ? "Enviando..." : "Enviar justificativa"}
+                </button>
+              </div>
+
+              {/* Histórico de justificativas enviadas */}
+              {minhasJustificativas && minhasJustificativas.length > 0 && (
+                <div className="mt-6 pt-5 border-t" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
+                  <h4 className="text-sm font-semibold text-white/80 mb-3">Suas justificativas enviadas</h4>
+                  <div className="space-y-2">
+                    {minhasJustificativas.map((j) => (
+                      <div key={j.id} className="flex items-center justify-between gap-3 p-3 rounded-lg" style={{ backgroundColor: "rgba(255,255,255,0.03)" }}>
+                        <div className="min-w-0">
+                          <p className="text-sm text-white truncate">{j.fileName}</p>
+                          <p className="text-xs text-white/50">Falta de {j.classDate}</p>
+                        </div>
+                        <span
+                          className="text-xs px-2 py-1 rounded-full font-medium shrink-0"
+                          style={{
+                            backgroundColor: j.status === "approved" ? "rgba(34,197,94,0.15)" : j.status === "rejected" ? "rgba(239,68,68,0.15)" : "rgba(247,148,29,0.15)",
+                            color: j.status === "approved" ? "#22C55E" : j.status === "rejected" ? "#EF4444" : ORANGE,
+                          }}
+                        >
+                          {j.status === "approved" ? "Aprovada" : j.status === "rejected" ? "Rejeitada" : "Em análise"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

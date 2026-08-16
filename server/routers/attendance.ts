@@ -6,15 +6,21 @@
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb, getTeacherAccountBySessionToken } from "../db";
-import { attendance, attendanceManualRequests, qrCodeSessions, studentAccounts, systemSettings, members } from "../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { attendance, attendanceManualRequests, attendanceJustifications, qrCodeSessions, studentAccounts, systemSettings, members } from "../../drizzle/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { notifyAttendanceCheckIn } from "../_core/attendanceNotifications";
+import { analisarDocumento } from "./documentAnalysis";
 import {
   generateQRCodeToken,
   calculateDistance,
   generateQRCodeImageUrl,
 } from "../_core/attendanceQRCode";
+
+// Tamanho máximo aceito para o documento anexado (base64): ~2MB de arquivo
+// real vira ~2.7MB em base64. Limite generoso para atestados escaneados,
+// mas sem deixar o campo TEXT do banco crescer sem controle.
+const MAX_JUSTIFICATION_FILE_BASE64_CHARS = 2_800_000;
 
 // Valores padrão (usados apenas se uma sessão ainda não tiver configuração
 // própria — ex.: a primeira vez que o QR é gerado para uma turma/semana).
@@ -471,6 +477,167 @@ export const attendanceRouter = router({
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao resolver solicitação" });
+      }
+    }),
+
+  /**
+   * Aluno: envia uma justificativa de falta com documento anexado
+   * (atestado/laudo). O documento passa por uma análise heurística que
+   * gera sinais de possível edição — SEMPRE como apoio à revisão do
+   * professor, nunca como aprovação/rejeição automática.
+   */
+  submeterJustificativa: protectedProcedure
+    .input(z.object({
+      classId: z.number(),
+      classDate: z.string(),
+      reason: z.string().min(5).max(2000),
+      fileName: z.string().min(1).max(300),
+      mimeType: z.enum(["application/pdf", "image/jpeg", "image/jpg", "image/png"]),
+      fileBase64: z.string().min(1).max(MAX_JUSTIFICATION_FILE_BASE64_CHARS),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+
+        const memberId = await resolveMemberId(db, ctx.user.id);
+        const week = await calcularSemanaSemestre(db, input.classDate);
+
+        const analise = analisarDocumento(input.fileBase64, input.mimeType);
+
+        await db.insert(attendanceJustifications).values({
+          memberId,
+          classId: input.classId,
+          classDate: input.classDate,
+          week,
+          reason: input.reason,
+          fileName: input.fileName,
+          mimeType: input.mimeType,
+          fileBase64: input.fileBase64,
+          suspicionScore: analise.suspicionScore,
+          suspicionSignals: JSON.stringify(analise.signals),
+        });
+
+        return { success: true, message: "Justificativa enviada! O professor vai revisar em breve." };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao enviar justificativa" });
+      }
+    }),
+
+  /**
+   * Aluno: lista suas próprias justificativas enviadas (sem o base64 do
+   * arquivo, pra não pesar a resposta) e o status de cada uma.
+   */
+  getMinhasJustificativas: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+    const memberId = await resolveMemberId(db, ctx.user.id);
+    const rows = await db.select().from(attendanceJustifications)
+      .where(eq(attendanceJustifications.memberId, memberId))
+      .orderBy(desc(attendanceJustifications.submittedAt));
+    return rows.map(r => ({
+      id: r.id, classDate: r.classDate, week: r.week, reason: r.reason,
+      fileName: r.fileName, status: r.status, reviewNote: r.reviewNote,
+      submittedAt: r.submittedAt, reviewedAt: r.reviewedAt,
+    }));
+  }),
+
+  /**
+   * Professor/Monitor: lista justificativas pendentes de uma turma, com o
+   * documento (base64) e os sinais de suspeita, para revisão manual.
+   */
+  getPendingJustifications: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+      const rows = await db.select().from(attendanceJustifications)
+        .where(and(eq(attendanceJustifications.classId, input.classId), eq(attendanceJustifications.status, "pending")))
+        .orderBy(desc(attendanceJustifications.suspicionScore));
+
+      const allMembers = await db.select().from(members);
+      const memberById = new Map(allMembers.map((m: any) => [m.id, m.name]));
+
+      return rows.map(r => ({
+        id: r.id,
+        memberId: r.memberId,
+        memberName: memberById.get(r.memberId) || `Aluno #${r.memberId}`,
+        classDate: r.classDate,
+        week: r.week,
+        reason: r.reason,
+        fileName: r.fileName,
+        mimeType: r.mimeType,
+        fileBase64: r.fileBase64,
+        suspicionScore: r.suspicionScore,
+        suspicionSignals: r.suspicionSignals ? JSON.parse(r.suspicionSignals) : [],
+        submittedAt: r.submittedAt,
+      }));
+    }),
+
+  /**
+   * Professor/Monitor: aprova ou rejeita uma justificativa. Ao aprovar,
+   * marca a presença daquele dia como "valid" (cria o registro se não
+   * existir ainda).
+   */
+  resolveJustification: publicProcedure
+    .input(z.object({
+      sessionToken: z.string(),
+      justificationId: z.number(),
+      decisao: z.enum(["approved", "rejected"]),
+      reviewNote: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+        const rows = await db.select().from(attendanceJustifications).where(eq(attendanceJustifications.id, input.justificationId)).limit(1);
+        if (!rows.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Justificativa não encontrada" });
+        const just = rows[0];
+
+        await db.update(attendanceJustifications).set({
+          status: input.decisao,
+          reviewedBy: teacher.id,
+          reviewedByName: teacher.name,
+          reviewedAt: new Date(),
+          reviewNote: input.reviewNote || null,
+        }).where(eq(attendanceJustifications.id, input.justificationId));
+
+        if (input.decisao === "approved") {
+          const existing = await db.select().from(attendance)
+            .where(and(eq(attendance.memberId, just.memberId), eq(attendance.classDate, just.classDate)))
+            .limit(1);
+          if (existing.length > 0) {
+            await db.update(attendance).set({
+              status: "valid",
+              note: `Falta justificada e aprovada por ${teacher.name}${input.reviewNote ? ": " + input.reviewNote : ""}`,
+            }).where(eq(attendance.id, existing[0].id));
+          } else {
+            const studentAccountRows = await db.select().from(studentAccounts).where(eq(studentAccounts.memberId, just.memberId)).limit(1);
+            if (!studentAccountRows.length) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: "Este aluno não tem conta de estudante vinculada — não é possível criar o registro de presença automaticamente. Registre manualmente." });
+            }
+            await db.insert(attendance).values({
+              studentAccountId: studentAccountRows[0].id,
+              memberId: just.memberId,
+              week: just.week || 1,
+              classDate: just.classDate,
+              status: "valid",
+              note: `Falta justificada e aprovada por ${teacher.name}${input.reviewNote ? ": " + input.reviewNote : ""}`,
+            });
+          }
+        }
+
+        return { success: true, decisao: input.decisao };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao resolver justificativa" });
       }
     }),
 });

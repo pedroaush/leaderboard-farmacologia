@@ -1,9 +1,13 @@
-import { createContext, useContext, useRef, useCallback, useEffect, ReactNode } from "react";
+import { createContext, useContext, useRef, useCallback, useEffect, useState, ReactNode } from "react";
 
 /**
  * Audio Context - Gerenciamento global de áudio
  * Garante que apenas um player toque por vez, evitando sobreposição
+ * Também controla um "mudo geral" (música desligada), persistido no
+ * localStorage, que qualquer player registrado passa a respeitar.
  */
+
+const MUTED_STORAGE_KEY = "conexao_farmaco_music_muted";
 
 interface AudioContextType {
   registerPlayer: (id: string, audioElement: HTMLAudioElement) => void;
@@ -11,6 +15,9 @@ interface AudioContextType {
   playAudio: (id: string) => void;
   pauseAudio: (id: string) => void;
   pauseAllExcept: (exceptId?: string) => void;
+  isMuted: boolean;
+  toggleMuted: () => void;
+  setMuted: (muted: boolean) => void;
 }
 
 const AudioContext = createContext<AudioContextType | null>(null);
@@ -18,6 +25,23 @@ const AudioContext = createContext<AudioContextType | null>(null);
 export function AudioProvider({ children }: { children: ReactNode }) {
   const playersRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const wasPlayingRef = useRef<Set<string>>(new Set());
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(MUTED_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  // Ao mutar, pausa qualquer player que esteja tocando no momento.
+  useEffect(() => {
+    if (isMuted) {
+      playersRef.current.forEach((audio) => {
+        if (!audio.paused) audio.pause();
+      });
+    }
+  }, [isMuted]);
 
   // Pausar todos os players quando a página perde o foco (mobile-friendly)
   useEffect(() => {
@@ -50,7 +74,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const registerPlayer = useCallback((id: string, audioElement: HTMLAudioElement) => {
     playersRef.current.set(id, audioElement);
-  }, []);
+    if (isMuted && !audioElement.paused) audioElement.pause();
+  }, [isMuted]);
 
   const unregisterPlayer = useCallback((id: string) => {
     const audio = playersRef.current.get(id);
@@ -62,6 +87,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const playAudio = useCallback((id: string) => {
+    if (isMuted) return; // música desligada — não toca nada
     const audio = playersRef.current.get(id);
     if (audio) {
       // Pausar todos os outros players antes de tocar este
@@ -75,7 +101,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         console.warn(`Audio play failed for ${id}:`, err);
       });
     }
-  }, []);
+  }, [isMuted]);
 
   const pauseAudio = useCallback((id: string) => {
     const audio = playersRef.current.get(id);
@@ -92,6 +118,17 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setMuted = useCallback((muted: boolean) => {
+    setIsMuted(muted);
+    try {
+      localStorage.setItem(MUTED_STORAGE_KEY, muted ? "1" : "0");
+    } catch {}
+  }, []);
+
+  const toggleMuted = useCallback(() => {
+    setMuted(!isMuted);
+  }, [isMuted, setMuted]);
+
   return (
     <AudioContext.Provider
       value={{
@@ -100,6 +137,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         playAudio,
         pauseAudio,
         pauseAllExcept,
+        isMuted,
+        toggleMuted,
+        setMuted,
       }}
     >
       {children}
