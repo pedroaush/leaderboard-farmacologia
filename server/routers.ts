@@ -1370,6 +1370,22 @@ if (!SUPER_ADMIN_SECRET) {
         await dbConn.delete(jhmTable).where(and(eq(jhmTable.homeGroupId, input.groupId), eq(jhmTable.memberId, input.memberId)));
         return { success: true };
       }),
+
+    // ─── Atualiza o tema/artigo de um grupo de Seminário já criado, SEM ───
+    // ─── mexer nos alunos já adicionados. Útil quando o artigo escolhido ───
+    // ─── muda depois que o grupo já foi criado (e talvez já populado). ───
+    atualizarTemaGrupoSeminario: publicProcedure
+      .input(z.object({ sessionToken: z.string(), groupId: z.number(), tema: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Não autorizado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { jigsawHomeGroups: jhgTable } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        await dbConn.update(jhgTable).set({ description: input.tema }).where(eq(jhgTable.id, input.groupId));
+        return { success: true };
+      }),
     openDigitalExam: publicProcedure
       .input(z.object({
         sessionToken: z.string(),
