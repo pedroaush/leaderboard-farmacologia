@@ -1265,15 +1265,19 @@ if (!SUPER_ADMIN_SECRET) {
         const criados: { groupId: number; name: string; members: number }[] = [];
         for (const grupo of input.grupos) {
           // 1 tópico por grupo (reaproveitado como "tema do grupo"; jigsawTopics
-          // não tem classId, é global — reaproveita se já existir um com esse nome)
+          // não tem classId, é global — reaproveita se já existir um com esse nome).
+          // jigsawTopics.name é varchar(100) — truncamos SÓ o nome do tópico se
+          // precisar; a descrição do grupo (jigsawHomeGroups.description) guarda
+          // o tema completo, sem limite.
+          const topicName = grupo.tema.length > 100 ? grupo.tema.slice(0, 97) + "..." : grupo.tema;
           const existingTopics = await dbConn.select().from(jtTable);
-          const foundTopic = existingTopics.find((t: any) => t.name === grupo.tema);
+          const foundTopic = existingTopics.find((t: any) => t.name === topicName);
           let topicId: number;
           if (foundTopic) {
             topicId = foundTopic.id;
           } else {
             const resTopic = await dbConn.insert(jtTable).values({
-              name: grupo.tema,
+              name: topicName,
               description: `Tema do grupo de Seminário "${grupo.name}"`,
             });
             topicId = (resTopic as any)[0]?.insertId ?? (resTopic as any).insertId;
@@ -1334,14 +1338,15 @@ if (!SUPER_ADMIN_SECRET) {
         const grupo = grupoRows[0];
         if (!grupo) throw new Error("Grupo não encontrado");
         const tema = grupo.description || grupo.name;
+        const topicName = tema.length > 100 ? tema.slice(0, 97) + "..." : tema;
 
         const existingTopics = await dbConn.select().from(jtTable);
-        const foundTopic = existingTopics.find((t: any) => t.name === tema);
+        const foundTopic = existingTopics.find((t: any) => t.name === topicName);
         let topicId: number;
         if (foundTopic) {
           topicId = foundTopic.id;
         } else {
-          const resTopic = await dbConn.insert(jtTable).values({ name: tema, description: `Tema do grupo "${grupo.name}"` });
+          const resTopic = await dbConn.insert(jtTable).values({ name: topicName, description: `Tema do grupo "${grupo.name}"` });
           topicId = (resTopic as any)[0]?.insertId ?? (resTopic as any).insertId;
         }
 
