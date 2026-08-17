@@ -54,8 +54,8 @@ const MONITOR_FEATURES = [
   {
     icon: <Shield size={28} />,
     label: "Equipes",
-    description: "Ver os grupos de Casos Clínicos e Seminário da sua turma",
-    href: "/monitor/notas",
+    description: "Grupos, integrantes e classificação de Casos Clínicos",
+    href: "/monitor/equipes",
     color: "#10b981",
     bg: "from-emerald-500/20 to-emerald-600/10",
   },
@@ -476,14 +476,19 @@ function MonitorDashboard({ monitor, sessionToken, onLogout }: {
   const featuresWithClass = MONITOR_FEATURES.map((f) => {
     if (f.href === "/cronograma") {
       if (assignedClass?.id) return { ...f, href: `/cronograma?classId=${assignedClass.id}` };
-      if (hasMultipleClasses) return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver o cronograma" };
+      // Sem turma única: leva pra Turmas, que já lista todas com botão de
+      // cronograma completo de cada uma — confirmado que é esse o comportamento certo.
+      return { ...f, href: "/monitor/turmas", description: "Ver o cronograma de cada turma" };
     }
-    if (f.href === "/monitor/notas") {
-      if (assignedClass?.id) return { ...f, href: `/monitor/notas?classId=${assignedClass.id}` };
-      if (hasMultipleClasses) return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver as notas" };
+    if (f.href === "/monitor/notas" && assignedClass?.id) {
+      // Com 1 turma só, já manda direto pra ela. Com várias, deixa o link
+      // puro (/monitor/notas) — essa página já tem seu próprio seletor de
+      // turma embutido, não precisa passar por Turmas.
+      return { ...f, href: `/monitor/notas?classId=${assignedClass.id}` };
     }
-    if (f.href === "/jogo" && assignedClass?.id) {
-      return { ...f, href: `/jogo/${assignedClass.id}` };
+    if (f.href === "/jogo") {
+      if (assignedClass?.id) return { ...f, href: `/jogo/${assignedClass.id}` };
+      if (hasMultipleClasses) return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver o jogo dela" };
     }
     return f;
   });
