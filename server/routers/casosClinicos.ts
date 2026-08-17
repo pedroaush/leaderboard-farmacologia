@@ -9,7 +9,29 @@ import {
   casosClinicosDisputas,
   jigsawScores,
   members,
+  studentAccounts,
 } from "../../drizzle/schema";
+
+/**
+ * Autentica quem está chamando como professor OU monitor (o monitor precisa
+ * estar vinculado à mesma turma, salvo se for o bypass de admin/professor,
+ * que tem assignedClassId nulo = acesso a todas). Usado nas rotas que agora
+ * o monitor também pode acessar (ver disputas, registrar resultado).
+ */
+async function autenticarProfessorOuMonitor(db: any, sessionToken: string, classId: number): Promise<{ id: number; name: string }> {
+  const teacher = await getTeacherAccountBySessionToken(sessionToken);
+  if (teacher) return { id: teacher.id, name: teacher.name };
+
+  const monitorRows = await db.select().from(studentAccounts)
+    .where(and(eq(studentAccounts.sessionToken, sessionToken), eq(studentAccounts.accountType, "monitor"), eq(studentAccounts.isActive, 1)))
+    .limit(1);
+  const monitor = monitorRows[0];
+  if (!monitor) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+  if (monitor.assignedClassId && monitor.assignedClassId !== classId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode acessar dados da sua turma." });
+  }
+  return { id: monitor.id, name: `${monitor.displayName || monitor.email} (monitor)` };
+}
 
 /**
  * ============================================================================
@@ -360,8 +382,7 @@ export const casosClinicosRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
-      const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
-      if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      await autenticarProfessorOuMonitor(db, input.sessionToken, input.classId);
 
       const disputas = await db.select().from(casosClinicosDisputas)
         .where(and(eq(casosClinicosDisputas.classId, input.classId), eq(casosClinicosDisputas.rodada, input.rodada)));
@@ -390,22 +411,33 @@ export const casosClinicosRouter = router({
       try {
         const db = await getDb();
         if (!db) throw new Error("Database not available");
-        const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
-        if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
 
         const disputa = await db.select().from(casosClinicosDisputas).where(eq(casosClinicosDisputas.id, input.disputaId)).limit(1);
         if (!disputa.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Disputa não encontrada" });
         const d = disputa[0];
 
+        const quemRegistrou = await autenticarProfessorOuMonitor(db, input.sessionToken, d.classId);
+
+        // Formato "melhor de 5, primeiro a 3": o placar sempre tem um lado
+        // com exatamente 3 (quem venceu) e o outro com 0, 1 ou 2 — nunca
+        // empate, e nunca os dois times somando mais que 5.
+        const maior = Math.max(input.grupoAAcertos, input.grupoBAcertos);
+        const menor = Math.min(input.grupoAAcertos, input.grupoBAcertos);
+        if (maior !== 3 || menor > 2 || input.grupoAAcertos === input.grupoBAcertos) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Placar inválido — só são aceitos os formatos 3x0, 3x1 ou 3x2 (melhor de 5, primeiro a 3 pontos).",
+          });
+        }
+
         let pontosGrupoA: number, pontosGrupoB: number;
         if (input.grupoAAcertos > input.grupoBAcertos) { pontosGrupoA = PONTOS_VITORIA; pontosGrupoB = PONTOS_DERROTA; }
-        else if (input.grupoBAcertos > input.grupoAAcertos) { pontosGrupoA = PONTOS_DERROTA; pontosGrupoB = PONTOS_VITORIA; }
-        else { pontosGrupoA = PONTOS_EMPATE; pontosGrupoB = PONTOS_EMPATE; }
+        else { pontosGrupoA = PONTOS_DERROTA; pontosGrupoB = PONTOS_VITORIA; }
 
         await db.update(casosClinicosDisputas).set({
           grupoAAcertos: input.grupoAAcertos, grupoBAcertos: input.grupoBAcertos,
           pontosGrupoA, pontosGrupoB, status: "concluida",
-          registradoPor: teacher.id, registradoPorNome: teacher.name, registradoEm: new Date(),
+          registradoPor: quemRegistrou.id, registradoPorNome: quemRegistrou.name, registradoEm: new Date(),
         }).where(eq(casosClinicosDisputas.id, input.disputaId));
 
         await recalcularNotasCasosClinicos(db, d.classId);
