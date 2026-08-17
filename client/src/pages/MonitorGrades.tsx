@@ -157,7 +157,9 @@ function SeminarioCard({ group, sessionToken, classId, onChanged }: {
 }
 
 export default function MonitorGrades() {
-  const [sessionToken, setSessionToken] = useState<string>(() => localStorage.getItem(MONITOR_SESSION_KEY) || "");
+  const [sessionToken, setSessionToken] = useState<string>(() =>
+    localStorage.getItem(MONITOR_SESSION_KEY) || localStorage.getItem("teacherSessionToken") || ""
+  );
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"casos_clinicos" | "seminario">("casos_clinicos");
 

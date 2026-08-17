@@ -623,14 +623,22 @@ export default function MonitorPortal() {
   const [monitor, setMonitor] = useState<MonitorInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check for existing session on mount
+  // Check for existing session on mount — primeiro tenta sessão de monitor
+  // de verdade; se não tiver, tenta o token de professor/admin (já logado
+  // no resto da plataforma), que o back-end agora também aceita. Assim o
+  // admin/professor não esbarra na tela de login do monitor.
   useEffect(() => {
-    const token = localStorage.getItem(MONITOR_SESSION_KEY);
-    if (token) {
-      setSessionToken(token);
-    } else {
-      setLoading(false);
+    const monitorToken = localStorage.getItem(MONITOR_SESSION_KEY);
+    if (monitorToken) {
+      setSessionToken(monitorToken);
+      return;
     }
+    const teacherToken = localStorage.getItem("teacherSessionToken");
+    if (teacherToken) {
+      setSessionToken(teacherToken);
+      return;
+    }
+    setLoading(false);
   }, []);
 
   // Validate session token

@@ -6,7 +6,12 @@ import { eq, and, desc, gte, lte } from "drizzle-orm";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 
-// Helper: autenticar monitor e retornar dados completos
+// Helper: autenticar monitor e retornar dados completos.
+// Também aceita um token de PROFESSOR/ADMIN como alternativa — assim o
+// Painel Admin e o Painel do Professor conseguem acessar o Portal do
+// Monitor sem precisar de uma conta de monitor separada. Nesse caso,
+// assignedClassId fica null (acesso a todas as turmas, já que o padrão em
+// todo o router é "se assignedClassId existir, restringe; senão, libera").
 async function getMonitorByToken(sessionToken: string) {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
@@ -26,7 +31,21 @@ async function getMonitorByToken(sessionToken: string) {
       eq(studentAccounts.isActive, 1)
     ))
     .limit(1);
-  return accounts[0] ?? null;
+  if (accounts[0]) return accounts[0];
+
+  // Não é uma conta de monitor — tenta como professor/admin.
+  const teacher = await getTeacherAccountBySessionToken(sessionToken);
+  if (teacher && teacher.isActive) {
+    return {
+      id: -teacher.id, // negativo de propósito: nunca colide com um studentAccounts.id de verdade
+      email: teacher.email,
+      displayName: `${teacher.name} (${teacher.role === "super_admin" ? "admin" : "professor"})`,
+      accountType: "monitor" as const,
+      isActive: 1,
+      assignedClassId: null, // acesso a todas as turmas
+    };
+  }
+  return null;
 }
 
 export const monitorsRouter = router({
