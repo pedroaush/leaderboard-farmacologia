@@ -63,6 +63,7 @@ export default function StudentLogin() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [matricula, setMatricula] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
+  const [selectedClassIdForRegister, setSelectedClassIdForRegister] = useState<number | "" >("");
   const [memberSearch, setMemberSearch] = useState("");
   const [studentName, setStudentName] = useState("");
   const [registerType, setRegisterType] = useState<"turma" | "externo">("turma");
@@ -108,15 +109,30 @@ export default function StudentLogin() {
     { enabled: mode === "register" }
   );
 
+  const availableClasses = useMemo(() => {
+    if (!availableMembers) return [];
+    const map = new Map<number, string>();
+    for (const m of availableMembers) {
+      if (m.classId) map.set(m.classId, m.className);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [availableMembers]);
+
   const filteredMembers = useMemo(() => {
     if (!availableMembers) return [];
-    if (!memberSearch.trim()) return availableMembers;
+    // Sem turma escolhida, não mostra ninguém — força escolher a turma
+    // primeiro, pra não listar alunos de todos os cursos misturados.
+    if (!selectedClassIdForRegister) return [];
+    let list = availableMembers.filter(m => m.classId === selectedClassIdForRegister);
+    if (!memberSearch.trim()) return list;
     const search = memberSearch.toLowerCase();
-    return availableMembers.filter(m =>
+    return list.filter(m =>
       m.name.toLowerCase().includes(search) ||
       m.teamName.toLowerCase().includes(search)
     );
-  }, [availableMembers, memberSearch]);
+  }, [availableMembers, memberSearch, selectedClassIdForRegister]);
 
   const loginMutation = trpc.studentAuth.login.useMutation();
   const registerMutation = trpc.studentAuth.register.useMutation();
@@ -420,6 +436,25 @@ export default function StudentLogin() {
                 {registerType === "turma" ? (
                 <div>
                   <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.6)" }}>
+                    Sua Turma
+                  </label>
+                  <select
+                    value={selectedClassIdForRegister}
+                    onChange={e => { setSelectedClassIdForRegister(e.target.value ? parseInt(e.target.value) : ""); setSelectedMemberId(null); setMemberSearch(""); }}
+                    required
+                    className="w-full px-4 py-3 mb-3 rounded-lg text-sm text-white focus:outline-none focus:ring-2 transition-all"
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                    }}
+                  >
+                    <option value="" style={{ color: "#000" }}>Selecione sua turma...</option>
+                    {availableClasses.map(c => (
+                      <option key={c.id} value={c.id} style={{ color: "#000" }}>{c.name}</option>
+                    ))}
+                  </select>
+
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.6)" }}>
                     Selecione seu Nome
                   </label>
                   <div className="relative mb-2">
@@ -428,8 +463,9 @@ export default function StudentLogin() {
                       type="text"
                       value={memberSearch}
                       onChange={e => setMemberSearch(e.target.value)}
-                      placeholder="Buscar por nome ou equipe..."
-                      className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 transition-all"
+                      disabled={!selectedClassIdForRegister}
+                      placeholder={selectedClassIdForRegister ? "Buscar por nome ou equipe..." : "Selecione sua turma primeiro"}
+                      className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 transition-all disabled:opacity-50"
                       style={{
                         backgroundColor: "rgba(255,255,255,0.06)",
                         border: "1px solid rgba(255,255,255,0.1)",
@@ -442,7 +478,11 @@ export default function StudentLogin() {
                   >
                     {filteredMembers.length === 0 ? (
                       <div className="p-3 text-center text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                        {availableMembers?.length === 0 ? "Todos os alunos já estão cadastrados" : "Nenhum aluno encontrado"}
+                        {!selectedClassIdForRegister
+                          ? "Escolha sua turma acima para ver a lista de alunos"
+                          : availableMembers?.filter(m => m.classId === selectedClassIdForRegister).length === 0
+                            ? "Todos os alunos dessa turma já estão cadastrados"
+                            : "Nenhum aluno encontrado"}
                       </div>
                     ) : (
                       filteredMembers.map(m => (
@@ -651,7 +691,7 @@ export default function StudentLogin() {
           {/* Footer info */}
           <div className="mt-8 text-center">
             <p className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
-              Farmacologia I — UNIRIO — 2026.1
+              Farmacologia I — UNIRIO — 2026.2
             </p>
           </div>
         </motion.div>

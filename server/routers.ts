@@ -3545,10 +3545,11 @@ if (!SUPER_ADMIN_SECRET) {
 
     // Get available members (not yet registered)
     getAvailableMembers: publicProcedure.query(async () => {
-      const [allMembers, allAccounts, allTeams] = await Promise.all([
+      const [allMembers, allAccounts, allTeams, allClasses] = await Promise.all([
         db.getAllMembers(),
         db.getAllStudentAccounts(),
         db.getAllTeams(),
+        db.getAllClasses(),
       ]);
       const registeredMemberIds = new Set(allAccounts.map(a => a.memberId));
       const cleanName = (raw: string | null | undefined): string => {
@@ -3561,7 +3562,15 @@ if (!SUPER_ADMIN_SECRET) {
         .filter(m => !registeredMemberIds.has(m.id))
         .map(m => {
           const team = allTeams.find(t => t.id === m.teamId);
-          return { id: m.id, name: cleanName(m.name), teamName: team?.name || "Sem equipe", teamEmoji: team?.emoji || "🧪" };
+          const cls = allClasses.find((c: any) => c.id === m.classId);
+          return {
+            id: m.id,
+            name: cleanName(m.name),
+            teamName: team?.name || "Sem equipe",
+            teamEmoji: team?.emoji || "🧪",
+            classId: m.classId ?? null,
+            className: cls?.name || "Sem turma",
+          };
         });
     }),
 
