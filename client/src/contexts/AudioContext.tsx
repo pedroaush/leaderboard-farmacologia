@@ -26,11 +26,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const playersRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const wasPlayingRef = useRef<Set<string>>(new Set());
   const [isMuted, setIsMuted] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") return true;
     try {
-      return localStorage.getItem(MUTED_STORAGE_KEY) === "1";
+      const saved = localStorage.getItem(MUTED_STORAGE_KEY);
+      // Padrão: música DESLIGADA. Só toca se o aluno explicitamente ligar
+      // (aí gravamos "0" no localStorage e passa a respeitar a escolha dele).
+      return saved === null ? true : saved === "1";
     } catch {
-      return false;
+      return true;
     }
   });
 

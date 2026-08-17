@@ -9,13 +9,14 @@ import {
   Trophy, Users, Zap, TrendingUp, ChevronDown, ChevronUp,
   Award, Target, Star, FlaskConical, Activity, Settings, Youtube, Bell,
   ArrowLeft, BookOpen, ClipboardList, LogOut, MapPin, BarChart3,
-  Calendar, QrCode, Gamepad2, Calculator, Medal
+  Calendar, QrCode, Gamepad2, Calculator, Medal, Music, VolumeX
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useStudentAuth } from "@/pages/StudentLogin";
+import { useAudioContext } from "@/contexts/AudioContext";
 
 import { toast } from "sonner";
 
@@ -287,6 +288,7 @@ export default function Home() {
   const { logout, user } = useAuth();
   const { student: studentData, sessionToken: studentSessionToken } = useStudentAuth();
   const [, setLocation] = useLocation();
+  const { isMuted, toggleMuted, registerPlayer, unregisterPlayer } = useAudioContext();
   // Verificar se há quiz ao vivo ativo
   const { data: activeLiveQuiz } = trpc.studentAuth.getActiveLiveQuiz.useQuery(
     { sessionToken: studentSessionToken || "" },
@@ -345,20 +347,39 @@ export default function Home() {
 
   useEffect(() => {
     const hasSeenVinheta = localStorage.getItem("hasSeenVinheta");
+    const audio = vinhetaAudioRef.current;
+    if (audio) {
+      registerPlayer("vinheta-abertura", audio);
+      audio.volume = vinhetaVolume;
+    }
+
     if (hasSeenVinheta) {
       setShowIntro(false);
-      return;
+      // Já viu antes: NÃO toca de novo sozinho. Fica silenciosa até o aluno
+      // clicar no botão de música do cabeçalho, se quiser ouvir.
+      return () => { if (audio) unregisterPlayer("vinheta-abertura"); };
     }
+
     const timer = setTimeout(() => {
       localStorage.setItem("hasSeenVinheta", "true");
       setShowIntro(false);
+      // Ao fechar a intro, a vinheta para — ela é só a abertura, não uma
+      // trilha sonora contínua. Antes disso, ela ficava tocando escondida
+      // mesmo depois da tela de intro sumir.
+      if (audio) audio.pause();
     }, 4000);
-    if (vinhetaAudioRef.current) {
-      vinhetaAudioRef.current.volume = vinhetaVolume;
-      vinhetaAudioRef.current.play().catch(() => {});
+
+    // Só toca automaticamente se a música não estiver desligada globalmente.
+    if (audio && !isMuted) {
+      audio.play().catch(() => {});
     }
-    return () => clearTimeout(timer);
-  }, [vinhetaVolume]);
+
+    return () => {
+      clearTimeout(timer);
+      if (audio) unregisterPlayer("vinheta-abertura");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // roda só uma vez, na montagem — volume é ajustado à parte, via ref
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVolume = parseFloat(e.target.value);
@@ -452,7 +473,6 @@ export default function Home() {
         ref={vinhetaAudioRef}
         src="https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/dyTXKdfarsaUsmEI.mp3"
         preload="auto"
-        autoPlay
       />
       {showIntro && (
         <motion.div
@@ -543,6 +563,15 @@ export default function Home() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={toggleMuted}
+                title={isMuted ? "Ligar música" : "Desligar música"}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={{ color: isMuted ? "rgba(255,255,255,0.5)" : ORANGE, backgroundColor: isMuted ? "rgba(255,255,255,0.05)" : ORANGE + "12", border: `1px solid ${isMuted ? "rgba(255,255,255,0.1)" : ORANGE + "25"}` }}
+              >
+                {isMuted ? <VolumeX size={14} /> : <Music size={14} />}
+                <span className="hidden sm:inline">{isMuted ? "Música desligada" : "Música ligada"}</span>
+              </button>
               <Link href="/">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ color: ORANGE, backgroundColor: ORANGE + "12", border: `1px solid ${ORANGE}25` }}>
                   <ArrowLeft size={14} />
