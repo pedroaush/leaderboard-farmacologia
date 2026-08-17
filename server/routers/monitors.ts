@@ -863,6 +863,37 @@ export const monitorsRouter = router({
       return results;
     }),
 
+  // ─── Notas de Seminário (pôster) para revisão do professor ───
+  // Fica numa tabela separada (seminarioApresentacoes, com o checklist), por
+  // isso é uma consulta própria em vez de reaproveitar groupActivityGrades.
+  // Somente leitura aqui — pra corrigir, use o Portal do Monitor ou o painel
+  // de Seminário do professor (onde a lógica do checklist está implementada).
+  adminListSeminarioGrades: publicProcedure
+    .input(z.object({
+      teacherSessionToken: z.string(),
+      classId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      const teacher = await getTeacherAccountBySessionToken(input.teacherSessionToken);
+      if (!teacher) throw new Error("Acesso negado");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+
+      const apresentacoes = input.classId
+        ? await db.select().from(seminarioApresentacoes).where(eq(seminarioApresentacoes.classId, input.classId))
+        : await db.select().from(seminarioApresentacoes);
+
+      const groupIds = [...new Set(apresentacoes.map((a: any) => a.groupId))];
+      const gruposInfo = groupIds.length
+        ? await db.select().from(jigsawHomeGroups)
+        : [];
+      const groupNameById = new Map(gruposInfo.map((g: any) => [g.id, g.name]));
+
+      return apresentacoes
+        .map((a: any) => ({ ...a, groupName: groupNameById.get(a.groupId) || `Grupo #${a.groupId}` }))
+        .sort((a: any, b: any) => (a.groupName || "").localeCompare(b.groupName || ""));
+    }),
+
   adminUpsertActivityGrade: publicProcedure
     .input(z.object({
       teacherSessionToken: z.string(),

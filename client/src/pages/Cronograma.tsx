@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { useStudentAuth } from "@/pages/StudentLogin";
 
 const ORANGE = "#F7941D";
 
@@ -28,8 +29,8 @@ const staticTimeline = [
   { weekLabel: "Semana 4", weekDate: "31/03/2026", title: "Boas Práticas de Prescrição", detail: "Prescrição racional, farmacovigilância, interações medicamentosas. TBL 2.", type: "tbl", highlight: false },
   { weekLabel: "Semana 5", weekDate: "07/04/2026", title: "SNA — Transmissão Colinérgica", detail: "Agonistas e antagonistas muscarínicos, inibidores da colinesterase. Caso Clínico 2.", type: "caso", highlight: false },
   { weekLabel: "Semana 6", weekDate: "14/04/2026", title: "Bloqueadores Colinérgicos e Neuromusculares", detail: "Despolarizantes e não-despolarizantes, uso clínico em anestesia. Seminário Jigsaw 1.", type: "jigsaw", highlight: false },
-  { weekLabel: "Semana 7", weekDate: "28/04/2026", title: "Primeiro Dia de Seminários Jigsaw", detail: "Apresentações dos grupos especialistas. ", type: "jigsaw", highlight: false },
-  { weekLabel: "Semana 8", weekDate: "05/05/2026", title: "Prova P1", detail: "Avaliação individual (P1): conteúdo até colinérgicos/BNM + 3 primeiros Jigsaw.", type: "prova", highlight: true },
+  { weekLabel: "Semana 7", weekDate: "28/04/2026", title: "Primeiro Dia de Seminários Jigsaw", detail: "Apresentações dos grupos especialistas. Revisão integrativa pré-P1.", type: "jigsaw", highlight: false },
+  { weekLabel: "Semana 8", weekDate: "05/05/2026", title: "Prova P1 + Escape Room Farmacológico", detail: "Avaliação individual (P1): conteúdo até colinérgicos/BNM + 3 primeiros Jigsaw. Escape Room temático.", type: "prova", highlight: true },
   { weekLabel: "Semana 9", weekDate: "12/05/2026", title: "SNA — Transmissão Adrenérgica", detail: "Agonistas alfa e beta-adrenérgicos, catecolaminas. TBL 3.", type: "tbl", highlight: false },
   { weekLabel: "Semana 10", weekDate: "19/05/2026", title: "SNA — Anti-adrenérgicos", detail: "Bloqueadores alfa e beta, uso clínico em hipertensão e ICC. Caso Clínico 3.", type: "caso", highlight: false },
   { weekLabel: "Semana 11", weekDate: "26/05/2026", title: "AINEs e Corticoides", detail: "Anti-inflamatórios Não Esteroidais (inibidores de COX), corticosteroides, mecanismo anti-inflamatório, efeitos adversos. TBL 4.", type: "tbl", highlight: false },
@@ -72,10 +73,16 @@ export default function Cronograma() {
   const currentWeekRef = useRef<HTMLDivElement | null>(null);
   const weekRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
-  // Read classId from URL query params
+  // Se o aluno está logado, a turma DELE sempre tem prioridade — mesmo que a
+  // URL traga (ou não traga, ou traga errado) um ?classId=. Antes disso, a
+  // página confiava 100% no parâmetro da URL, então um link desatualizado
+  // ou sem esse parâmetro fazia o aluno ver o cronograma genérico/errado.
+  const { student: studentData } = useStudentAuth();
   const searchParams = new URLSearchParams(window.location.search);
   const classIdParam = searchParams.get("classId");
-  const classId = classIdParam ? parseInt(classIdParam) : null;
+  const classId = studentData?.classId
+    ? studentData.classId
+    : (classIdParam ? parseInt(classIdParam) : null);
   const { data: classPublicInfo } = trpc.classes.getPublicInfo.useQuery(
     { classId: classId! },
     { enabled: !!classId, retry: 1 }

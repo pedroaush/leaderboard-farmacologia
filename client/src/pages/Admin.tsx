@@ -25,7 +25,7 @@ import {
   FlaskConical, ArrowLeft, KeyRound, Bell, AlertTriangle, Clock,
   FileText, Link2, MessageSquare, Upload, Eye, EyeOff, Paperclip,
   Award, Star, Medal, MapPin, CheckCircle, XCircle, UserCheck, Search, Download,
-  Youtube, Play, Video, GripVertical, Target, LogIn, Calendar, Shuffle, QrCode, Gamepad2, User, GraduationCap, BookOpen, History, Loader2, Printer
+  Youtube, Play, Video, GripVertical, Target, LogIn, Calendar, Shuffle, QrCode, Gamepad2, User, GraduationCap, BookOpen, History, Loader2, Printer, ExternalLink
 } from "lucide-react";
 
 // ─── Login Screen ───
@@ -1094,7 +1094,7 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
   const [logFilterMonitorId, setLogFilterMonitorId] = useState<number | undefined>(undefined);
   const [logDateFrom, setLogDateFrom] = useState<string>("");
   const [logDateTo, setLogDateTo] = useState<string>("");
-  const [notasTypeFilter, setNotasTypeFilter] = useState<"kahoot" | "clinical_case" | undefined>(undefined);
+  const [notasTypeFilter, setNotasTypeFilter] = useState<"kahoot" | "clinical_case" | "seminario" | undefined>(undefined);
   const [editingGradeId, setEditingGradeId] = useState<number | null>(null);
   const [editingGradeValue, setEditingGradeValue] = useState<number>(0);
   const [editingMaxGrade, setEditingMaxGrade] = useState<number>(10);
@@ -1123,8 +1123,12 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
   );
 
   const { data: adminGrades, refetch: refetchAdminGrades, isLoading: gradesLoading } = trpc.monitors.adminListActivityGrades.useQuery(
-    { teacherSessionToken: teacherToken || "", activityType: notasTypeFilter },
-    { enabled: !!teacherToken && activeTab === "notas" }
+    { teacherSessionToken: teacherToken || "", activityType: notasTypeFilter === "seminario" ? undefined : notasTypeFilter },
+    { enabled: !!teacherToken && activeTab === "notas" && notasTypeFilter !== "seminario" }
+  );
+  const { data: adminSeminarioGrades, refetch: refetchSeminarioGrades, isLoading: seminarioGradesLoading } = trpc.monitors.adminListSeminarioGrades.useQuery(
+    { teacherSessionToken: teacherToken || "" },
+    { enabled: !!teacherToken && activeTab === "notas" && (notasTypeFilter === "seminario" || notasTypeFilter === undefined) }
   );
   const adminUpsertGrade = trpc.monitors.adminUpsertActivityGrade.useMutation({
     onSuccess: () => { toast.success("Nota salva!"); setEditingGradeId(null); refetchAdminGrades(); },
@@ -1202,13 +1206,24 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
           </h2>
           <p className="text-slate-400 text-sm mt-1">Gerencie os monitores e acompanhe suas atividades</p>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-md font-medium transition-colors"
-        >
-          <UserPlus size={15} />
-          Novo Monitor
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/monitor"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 text-sm rounded-md font-medium transition-colors"
+          >
+            <ExternalLink size={14} />
+            Abrir Portal do Monitor
+          </a>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-md font-medium transition-colors"
+          >
+            <UserPlus size={15} />
+            Novo Monitor
+          </button>
+        </div>
       </div>
 
       {/* Tab Navigation */}
@@ -1623,12 +1638,13 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
               <label className="text-slate-400 text-xs">Tipo de atividade:</label>
               <select
                 value={notasTypeFilter ?? ""}
-                onChange={(e) => setNotasTypeFilter(e.target.value ? e.target.value as "kahoot" | "clinical_case" : undefined)}
+                onChange={(e) => setNotasTypeFilter(e.target.value ? e.target.value as "kahoot" | "clinical_case" | "seminario" : undefined)}
                 className="px-3 py-1.5 bg-slate-800 border border-slate-600 text-white text-sm rounded-md focus:outline-none"
               >
                 <option value="">Todos</option>
-                <option value="kahoot">Kahoot</option>
-                <option value="clinical_case">Casos Clínicos</option>
+                <option value="seminario">Seminário</option>
+                <option value="kahoot">Kahoot (legado)</option>
+                <option value="clinical_case">Caso Clínico (legado)</option>
               </select>
             </div>
             <button
@@ -1642,7 +1658,7 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
             )}
           </div>
 
-          {gradesLoading ? (
+          {notasTypeFilter !== "seminario" && (gradesLoading ? (
             <div className="flex items-center justify-center py-10 text-slate-400">
               <Loader2 size={20} className="animate-spin mr-2" /> Carregando notas...
             </div>
@@ -1684,7 +1700,7 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
                               ? "bg-purple-900/50 text-purple-300"
                               : "bg-teal-900/50 text-teal-300"
                           }`}>
-                            {g.activityType === "kahoot" ? "Kahoot" : "Caso Clínico"}
+                            {g.activityType === "kahoot" ? "Kahoot (legado)" : "Caso Clínico (legado)"}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-slate-200 font-medium max-w-[160px] truncate">{g.activityName}</td>
@@ -1779,6 +1795,62 @@ function MonitoresManager({ teacherToken }: { teacherToken: string | null }) {
                   })}
                 </tbody>
               </table>
+            </div>
+          ))}
+
+          {/* ─── Tabela de Seminário (pôster) — separada, só leitura ─── */}
+          {(notasTypeFilter === "seminario" || notasTypeFilter === undefined) && (
+            <div className={notasTypeFilter === undefined ? "pt-2" : ""}>
+              {notasTypeFilter === undefined && (
+                <h3 className="text-sm font-semibold text-indigo-300 mb-2 flex items-center gap-1.5">
+                  <FileText size={14} /> Seminário — Nota do Pôster
+                </h3>
+              )}
+              {seminarioGradesLoading ? (
+                <div className="flex items-center justify-center py-10 text-slate-400">
+                  <Loader2 size={20} className="animate-spin mr-2" /> Carregando notas de Seminário...
+                </div>
+              ) : !adminSeminarioGrades || adminSeminarioGrades.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">
+                  <FileText size={32} className="mx-auto mb-2 opacity-40" />
+                  <p>Nenhuma nota de pôster lançada ainda</p>
+                  <p className="text-xs mt-1">Lançadas pelo Portal do Monitor ou pelo painel de Seminário do professor</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-700">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-800/80 text-slate-400 text-xs uppercase tracking-wider">
+                        <th className="px-4 py-3 text-left">Grupo</th>
+                        <th className="px-4 py-3 text-center">Nota do Pôster</th>
+                        <th className="px-4 py-3 text-left">Lançado por</th>
+                        <th className="px-4 py-3 text-left">Quando</th>
+                        <th className="px-4 py-3 text-left">Obs.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/50">
+                      {adminSeminarioGrades.map((a: any) => {
+                        const nota = parseFloat(String(a.notaPoster));
+                        const color = nota >= 7 ? "#10b981" : nota >= 5 ? "#f59e0b" : "#ef4444";
+                        return (
+                          <tr key={a.id} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="px-4 py-2.5 text-slate-200 font-medium">{a.groupName}</td>
+                            <td className="px-4 py-2.5 text-center font-semibold" style={{ color }}>{nota.toFixed(1)}</td>
+                            <td className="px-4 py-2.5 text-slate-400 text-xs">{a.gradedByName ?? "—"}</td>
+                            <td className="px-4 py-2.5 text-slate-400 text-xs">
+                              {a.gradedAt ? new Date(a.gradedAt).toLocaleDateString("pt-BR") : "—"}
+                            </td>
+                            <td className="px-4 py-2.5 text-slate-400 text-xs max-w-[160px] truncate">{a.observacoes ?? "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-[11px] text-slate-500 mt-2">
+                Só leitura aqui. Para corrigir, use o Portal do Monitor (/monitor/notas) ou o painel de Seminário do professor.
+              </p>
             </div>
           )}
         </div>
