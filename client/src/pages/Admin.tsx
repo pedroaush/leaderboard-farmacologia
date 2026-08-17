@@ -423,31 +423,31 @@ function BulkXPManager({ password }: { password: string }) {
 }
 
 // ─── Activities Manager ───
-// Tabela de referência das atividades do semestre
+// Tabela de referência das atividades do semestre — simplificada para
+// refletir só as duas dinâmicas em uso: Casos Clínicos (liga de pontos
+// corridos) e Seminário (Pôster + Quiz). As atividades antigas (TBL, Escape
+// Room, Jigsaw Fase 1/2, Provas avulsas etc.) saíram daqui — não fazem mais
+// parte do modelo atual.
 const SEMESTER_ACTIVITIES_REF = [
-  { category: "Participação", name: "Participação em Aula", icon: "📚", maxPF: 5, description: "Presença ativa e contribuições em aula" },
-  { category: "Frequência", name: "Frequência Semanal", icon: "✅", maxPF: 2, description: "Presença registrada via QR Code" },
-  { category: "TBL", name: "TBL 1 — Farmacocinética 2", icon: "🧠", maxPF: 10, description: "Semana 2 — Metabolismo e Excreção" },
-  { category: "TBL", name: "TBL 2 — Boas Práticas de Prescrição", icon: "🧠", maxPF: 10, description: "Semana 4 — Prescrição Racional" },
-  { category: "TBL", name: "TBL 3 — Adrenérgicos", icon: "🧠", maxPF: 10, description: "Semana 9 — SNA Adrenérgico" },
-  { category: "TBL", name: "TBL 4 — AINEs e Corticoides", icon: "🧠", maxPF: 10, description: "Semana 11 — Anti-inflamatórios" },
-  { category: "Caso Clínico", name: "Caso Clínico 1 — Farmacodinâmica", icon: "🏥", maxPF: 8, description: "Semana 3 — Receptores e Mecanismos" },
-  { category: "Caso Clínico", name: "Caso Clínico 2 — SNA Colinergía", icon: "🏥", maxPF: 8, description: "Semana 5 — Transmissão Colinérgica" },
-  { category: "Caso Clínico", name: "Caso Clínico 3 — Anti-adrenérgicos", icon: "🏥", maxPF: 8, description: "Semana 10 — Bloqueadores Adrenérgicos" },
-  { category: "Caso Clínico", name: "Caso Clínico 4 — Anti-histamínicos", icon: "🏥", maxPF: 8, description: "Semana 13 — Receptores H1 e H2" },
-  { category: "Jigsaw", name: "Seminário Jigsaw — Fase 1 (Especialistas)", icon: "🧪", maxPF: 7, description: "Apresentação (0-5) + Participação (0-2)" },
-  { category: "Jigsaw", name: "Seminário Jigsaw — Fase 2 (Mosaico)", icon: "🧪", maxPF: 12, description: "Apresentação (0-5) + Participação (0-2) + Pares (0-5)" },
-  { category: "Jogo", name: "Jogo Semanal — Missões", icon: "🎮", maxPF: 5, description: "Missões semanais liberadas toda terça-feira" },
-  { category: "Escape Room", name: "Escape Room Farmacológico", icon: "🔓", maxPF: 15, description: "Semana 8 — Atividade em equipe" },
-  { category: "Prova", name: "Prova P1", icon: "📝", maxPF: 30, description: "Semana 8 — Farmacocinética até Colinergía" },
-  { category: "Prova", name: "Prova P2", icon: "📝", maxPF: 30, description: "Semana 15 — Adrenérgicos até Anti-histamínicos" },
-  { category: "Prova", name: "Prova Final", icon: "🏆", maxPF: 40, description: "Semana 17 — Conteúdo completo do semestre" },
+  {
+    category: "Caso Clínico",
+    name: "Casos Clínicos — Liga de Pontos Corridos",
+    icon: "🏥",
+    maxPF: 10,
+    description: "4 rodadas (CS1–CS4), vitória=3/empate=1/derrota=0. Nota final vem da colocação na classificação geral (1º=10, cai 0,5 por posição).",
+  },
+  {
+    category: "Seminário",
+    name: "Seminário — Pôster + Quiz",
+    icon: "🧩",
+    maxPF: 10,
+    description: "Fase 1: grupo apresenta pôster e elabora 5 perguntas (nota por checklist). Fase 2: turma responde individualmente. Nota = 50% pôster (grupo) + 50% desempenho individual.",
+  },
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  "Participação": "#10b981", "Frequência": "#06b6d4", "TBL": "#6366f1",
-  "Caso Clínico": "#f59e0b", "Jigsaw": "#a855f7", "Jogo": "#ec4899",
-  "Escape Room": "#f97316", "Prova": "#ef4444",
+  "Caso Clínico": "#f59e0b",
+  "Seminário": "#a855f7",
 };
 
 function ActivitiesManager({ password }: { password: string }) {

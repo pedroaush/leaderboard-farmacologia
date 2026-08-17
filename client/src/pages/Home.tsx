@@ -687,6 +687,21 @@ export default function Home() {
                 </motion.div>
               </Link>
 
+              {/* Materiais */}
+              {/* TODO Pedro: confirme a rota real da página de Materiais (Materiais.tsx) e ajuste o href abaixo se for diferente de "/materiais" */}
+              <Link href="/materiais">
+                <motion.div
+                  className="flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-xl cursor-pointer"
+                  style={{ backgroundColor: ORANGE + "15", color: ORANGE, border: `1px solid ${ORANGE}35` }}
+                  whileHover={{ scale: 1.06, y: -3, backgroundColor: ORANGE + "25", boxShadow: `0 6px 20px ${ORANGE}30` }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                >
+                  <BookOpen className="w-6 h-6 sm:w-7 sm:h-7" />
+                  <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Materiais</span>
+                </motion.div>
+              </Link>
+
               {/* Presença */}
               <Link href="/attendance/check-in" className="relative">
                 <motion.div
@@ -1154,81 +1169,26 @@ export default function Home() {
               <div className="grid gap-4">
                 {[
                   {
-                    title: "TBL (Team-Based Learning)",
-                    icon: "🧠",
-                    rules: [
-                      "Prova individual (iRAT) seguida de prova em equipe (tRAT)",
-                      "Pontuação individual + pontuação da equipe",
-                      "Recurso com argumentação baseada em evidências",
-                      "Aplicação de conceitos em casos clínicos",
-                    ],
-                    pf: "Até 3.0 PF por sessão",
-                  },
-                  {
-                    title: "Seminário Jigsaw",
-                    icon: "🧩",
-                    rules: [
-                      "Cada membro da equipe estuda um tópico específico",
-                      "Formação de grupos de especialistas para discussão",
-                      "Retorno à equipe original para ensinar o conteúdo",
-                      "Avaliação individual e coletiva do aprendizado",
-                    ],
-                    pf: "Até 2.0 PF por sessão",
-                  },
-                  {
-                    title: "Casos Clínicos",
+                    title: "Casos Clínicos — Liga de Pontos Corridos",
                     icon: "🏥",
                     rules: [
-                      "Análise de caso clínico real integrado com Semiologia, Patologia e Microbiologia",
-                      "Discussão em equipe com identificação de fármacos e mecanismos",
-                      "Apresentação da resolução para a turma",
-                      "Avaliação por rubrica: raciocínio clínico + farmacologia",
+                      "10 grupos disputam 4 rodadas (CS1 a CS4) — todo mundo joga até o fim, sem eliminação",
+                      "Cada confronto: vitória = 3 pontos, empate = 1 ponto, derrota = 0",
+                      "Ao final das 4 rodadas, a posição na classificação geral vira a nota de todos do grupo",
+                      "1º lugar = nota 10; a nota cai 0,5 a cada posição (2º = 9,5, 3º = 9,0...)",
                     ],
-                    pf: "Até 2.5 PF por caso",
+                    pf: "Nota 0–10 por posição final",
                   },
                   {
-                    title: "Escape Room Farmacológico",
-                    icon: "🔓",
+                    title: "Seminário — Pôster + Quiz",
+                    icon: "🧩",
                     rules: [
-                      "Desafios em equipe com enigmas farmacológicos",
-                      "Tempo limitado para resolver todos os desafios",
-                      "Pontuação baseada em acertos e tempo",
-                      "Bônus para equipes que completarem todos os desafios",
+                      "Fase 1: o grupo apresenta um artigo em pôster e elabora 5 perguntas com gabarito",
+                      "O professor revisa e aprova as perguntas antes de liberar para a turma",
+                      "Fase 2: turma inteira responde individualmente, numa janela de tempo, com alternativas embaralhadas por aluno",
+                      "Nota final = 50% nota do pôster (do grupo) + 50% desempenho individual respondendo",
                     ],
-                    pf: "Até 2.0 PF por sessão",
-                  },
-                  {
-                    title: "BYOD (Bring Your Own Device)",
-                    icon: "📱",
-                    rules: [
-                      "Atividades interativas usando dispositivos pessoais",
-                      "Quiz em tempo real com plataformas digitais",
-                      "Pontuação individual por acerto e velocidade",
-                      "Ranking ao vivo durante a atividade",
-                    ],
-                    pf: "Até 1.5 PF por sessão",
-                  },
-                  {
-                    title: "Participação em Aula",
-                    icon: "✨",
-                    rules: [
-                      "Contribuições relevantes durante discussões",
-                      "Perguntas pertinentes ao conteúdo",
-                      "Colaboração ativa com colegas",
-                      "Avaliada pelo professor a cada aula",
-                    ],
-                    pf: "Até 0.5 PF por aula",
-                  },
-                  {
-                    title: "Provas (P1 e P2)",
-                    icon: "📝",
-                    rules: [
-                      "P1: Conteúdo até Colinérgicos, Bloqueadores Neuromusculares e 3 primeiros Jigsaw",
-                      "P2: Conteúdo restante do semestre",
-                      "Questões objetivas e discursivas",
-                      "Pontuação individual convertida em PF",
-                    ],
-                    pf: "Até 10.0 PF por prova",
+                    pf: "Nota 0–10, metade grupo + metade individual",
                   },
                 ].map((rule, idx) => (
                   <motion.div
