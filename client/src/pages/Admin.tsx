@@ -2492,25 +2492,9 @@ function MaterialsManager({ password }: { password: string }) {
             placeholder="Descrição ou comentário..."
           />
 
-          {materialType === "file" && fileInputMode === "upload" && (
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-2 px-4 py-2 rounded-md bg-secondary border border-border text-foreground text-sm cursor-pointer hover:bg-secondary/80">
-                <Paperclip size={14} />
-                {selectedFile ? selectedFile.name : "Selecionar arquivo..."}
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={e => setSelectedFile(e.target.files?.[0] || null)}
-                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.mp4,.mp3,.zip"
-                />
-              </label>
-              {selectedFile && (
-                <span className="text-xs text-muted-foreground">
-                  {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
-                </span>
-              )}
-            </div>
-          )}
+          {/* O seletor de arquivo fica só na FileDropZone acima — havia um
+              segundo botão "Selecionar arquivo..." aqui, redundante, que
+              setava o mesmo estado de forma independente e só confundia. */}
 
           {materialType === "link" && (
             <input

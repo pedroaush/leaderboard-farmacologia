@@ -82,6 +82,11 @@ export function FileDropZone({
       setSelectedFiles(newFiles);
       onFilesSelected(newFiles);
     }
+    // Reseta o valor do input — sem isso, selecionar o MESMO arquivo de novo
+    // (ex.: depois de remover e tentar de novo) não dispara onChange, porque
+    // o navegador só considera "mudança" quando o value é diferente do
+    // anterior. Isso fazia parecer que o clique "não fazia nada".
+    e.target.value = "";
   };
 
   const handleRemoveFile = (index: number) => {
@@ -169,7 +174,7 @@ export function FileDropZone({
                   </div>
                 </div>
                 <button
-                  onClick={() => handleRemoveFile(idx)}
+                  onClick={(e) => { e.stopPropagation(); handleRemoveFile(idx); }}
                   className="p-1 rounded hover:bg-destructive/20 text-destructive shrink-0"
                   title="Remover arquivo"
                 >
