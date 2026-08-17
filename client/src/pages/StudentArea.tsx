@@ -5,7 +5,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import StudentNavBar from "@/components/StudentNavBar";
 import StudentNotificationBanner from "@/components/StudentNotificationBanner";
 import { useStudentAuth } from "@/pages/StudentLogin";
-import { useAudioContext } from "@/_core/contexts/AudioContext"; // C:\Users\pedro\Documents\Plataforma Conexao\GitHub\leaderboard-farmacologia\client\src\pages\StudentArea.tsx
+import { useAudioContext } from "@/contexts/AudioContext";
 import {
   ArrowLeft, AlertCircle, Lock, Calendar, QrCode,
   BarChart3, BookOpen, Gamepad2, Target, Users,
