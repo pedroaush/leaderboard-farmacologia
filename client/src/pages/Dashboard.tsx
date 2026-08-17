@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ArrowLeft, Trophy, Award, MapPin, TrendingUp, Users } from "lucide-react";
+import { ArrowLeft, Trophy, Award, MapPin, TrendingUp, Users, Shield } from "lucide-react";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -53,9 +53,35 @@ export default function Dashboard() {
     }
   }, []);
   
-  const { data: stats, isLoading: statsLoading } = trpc.studentDashboard.getMyStats.useQuery({ sessionToken }, { enabled: !!sessionToken });
-  const { data: evolution, isLoading: evolutionLoading } = trpc.studentDashboard.getEvolution.useQuery({ sessionToken }, { enabled: !!sessionToken });
-  const { data: badges, isLoading: badgesLoading } = trpc.studentDashboard.getBadges.useQuery({ sessionToken }, { enabled: !!sessionToken });
+  const { data: stats, isLoading: statsLoading } = trpc.studentDashboard.getMyStats.useQuery({ sessionToken }, { enabled: !!sessionToken && !isAdmin });
+  const { data: evolution, isLoading: evolutionLoading } = trpc.studentDashboard.getEvolution.useQuery({ sessionToken }, { enabled: !!sessionToken && !isAdmin });
+  const { data: badges, isLoading: badgesLoading } = trpc.studentDashboard.getBadges.useQuery({ sessionToken }, { enabled: !!sessionToken && !isAdmin });
+
+  // Esta tela mostra o desempenho de UM aluno específico — não faz sentido
+  // pra um admin, que não é aluno de nenhuma turma. Checado ANTES do loading
+  // porque as consultas de aluno nem disparam quando isAdmin=true (ficariam
+  // "carregando" pra sempre se checássemos depois).
+  if (isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: DARK_BG }}>
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: ORANGE + "20" }}>
+            <Shield size={28} style={{ color: ORANGE }} />
+          </div>
+          <h1 className="text-xl font-bold text-white mb-2">Tela exclusiva para alunos</h1>
+          <p className="text-sm mb-6" style={{ color: "rgba(255,255,255,0.6)" }}>
+            O "Meu Dashboard" mostra o desempenho individual de um aluno — como admin, essa tela não se aplica a você.
+            Use o Painel Admin para acompanhar a turma inteira.
+          </p>
+          <Link href="/admin">
+            <span className="inline-flex items-center gap-2 px-6 py-3 rounded-lg text-white font-medium" style={{ backgroundColor: ORANGE }}>
+              Ir para o Painel Admin
+            </span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (statsLoading || evolutionLoading || badgesLoading) {
     return (
@@ -63,6 +89,32 @@ export default function Dashboard() {
         <div className="text-center">
           <div className="w-16 h-16 border-4 rounded-full animate-spin mx-auto mb-4" style={{ borderColor: ORANGE + "40", borderTopColor: ORANGE }} />
           <p style={{ color: "rgba(255,255,255,0.6)" }}>Carregando seu dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Esta tela mostra o desempenho de UM aluno específico — não faz sentido
+  // pra um admin, que não é aluno de nenhuma turma. Antes disso, o código já
+  // detectava isAdmin mas nunca usava — seguia direto pra tela de aluno com
+  // tudo zerado (era o que aparecia no print).
+  if (isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: DARK_BG }}>
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: ORANGE + "20" }}>
+            <Shield size={28} style={{ color: ORANGE }} />
+          </div>
+          <h1 className="text-xl font-bold text-white mb-2">Tela exclusiva para alunos</h1>
+          <p className="text-sm mb-6" style={{ color: "rgba(255,255,255,0.6)" }}>
+            O "Meu Dashboard" mostra o desempenho individual de um aluno — como admin, essa tela não se aplica a você.
+            Use o Painel Admin para acompanhar a turma inteira.
+          </p>
+          <Link href="/admin">
+            <span className="inline-flex items-center gap-2 px-6 py-3 rounded-lg text-white font-medium" style={{ backgroundColor: ORANGE }}>
+              Ir para o Painel Admin
+            </span>
+          </Link>
         </div>
       </div>
     );

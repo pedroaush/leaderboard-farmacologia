@@ -977,37 +977,63 @@ export default function Home() {
                 </select>
               </div>
 
-              {/* Teams List */}
-              <div className="space-y-3 mb-6">
-                {paginatedTeams.map((team, idx) => (
-                  <TeamCard key={team.id} team={team} rank={(currentPage - 1) * TEAMS_PER_PAGE + idx + 1} />
-                ))}
-              </div>
+              {/* Teams List — dividido por dinâmica (Casos Clínicos / Seminário) */}
+              {(() => {
+                const casosClinicos = rankedTeams.filter((t: any) => t.tipo === "casos_clinicos");
+                const seminario = rankedTeams.filter((t: any) => t.tipo === "seminario");
+                const outros = rankedTeams.filter((t: any) => t.tipo !== "casos_clinicos" && t.tipo !== "seminario");
 
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2">
-                  <button
-                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-                    style={{ backgroundColor: ORANGE }}
-                  >
-                    Anterior
-                  </button>
-                  <span className="text-white/60 text-sm">
-                    Página {currentPage} de {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-                    style={{ backgroundColor: ORANGE }}
-                  >
-                    Próxima
-                  </button>
-                </div>
-              )}
+                // Se não há tipo (ex.: equipes "de verdade" cadastradas manualmente,
+                // não os grupos virtuais), mostra tudo junto como antes.
+                if (casosClinicos.length === 0 && seminario.length === 0) {
+                  return (
+                    <div className="space-y-3 mb-6">
+                      {rankedTeams.map((team, idx) => (
+                        <TeamCard key={team.id} team={team} rank={idx + 1} />
+                      ))}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-8 mb-6">
+                    {casosClinicos.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                          <span>⚕️</span> Casos Clínicos ({casosClinicos.length})
+                        </h3>
+                        <div className="space-y-3">
+                          {casosClinicos.map((team, idx) => (
+                            <TeamCard key={team.id} team={team} rank={idx + 1} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {seminario.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                          <span>📋</span> Seminário ({seminario.length})
+                        </h3>
+                        <div className="space-y-3">
+                          {seminario.map((team, idx) => (
+                            <TeamCard key={team.id} team={team} rank={idx + 1} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {outros.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-bold text-white mb-3">Outras equipes ({outros.length})</h3>
+                        <div className="space-y-3">
+                          {outros.map((team, idx) => (
+                            <TeamCard key={team.id} team={team} rank={idx + 1} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </motion.div>
           )}
 

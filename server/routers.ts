@@ -2109,30 +2109,68 @@ if (!SUPER_ADMIN_SECRET) {
           .sort((a, b) => a.name.localeCompare(b.name)),
       }));
 
-      // If no teams, create virtual teams per class
+      // Se não há equipes reais cadastradas (tabela "teams" vazia — é o caso
+      // hoje), monta "equipes virtuais" a partir dos grupos REAIS em uso:
+      // Casos Clínicos (jigsawGroups) e Seminário (jigsawHomeGroups). Antes
+      // disso, o fallback criava 1 "equipe" por TURMA (7 turmas = "7
+      // Equipes" no card, sem relação nenhuma com os grupos de verdade).
       if (teamsResult.length === 0 && membersData.length > 0) {
-        const classColors = ["#F7941D", "#4CAF50", "#2196F3", "#9C27B0", "#FF5722", "#00BCD4", "#E91E63"];
-        const classMap = new Map(classesData.map(c => [c.id, c]));
-        const membersByClass = new Map<number | null, typeof membersData>();
-        for (const m of membersData) {
-          const key = m.classId ?? null;
-          if (!membersByClass.has(key)) membersByClass.set(key, []);
-          membersByClass.get(key)!.push(m);
-        }
-        let colorIdx = 0;
-        for (const [classId, classMembers] of membersByClass.entries()) {
-          if (!classId) continue; // Skip unassigned
-          const cls = classMap.get(classId);
-          teamsResult.push({
-            id: -classId,
-            name: cls?.name || `Turma ${classId}`,
-            emoji: "\uD83C\uDF93",
-            color: classColors[colorIdx++ % classColors.length],
-            classId,
-            createdAt: new Date(),
-            members: classMembers
+        const dbConn = await db.getDb();
+        if (dbConn) {
+          const { jigsawGroups: jgTable, jigsawMembers: jmTable, jigsawHomeGroups: jhgTable, jigsawHomeMembers: jhmTable, classes: classesTable } = await import("../drizzle/schema");
+          const memberById = new Map(membersData.map(m => [m.id, m]));
+          const classById = new Map(classesData.map(c => [c.id, c]));
+
+          const [ccGroupsRaw, ccMembersRaw, semGroupsRaw, semMembersRaw] = await Promise.all([
+            dbConn.select().from(jgTable),
+            dbConn.select().from(jmTable),
+            dbConn.select().from(jhgTable),
+            dbConn.select().from(jhmTable),
+          ]);
+
+          const casosClinicosColors = ["#F7941D", "#EF4444", "#F59E0B", "#DC2626", "#EA580C", "#D97706", "#B91C1C", "#C2410C", "#B45309", "#991B1B"];
+          const seminarioColors = ["#3B82F6", "#8B5CF6", "#06B6D4", "#6366F1", "#0EA5E9", "#7C3AED"];
+
+          ccGroupsRaw
+            .filter((g: any) => g.groupType === "clinical_case")
+            .forEach((g: any, idx: number) => {
+              const groupMemberIds = ccMembersRaw.filter((m: any) => m.jigsawGroupId === g.id).map((m: any) => m.memberId);
+              const membersOfGroup = groupMemberIds
+                .map((id: number) => memberById.get(id))
+                .filter((m): m is typeof membersData[number] => !!m)
+                .map(m => ({ ...m, xp: parseFloat(m.xp) }))
+                .sort((a, b) => a.name.localeCompare(b.name));
+              teamsResult.push({
+                id: -1000 - g.id, // faixa própria de IDs pra não colidir com nada
+                name: g.name,
+                emoji: "\u2695\uFE0F",
+                color: casosClinicosColors[idx % casosClinicosColors.length],
+                classId: g.classId,
+                className: classById.get(g.classId)?.name || null,
+                tipo: "casos_clinicos",
+                createdAt: new Date(),
+                members: membersOfGroup,
+              });
+            });
+
+          semGroupsRaw.forEach((g: any, idx: number) => {
+            const groupMemberIds = semMembersRaw.filter((m: any) => m.homeGroupId === g.id).map((m: any) => m.memberId);
+            const membersOfGroup = groupMemberIds
+              .map((id: number) => memberById.get(id))
+              .filter((m): m is typeof membersData[number] => !!m)
               .map(m => ({ ...m, xp: parseFloat(m.xp) }))
-              .sort((a, b) => parseFloat(b.xp as any) - parseFloat(a.xp as any)),
+              .sort((a, b) => a.name.localeCompare(b.name));
+            teamsResult.push({
+              id: -2000 - g.id,
+              name: g.name,
+              emoji: "\uD83D\uDCCB",
+              color: seminarioColors[idx % seminarioColors.length],
+              classId: g.classId,
+              className: classById.get(g.classId)?.name || null,
+              tipo: "seminario",
+              createdAt: new Date(),
+              members: membersOfGroup,
+            });
           });
         }
       }
