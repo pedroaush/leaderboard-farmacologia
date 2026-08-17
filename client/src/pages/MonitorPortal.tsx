@@ -28,14 +28,6 @@ interface MonitorInfo {
 // Monitor feature cards
 const MONITOR_FEATURES = [
   {
-    icon: <Calendar size={28} />,
-    label: "Cronograma",
-    description: "Programação das aulas e atividades do semestre",
-    href: "/cronograma",
-    color: "#a855f7",
-    bg: "from-purple-500/20 to-purple-600/10",
-  },
-  {
     icon: <FileSpreadsheet size={28} />,
     label: "Planilha de Notas",
     description: "Casos Clínicos (automático) e nota do pôster do Seminário da sua turma",
@@ -50,14 +42,6 @@ const MONITOR_FEATURES = [
     href: "/monitor/turmas",
     color: "#6366f1",
     bg: "from-indigo-500/20 to-indigo-600/10",
-  },
-  {
-    icon: <Shield size={28} />,
-    label: "Equipes",
-    description: "Grupos, integrantes e classificação de Casos Clínicos",
-    href: "/monitor/equipes",
-    color: "#10b981",
-    bg: "from-emerald-500/20 to-emerald-600/10",
   },
   {
     icon: <Presentation size={28} />,
@@ -487,8 +471,9 @@ function MonitorDashboard({ monitor, sessionToken, onLogout }: {
       return { ...f, href: `/monitor/notas?classId=${assignedClass.id}` };
     }
     if (f.href === "/jogo") {
-      if (assignedClass?.id) return { ...f, href: `/jogo/${assignedClass.id}` };
-      if (hasMultipleClasses) return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver o jogo dela" };
+      // Sempre leva pra Turmas — de lá o monitor escolhe a turma e entra no
+      // jogo dela.
+      return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver o jogo dela" };
     }
     return f;
   });

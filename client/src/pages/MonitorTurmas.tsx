@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ArrowLeft, FlaskConical, Calendar, BookOpen, Search } from "lucide-react";
+import { ArrowLeft, FlaskConical, Calendar, BookOpen, Search, Gamepad2 } from "lucide-react";
 
 export default function MonitorTurmas() {
   const [search, setSearch] = useState("");
@@ -63,12 +63,18 @@ export default function MonitorTurmas() {
                     {c.course && <p className="text-xs text-muted-foreground truncate">{c.course}</p>}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
                   <Link
                     href={`/cronograma?classId=${c.id}`}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary text-foreground text-xs font-medium hover:bg-secondary/70 transition-colors"
                   >
                     <Calendar size={13} /> Cronograma
+                  </Link>
+                  <Link
+                    href={`/jogo/${c.id}`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary text-foreground text-xs font-medium hover:bg-secondary/70 transition-colors"
+                  >
+                    <Gamepad2 size={13} /> Jogo
                   </Link>
                   <Link
                     href={`/monitor/notas?classId=${c.id}`}
