@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../_core/trpc";
 import { getDb, getTeacherAccountBySessionToken } from "../db";
-import { studentAccounts, monitorActivityLogs, classes, jigsawHomeGroups, jigsawHomeMembers, jigsawExpertGroups, jigsawExpertMembers, members, groupActivityGrades, teacherGrades, monitoringCertificates } from "../../drizzle/schema";
+import { studentAccounts, monitorActivityLogs, classes, jigsawHomeGroups, jigsawHomeMembers, jigsawExpertGroups, jigsawExpertMembers, members, groupActivityGrades, teacherGrades, monitoringCertificates, jigsawGroups, jigsawMembers, jigsawScores, seminarioApresentacoes, jigsawIntegrationQuestions, jigsawIntegrationAnswers } from "../../drizzle/schema";
 import { eq, and, desc, gte, lte } from "drizzle-orm";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
@@ -502,6 +502,52 @@ export const monitorsRouter = router({
       return groupsWithMembers;
     }),
 
+  // ─── Casos Clínicos — Liga de Pontos Corridos ───
+  // A nota já é calculada automaticamente pela classificação do campeonato
+  // (fase3PF em jigsawScores, atualizado pelo router casosClinicos quando os
+  // resultados das rodadas são registrados). O monitor só VISUALIZA aqui —
+  // não lança nota manual, diferente do fluxo antigo de Kahoot.
+  listCasosClinicosGroups: publicProcedure
+    .input(z.object({
+      monitorSessionToken: z.string(),
+      classId: z.number(),
+    }))
+    .query(async ({ input }) => {
+      const monitor = await getMonitorByToken(input.monitorSessionToken);
+      if (!monitor) throw new Error("Acesso negado");
+      if (monitor.assignedClassId && monitor.assignedClassId !== input.classId) {
+        throw new Error("Acesso negado: você só pode acessar dados da sua turma.");
+      }
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+
+      const groups = await db
+        .select()
+        .from(jigsawGroups)
+        .where(and(eq(jigsawGroups.classId, input.classId), eq(jigsawGroups.groupType, "clinical_case")))
+        .orderBy(jigsawGroups.name);
+
+      const groupsWithMembers = await Promise.all(
+        groups.map(async (group) => {
+          const groupMembers = await db
+            .select({
+              memberId: jigsawMembers.memberId,
+              memberName: members.name,
+              fase3PF: jigsawScores.fase3PF,
+            })
+            .from(jigsawMembers)
+            .leftJoin(members, eq(jigsawMembers.memberId, members.id))
+            .leftJoin(jigsawScores, eq(jigsawScores.memberId, jigsawMembers.memberId))
+            .where(eq(jigsawMembers.jigsawGroupId, group.id));
+          const notaAtual = groupMembers.length > 0 && groupMembers[0].fase3PF !== null
+            ? Number(groupMembers[0].fase3PF)
+            : null;
+          return { ...group, membersList: groupMembers, notaAtual };
+        })
+      );
+      return groupsWithMembers;
+    }),
+
   // Listar grupos experts (grupos de seminário/Kahoot) de uma turma com seus membros
   listExpertGroups: publicProcedure
     .input(z.object({
@@ -665,6 +711,124 @@ export const monitorsRouter = router({
         ))
         .orderBy(groupActivityGrades.activityName);
       return results.map(r => r.activityName);
+    }),
+
+  // ─── Seminário — Pôster + Quiz ───
+  // Lista os grupos de Seminário (mesma tabela jigsawHomeGroups que
+  // listHomeGroups já usa) junto com a nota do pôster já lançada, se houver.
+  listSeminarioGroups: publicProcedure
+    .input(z.object({
+      monitorSessionToken: z.string(),
+      classId: z.number(),
+    }))
+    .query(async ({ input }) => {
+      const monitor = await getMonitorByToken(input.monitorSessionToken);
+      if (!monitor) throw new Error("Acesso negado");
+      if (monitor.assignedClassId && monitor.assignedClassId !== input.classId) {
+        throw new Error("Acesso negado: você só pode acessar dados da sua turma.");
+      }
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+
+      const groups = await db
+        .select()
+        .from(jigsawHomeGroups)
+        .where(eq(jigsawHomeGroups.classId, input.classId))
+        .orderBy(jigsawHomeGroups.name);
+
+      const groupsWithData = await Promise.all(
+        groups.map(async (group) => {
+          const groupMembers = await db
+            .select({ memberId: jigsawHomeMembers.memberId, memberName: members.name })
+            .from(jigsawHomeMembers)
+            .leftJoin(members, eq(jigsawHomeMembers.memberId, members.id))
+            .where(eq(jigsawHomeMembers.homeGroupId, group.id));
+
+          const apresentacao = await db.select().from(seminarioApresentacoes)
+            .where(eq(seminarioApresentacoes.groupId, group.id)).limit(1);
+
+          const questoesPendentes = await db.select().from(jigsawIntegrationQuestions)
+            .where(and(eq(jigsawIntegrationQuestions.authorGroupId, group.id), eq(jigsawIntegrationQuestions.status, "pending_review")));
+
+          return {
+            ...group,
+            membersList: groupMembers,
+            notaPoster: apresentacao.length > 0 ? Number(apresentacao[0].notaPoster) : null,
+            gradedByName: apresentacao.length > 0 ? apresentacao[0].gradedByName : null,
+            perguntasPendentes: questoesPendentes.length,
+          };
+        })
+      );
+      return groupsWithData;
+    }),
+
+  // Lança/atualiza a nota do pôster de um grupo de Seminário (checklist),
+  // igual o professor faz no AdminJigsawPanel — versão pro monitor, com
+  // autenticação e escopo de turma próprios do sistema de monitores.
+  lancarNotaPosterSeminario: publicProcedure
+    .input(z.object({
+      monitorSessionToken: z.string(),
+      classId: z.number(),
+      groupId: z.number(),
+      checklist: z.record(z.boolean()),
+      observacoes: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const monitor = await getMonitorByToken(input.monitorSessionToken);
+      if (!monitor) throw new Error("Acesso negado");
+      if (monitor.assignedClassId && monitor.assignedClassId !== input.classId) {
+        throw new Error("Acesso negado: você só pode lançar notas da sua turma.");
+      }
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const monitorName = monitor.displayName || monitor.email.split("@")[0];
+
+      const valores = Object.values(input.checklist);
+      if (!valores.length) throw new Error("Checklist vazio");
+      const positivos = valores.filter(Boolean).length;
+      const notaPoster = Math.round((positivos / valores.length) * 10 * 10) / 10;
+
+      const existing = await db.select().from(seminarioApresentacoes)
+        .where(and(eq(seminarioApresentacoes.classId, input.classId), eq(seminarioApresentacoes.groupId, input.groupId)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db.update(seminarioApresentacoes).set({
+          checklist: input.checklist, notaPoster: String(notaPoster),
+          gradedBy: monitor.id, gradedByName: `${monitorName} (monitor)`, gradedAt: new Date(), observacoes: input.observacoes,
+        }).where(eq(seminarioApresentacoes.id, existing[0].id));
+      } else {
+        await db.insert(seminarioApresentacoes).values({
+          classId: input.classId, groupId: input.groupId, checklist: input.checklist,
+          notaPoster: String(notaPoster), gradedBy: monitor.id, gradedByName: `${monitorName} (monitor)`, observacoes: input.observacoes,
+        });
+      }
+
+      // Recalcula a nota final de Seminário (grupo + individual) de cada
+      // membro do grupo — mesma fórmula usada em seminarioPoster.ts.
+      const membrosDoGrupo = await db.select().from(jigsawHomeMembers).where(eq(jigsawHomeMembers.homeGroupId, input.groupId));
+      for (const m of membrosDoGrupo) {
+        const questoesDaTurma = await db.select().from(jigsawIntegrationQuestions).where(eq(jigsawIntegrationQuestions.classId, input.classId));
+        const idsDaTurma = new Set(questoesDaTurma.map((q: any) => q.id));
+        const respostas = await db.select().from(jigsawIntegrationAnswers).where(eq(jigsawIntegrationAnswers.memberId, m.memberId));
+        const minhasRespostas = respostas.filter((r: any) => idsDaTurma.has(r.questionId));
+        const totalRespondidas = minhasRespostas.length;
+        const acertos = minhasRespostas.filter((r: any) => r.isCorrect === 1).length;
+        const notaIndividual = totalRespondidas > 0 ? (acertos / totalRespondidas) * 10 : 0;
+        const notaSeminario = Math.round(((notaPoster * 0.5) + (notaIndividual * 0.5)) * 10) / 10;
+
+        const existingScore = await db.select().from(jigsawScores).where(eq(jigsawScores.memberId, m.memberId)).limit(1);
+        if (existingScore.length > 0) {
+          await db.update(jigsawScores).set({ totalJigsawPF: String(notaSeminario.toFixed(2)) }).where(eq(jigsawScores.memberId, m.memberId));
+        } else {
+          await db.insert(jigsawScores).values({
+            classId: input.classId, memberId: m.memberId, totalPresentationScore: "0", totalParticipationScore: "0", totalPeerRating: "0",
+            fase1PF: "0", fase2PF: "0", fase3PF: "0", totalJigsawPF: String(notaSeminario.toFixed(2)),
+          });
+        }
+      }
+
+      return { success: true, notaPoster };
     }),
 
   // ─── Endpoints para o ADMIN visualizar e editar notas dos monitores ───

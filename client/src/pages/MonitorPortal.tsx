@@ -38,7 +38,7 @@ const MONITOR_FEATURES = [
   {
     icon: <FileSpreadsheet size={28} />,
     label: "Planilha de Notas",
-    description: "Lançar notas de Kahoot e Casos Clínicos da sua turma",
+    description: "Casos Clínicos (automático) e nota do pôster do Seminário da sua turma",
     href: "/monitor/notas",
     color: "#22c55e",
     bg: "from-green-500/20 to-green-600/10",
@@ -102,7 +102,7 @@ const MONITOR_FEATURES = [
   {
     icon: <Gamepad2 size={28} />,
     label: "Jogo",
-    description: "Acompanhar partidas e pontuações do Kahoot",
+    description: "Acompanhar progresso e pontuações do jogo da turma",
     href: "/jogo",
     color: "#f59e0b",
     bg: "from-amber-500/20 to-amber-600/10",
