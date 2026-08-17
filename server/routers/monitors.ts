@@ -478,8 +478,11 @@ export const monitorsRouter = router({
           .from(classes)
           .where(and(eq(classes.id, monitor.assignedClassId), eq(classes.isActive, 1)));
       }
-      // Sem turma vinculada: retorna lista vazia (não deve acontecer em produção)
-      return [];
+      // Sem turma vinculada: acesso a todas (caso do professor/admin acessando
+      // via bypass — assignedClassId null significa "sem restrição", não
+      // "nenhuma turma". Antes disso, esse caso devolvia [] e a Planilha de
+      // Notas parecia estar sem nenhuma turma pra admin/professor.
+      return db.select().from(classes).where(eq(classes.isActive, 1));
     }),
 
   // Listar grupos mosaico (fase 2 do Jigsaw) de uma turma com seus membros

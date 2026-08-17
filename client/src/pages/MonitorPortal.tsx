@@ -444,7 +444,12 @@ function MonitorDashboard({ monitor, sessionToken, onLogout }: {
     { monitorSessionToken: sessionToken },
     { enabled: !!sessionToken }
   );
-  const assignedClass = classesData?.[0];
+  // Só considera "minha turma" quando há exatamente 1 — é o caso de um
+  // monitor de verdade, vinculado a uma turma só. Quando são várias (admin
+  // ou professor, que agora tem acesso a todas), não faz sentido escolher
+  // uma ao acaso — os cards levam pra tela de Turmas em vez disso.
+  const assignedClass = classesData?.length === 1 ? classesData[0] : undefined;
+  const hasMultipleClasses = (classesData?.length ?? 0) > 1;
 
   const logoutMutation = trpc.monitors.logout.useMutation({
     onSuccess: () => {
@@ -469,11 +474,13 @@ function MonitorDashboard({ monitor, sessionToken, onLogout }: {
 
   // Ajustar href para filtrar pela turma do monitor
   const featuresWithClass = MONITOR_FEATURES.map((f) => {
-    if (f.href === "/cronograma" && assignedClass?.id) {
-      return { ...f, href: `/cronograma?classId=${assignedClass.id}` };
+    if (f.href === "/cronograma") {
+      if (assignedClass?.id) return { ...f, href: `/cronograma?classId=${assignedClass.id}` };
+      if (hasMultipleClasses) return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver o cronograma" };
     }
-    if (f.href === "/monitor/notas" && assignedClass?.id) {
-      return { ...f, href: `/monitor/notas?classId=${assignedClass.id}` };
+    if (f.href === "/monitor/notas") {
+      if (assignedClass?.id) return { ...f, href: `/monitor/notas?classId=${assignedClass.id}` };
+      if (hasMultipleClasses) return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver as notas" };
     }
     if (f.href === "/jogo" && assignedClass?.id) {
       return { ...f, href: `/jogo/${assignedClass.id}` };
