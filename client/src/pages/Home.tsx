@@ -688,7 +688,6 @@ export default function Home() {
               </Link>
 
               {/* Materiais */}
-              {/* TODO Pedro: confirme a rota real da página de Materiais (Materiais.tsx) e ajuste o href abaixo se for diferente de "/materiais" */}
               <Link href="/materiais">
                 <motion.div
                   className="flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-xl cursor-pointer"
@@ -699,6 +698,20 @@ export default function Home() {
                 >
                   <BookOpen className="w-6 h-6 sm:w-7 sm:h-7" />
                   <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Materiais</span>
+                </motion.div>
+              </Link>
+
+              {/* Arquivos de Casos Clínicos */}
+              <Link href="/casos-clinicos/arquivos">
+                <motion.div
+                  className="flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-xl cursor-pointer"
+                  style={{ backgroundColor: "rgba(52,211,153,0.15)", color: "#34d399", border: "1px solid rgba(52,211,153,0.35)" }}
+                  whileHover={{ scale: 1.06, y: -3, backgroundColor: "rgba(52,211,153,0.25)", boxShadow: "0 6px 20px rgba(52,211,153,0.3)" }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                >
+                  <FlaskConical className="w-6 h-6 sm:w-7 sm:h-7" />
+                  <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Casos Clínicos</span>
                 </motion.div>
               </Link>
 

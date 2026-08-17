@@ -56,6 +56,7 @@ import QRCodeProjector from "./pages/QRCodeProjector";
 import StudentActivities from "./pages/StudentActivities";
 import ChatLive from "./pages/ChatLive";
 import TeacherChat from "./pages/TeacherChat";
+import CasosClinicosArquivos from "./pages/CasosClinicosArquivos";
 import StudentStats from "./pages/StudentStats";
 import TeacherFeedback from "./pages/TeacherFeedback";
 import AttendanceReports from "./pages/AttendanceReports";
@@ -126,6 +127,7 @@ function Router() {
       <Route path={"/atividades"} component={StudentActivities} />
       <Route path={"/chat"} component={ChatLive} />
       <Route path={"/professor/chat"} component={TeacherChat} />
+      <Route path={"/casos-clinicos/arquivos"} component={CasosClinicosArquivos} />
       <Route path={"/estatisticas"} component={StudentStats} />
       <Route path={"/professor/avaliar-atividades"} component={TeacherFeedback} />
       <Route path={"/professor/relatorios-presenca"} component={AttendanceReports} />

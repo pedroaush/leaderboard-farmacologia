@@ -1,12 +1,13 @@
 import { router, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { eq, and } from "drizzle-orm";
-import { getDb, getTeacherAccountBySessionToken } from "../db";
+import { eq, and, desc } from "drizzle-orm";
+import { getDb, getTeacherAccountBySessionToken, getStudentAccountBySessionToken } from "../db";
 import {
   jigsawGroups,
   jigsawMembers,
   casosClinicosDisputas,
+  casosClinicosArquivos,
   jigsawScores,
   members,
   studentAccounts,
@@ -459,6 +460,74 @@ export const casosClinicosRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database not available");
       return calcularTabela(db, input.classId);
+    }),
+
+  // ─── PROFESSOR/MONITOR: publica um arquivo do caso (enunciado, gabarito ───
+  // ─── etc.) para a turma estudar. A turma só visualiza, não baixa. ───
+  publicarArquivo: publicProcedure
+    .input(z.object({
+      sessionToken: z.string(),
+      classId: z.number(),
+      rodada: z.number().min(1).max(TOTAL_RODADAS),
+      titulo: z.string().min(1).max(300),
+      fileName: z.string().min(1).max(300),
+      mimeType: z.enum(["application/pdf", "image/jpeg", "image/jpg", "image/png"]),
+      fileBase64: z.string().min(1).max(2_800_000), // ~2MB de arquivo real
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const quem = await autenticarProfessorOuMonitor(db, input.sessionToken, input.classId);
+
+      await db.insert(casosClinicosArquivos).values({
+        classId: input.classId, rodada: input.rodada, titulo: input.titulo,
+        fileName: input.fileName, mimeType: input.mimeType, fileBase64: input.fileBase64,
+        uploadedBy: quem.id, uploadedByName: quem.name,
+      });
+
+      return { success: true };
+    }),
+
+  // ─── ALUNO: lista os arquivos publicados da turma (sem o conteúdo, só ───
+  // ─── metadados — o conteúdo só vem quando o aluno abre um arquivo). ───
+  listarArquivos: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const aluno = await getStudentAccountBySessionToken(input.sessionToken);
+      if (!aluno) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+      const arquivos = await db.select({
+        id: casosClinicosArquivos.id,
+        rodada: casosClinicosArquivos.rodada,
+        titulo: casosClinicosArquivos.titulo,
+        fileName: casosClinicosArquivos.fileName,
+        mimeType: casosClinicosArquivos.mimeType,
+        uploadedByName: casosClinicosArquivos.uploadedByName,
+        createdAt: casosClinicosArquivos.createdAt,
+      }).from(casosClinicosArquivos)
+        .where(and(eq(casosClinicosArquivos.classId, input.classId), eq(casosClinicosArquivos.isActive, true)))
+        .orderBy(desc(casosClinicosArquivos.createdAt));
+
+      return arquivos;
+    }),
+
+  // ─── ALUNO: busca o conteúdo de UM arquivo, pra mostrar embutido na tela ───
+  // ─── (nunca em um link de download). ───
+  verArquivo: publicProcedure
+    .input(z.object({ sessionToken: z.string(), arquivoId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const aluno = await getStudentAccountBySessionToken(input.sessionToken);
+      if (!aluno) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+      const rows = await db.select().from(casosClinicosArquivos)
+        .where(and(eq(casosClinicosArquivos.id, input.arquivoId), eq(casosClinicosArquivos.isActive, true))).limit(1);
+      if (!rows.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo não encontrado" });
+
+      return { titulo: rows[0].titulo, mimeType: rows[0].mimeType, fileBase64: rows[0].fileBase64 };
     }),
 });
 
