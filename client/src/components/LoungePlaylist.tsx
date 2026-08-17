@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { useAudioContext } from "@/contexts/AudioContext";
-import { Music, Play, Pause, SkipForward, Volume2, Volume1 } from "lucide-react";
+import { Music, Play, Pause, SkipForward, Volume2, Volume1, VolumeX } from "lucide-react";
 
 interface Track {
   id: string;
@@ -41,12 +41,6 @@ export default function LoungePlaylist() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSilentMode, setIsSilentMode] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("audioSilentMode") === "true";
-    }
-    return false;
-  });
   const PLAYER_ID = "lounge-playlist";
 
   const currentTrack = LOUNGE_TRACKS[currentTrackIndex];
@@ -110,24 +104,23 @@ export default function LoungePlaylist() {
     };
   }, []);
 
-  // Auto-play on mount
+  // Auto-play on mount — SÓ se a música não estiver desligada globalmente.
+  // Antes disso, esse player tinha seu próprio "silent mode" independente e
+  // tocava de qualquer forma, ignorando o botão de mudo do resto da
+  // plataforma — essa era a causa real da música "impossível de parar".
   useEffect(() => {
+    if (audioContext.isMuted) return;
     if (audioRef.current && !isPlaying) {
       audioRef.current.src = currentTrack.url;
       audioRef.current.load();
-      // Try to autoplay with muted first (browser policy)
-      audioRef.current.muted = true;
-      audioRef.current.play().catch((err) => {
-        console.warn("Autoplay blocked (muted):", err);
-      }).then(() => {
-        // Unmute after successful play
-        if (audioRef.current) {
-          audioRef.current.muted = false;
-          setIsPlaying(true);
-        }
+      audioRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch((err) => {
+        console.warn("Autoplay bloqueado pelo navegador:", err);
       });
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioContext.isMuted]);
 
   // Update audio element when track changes
   useEffect(() => {
@@ -146,18 +139,19 @@ export default function LoungePlaylist() {
   // Update volume and save to localStorage
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = isSilentMode ? 0 : volume;
+      audioRef.current.volume = volume;
     }
     localStorage.setItem("audioVolume", volume.toString());
-  }, [volume, isSilentMode]);
+  }, [volume]);
 
-  // Sincronizar silent mode
+  // Se o mudo global for ligado enquanto a música está tocando, pausa —
+  // reage ao mesmo botão usado no resto da plataforma (StudentArea, Home).
   useEffect(() => {
-    localStorage.setItem("audioSilentMode", isSilentMode.toString());
-    if (isSilentMode && audioRef.current && !audioRef.current.paused) {
+    if (audioContext.isMuted && audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
+      setIsPlaying(false);
     }
-  }, [isSilentMode]);
+  }, [audioContext.isMuted]);
 
   const togglePlay = () => {
     if (audioRef.current) {
@@ -195,14 +189,14 @@ export default function LoungePlaylist() {
       {/* Playlist Toggle Button */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="mb-2 p-3 rounded-full shadow-lg transition-all hover:scale-110 animate-pulse"
+        className={`mb-2 p-3 rounded-full shadow-lg transition-all hover:scale-110 ${audioContext.isMuted ? "" : "animate-pulse"}`}
         style={{
-          backgroundColor: "#F7941D",
+          backgroundColor: audioContext.isMuted ? "rgba(255,255,255,0.15)" : "#F7941D",
           color: "#fff",
         }}
-        title="Playlist de Lounge"
+        title={audioContext.isMuted ? "Música desligada" : "Playlist de Lounge"}
       >
-        <Music size={24} />
+        {audioContext.isMuted ? <VolumeX size={24} /> : <Music size={24} />}
       </button>
 
       {/* Expanded Playlist */}
@@ -214,6 +208,19 @@ export default function LoungePlaylist() {
             border: "1px solid rgba(247, 148, 29, 0.3)",
           }}
         >
+          {/* Mudo global — mesmo interruptor usado no resto da plataforma */}
+          <button
+            onClick={audioContext.toggleMuted}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors"
+            style={{
+              backgroundColor: audioContext.isMuted ? "rgba(255,255,255,0.05)" : "rgba(247,148,29,0.15)",
+              color: audioContext.isMuted ? "rgba(255,255,255,0.5)" : "#F7941D",
+            }}
+          >
+            {audioContext.isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            {audioContext.isMuted ? "Música desligada — toque para ligar" : "Música ligada"}
+          </button>
+
           {/* Current Track Info */}
           <div>
             <h3 className="text-white font-bold text-lg">{currentTrack.title}</h3>
@@ -279,10 +286,9 @@ export default function LoungePlaylist() {
                 min="0"
                 max="1"
                 step="0.1"
-                value={isSilentMode ? 0 : volume}
+                value={volume}
                 onChange={(e) => setVolume(parseFloat(e.target.value))}
-                disabled={isSilentMode}
-                className="w-12 disabled:opacity-50"
+                className="w-12"
                 style={{
                   accentColor: "#F7941D",
                 }}
