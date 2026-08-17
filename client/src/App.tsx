@@ -55,6 +55,7 @@ import GameAchievements from "./pages/GameAchievements";
 import QRCodeProjector from "./pages/QRCodeProjector";
 import StudentActivities from "./pages/StudentActivities";
 import ChatLive from "./pages/ChatLive";
+import TeacherChat from "./pages/TeacherChat";
 import StudentStats from "./pages/StudentStats";
 import TeacherFeedback from "./pages/TeacherFeedback";
 import AttendanceReports from "./pages/AttendanceReports";
@@ -62,6 +63,7 @@ import ManualAttendance from "./pages/ManualAttendance";
 import AttendanceAlerts from "./pages/AttendanceAlerts";
 import MonitorPortal from "./pages/MonitorPortal";
 import MonitorGrades from "./pages/MonitorGrades";
+import MonitorTurmas from "./pages/MonitorTurmas";
 import MonitorCertificate from "./pages/MonitorCertificate";
 import ExamTools from "./pages/ExamTools";
 import ProfessorGrades from "./pages/ProfessorGrades";
@@ -123,6 +125,7 @@ function Router() {
       <Route path={"/cronograma"} component={Cronograma} />
       <Route path={"/atividades"} component={StudentActivities} />
       <Route path={"/chat"} component={ChatLive} />
+      <Route path={"/professor/chat"} component={TeacherChat} />
       <Route path={"/estatisticas"} component={StudentStats} />
       <Route path={"/professor/avaliar-atividades"} component={TeacherFeedback} />
       <Route path={"/professor/relatorios-presenca"} component={AttendanceReports} />
@@ -131,6 +134,7 @@ function Router() {
       <Route path={"/admin/monitores"} component={AdminMonitors} />
       <Route path={"/monitor"} component={MonitorPortal} />
       <Route path={"/monitor/notas"} component={MonitorGrades} />
+      <Route path={"/monitor/turmas"} component={MonitorTurmas} />
       <Route path={"/monitor/certificado"} component={MonitorCertificate} />
       <Route path={"/professor/ferramentas-prova"} component={ExamTools} />
       <Route path={"/prova-digital"} component={DigitalExam} />
