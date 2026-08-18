@@ -98,6 +98,14 @@ function DisputaCard({ disputa, sessionToken, onChanged }: { disputa: any; sessi
               </button>
             ))}
           </div>
+          <p className="text-[11px] text-muted-foreground mb-1 mt-2">Empate (pararam antes da 5ª pergunta):</p>
+          <button
+            onClick={() => lancar(2, 2, "empate")}
+            disabled={!!enviando}
+            className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-amber-500/15 text-amber-400 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+          >
+            {enviando === "empate" ? <Loader2 size={12} className="animate-spin" /> : "2×2 (empate)"}
+          </button>
         </div>
       )}
     </div>

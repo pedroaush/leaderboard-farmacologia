@@ -419,20 +419,24 @@ export const casosClinicosRouter = router({
 
         const quemRegistrou = await autenticarProfessorOuMonitor(db, input.sessionToken, d.classId);
 
-        // Formato "melhor de 5, primeiro a 3": o placar sempre tem um lado
-        // com exatamente 3 (quem venceu) e o outro com 0, 1 ou 2 — nunca
-        // empate, e nunca os dois times somando mais que 5.
+        // Formato "melhor de 5, primeiro a 3": o placar tem um lado com
+        // exatamente 3 (quem venceu) e o outro com 0, 1 ou 2 — OU empate
+        // 2x2, quando param antes de completar a 5ª pergunta.
         const maior = Math.max(input.grupoAAcertos, input.grupoBAcertos);
         const menor = Math.min(input.grupoAAcertos, input.grupoBAcertos);
-        if (maior !== 3 || menor > 2 || input.grupoAAcertos === input.grupoBAcertos) {
+        const ehEmpateValido = input.grupoAAcertos === 2 && input.grupoBAcertos === 2;
+        const ehVitoriaValida = maior === 3 && menor <= 2 && input.grupoAAcertos !== input.grupoBAcertos;
+        if (!ehVitoriaValida && !ehEmpateValido) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Placar inválido — só são aceitos os formatos 3x0, 3x1 ou 3x2 (melhor de 5, primeiro a 3 pontos).",
+            message: "Placar inválido — só são aceitos os formatos 3x0, 3x1, 3x2 (vitória) ou 2x2 (empate).",
           });
         }
 
         let pontosGrupoA: number, pontosGrupoB: number;
-        if (input.grupoAAcertos > input.grupoBAcertos) { pontosGrupoA = PONTOS_VITORIA; pontosGrupoB = PONTOS_DERROTA; }
+        if (ehEmpateValido) {
+          pontosGrupoA = PONTOS_EMPATE; pontosGrupoB = PONTOS_EMPATE;
+        } else if (input.grupoAAcertos > input.grupoBAcertos) { pontosGrupoA = PONTOS_VITORIA; pontosGrupoB = PONTOS_DERROTA; }
         else { pontosGrupoA = PONTOS_DERROTA; pontosGrupoB = PONTOS_VITORIA; }
 
         await db.update(casosClinicosDisputas).set({
@@ -460,6 +464,57 @@ export const casosClinicosRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database not available");
       return calcularTabela(db, input.classId);
+    }),
+
+  // ─── Todos os confrontos das 4 rodadas, com data (cruzando com o ───
+  // ─── cronograma) — pública, o aluno também pode ver. ───
+  getTodosConfrontos: publicProcedure
+    .input(z.object({ classId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+
+      const disputas = await db.select().from(casosClinicosDisputas)
+        .where(eq(casosClinicosDisputas.classId, input.classId));
+
+      const groupIds = [...new Set(disputas.flatMap((d: any) => [d.grupoAId, d.grupoBId]))];
+      const grupos = groupIds.length
+        ? await db.select().from(jigsawGroups)
+        : [];
+      const nomeGrupo = (id: number) => grupos.find((g: any) => g.id === id)?.name || `Grupo #${id}`;
+
+      // Cruza com o cronograma pra achar a data de cada rodada (procura por
+      // "CS{rodada}" no título das entradas do tipo "caso" dessa turma).
+      const { scheduleEntries } = await import("../../drizzle/schema");
+      const cronograma = await db.select().from(scheduleEntries)
+        .where(and(eq(scheduleEntries.classId, input.classId), eq(scheduleEntries.type, "caso")));
+      const dataPorRodada = new Map<number, string>();
+      for (const entry of cronograma) {
+        const match = (entry.title || "").match(/CS(\d)/i) || (entry.detail || "").match(/CS(\d)/i);
+        if (match) {
+          const rodadaNum = parseInt(match[1]);
+          if (entry.weekDate) dataPorRodada.set(rodadaNum, entry.weekDate);
+        }
+      }
+
+      const porRodada: Record<number, any[]> = {};
+      for (const d of disputas) {
+        if (!porRodada[d.rodada]) porRodada[d.rodada] = [];
+        porRodada[d.rodada].push({
+          id: d.id,
+          grupoANome: nomeGrupo(d.grupoAId),
+          grupoBNome: nomeGrupo(d.grupoBId),
+          status: d.status,
+          grupoAAcertos: d.grupoAAcertos,
+          grupoBAcertos: d.grupoBAcertos,
+        });
+      }
+
+      return Array.from({ length: TOTAL_RODADAS }, (_, i) => i + 1).map((rodada) => ({
+        rodada,
+        data: dataPorRodada.get(rodada) || null,
+        confrontos: porRodada[rodada] || [],
+      }));
     }),
 
   // ─── PROFESSOR/MONITOR: publica um arquivo do caso (enunciado, gabarito ───

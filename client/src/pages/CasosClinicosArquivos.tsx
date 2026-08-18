@@ -5,16 +5,92 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ArrowLeft, FileText, Loader2, X, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, X, Image as ImageIcon, Trophy, Calendar, Swords } from "lucide-react";
 import { useStudentAuth } from "@/pages/StudentLogin";
 
 const ORANGE = "#F7941D";
 const DARK_BG = "#0A1628";
 const CARD_BG = "#0D1B2A";
 
+function TabelaClassificacao({ classId }: { classId: number }) {
+  const { data: tabela = [], isLoading } = trpc.casosClinicos.getTabelaClassificacao.useQuery({ classId });
+  if (isLoading) return <div className="flex items-center justify-center py-6"><Loader2 size={16} className="animate-spin" style={{ color: ORANGE }} /></div>;
+  if (!tabela.length) return <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>Nenhum grupo encontrado.</p>;
+  return (
+    <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left" style={{ backgroundColor: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.5)" }}>
+            <th className="py-2 px-3">#</th>
+            <th className="py-2 px-3">Grupo</th>
+            <th className="py-2 px-3 text-center">Pts</th>
+            <th className="py-2 px-3 text-center">V</th>
+            <th className="py-2 px-3 text-center">E</th>
+            <th className="py-2 px-3 text-center">D</th>
+            <th className="py-2 px-3 text-center">J</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tabela.map((t: any, i: number) => (
+            <tr key={t.grupoId} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <td className="py-1.5 px-3" style={{ color: "rgba(255,255,255,0.4)" }}>{i + 1}º</td>
+              <td className="py-1.5 px-3 text-white font-medium">{t.nome}</td>
+              <td className="py-1.5 px-3 text-center font-mono font-bold text-white">{t.pontos}</td>
+              <td className="py-1.5 px-3 text-center text-emerald-400">{t.vitorias}</td>
+              <td className="py-1.5 px-3 text-center text-amber-400">{t.empates}</td>
+              <td className="py-1.5 px-3 text-center text-red-400">{t.derrotas}</td>
+              <td className="py-1.5 px-3 text-center" style={{ color: "rgba(255,255,255,0.4)" }}>{t.jogos}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Confrontos({ classId }: { classId: number }) {
+  const { data: rodadas, isLoading } = trpc.casosClinicos.getTodosConfrontos.useQuery({ classId });
+  if (isLoading) return <div className="flex items-center justify-center py-6"><Loader2 size={16} className="animate-spin" style={{ color: ORANGE }} /></div>;
+  if (!rodadas?.length) return <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>Calendário ainda não gerado.</p>;
+  return (
+    <div className="space-y-3">
+      {rodadas.map((r: any) => (
+        <div key={r.rodada} className="rounded-lg p-3" style={{ backgroundColor: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs font-bold" style={{ color: ORANGE }}>CS{r.rodada}</span>
+            {r.data && (
+              <span className="text-xs flex items-center gap-1" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <Calendar size={11} /> {r.data}
+              </span>
+            )}
+          </div>
+          {r.confrontos.length === 0 ? (
+            <p className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Sem confrontos definidos.</p>
+          ) : (
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {r.confrontos.map((c: any) => (
+                <div key={c.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded text-xs" style={{ backgroundColor: "rgba(255,255,255,0.03)" }}>
+                  <span className="text-white truncate">{c.grupoANome}</span>
+                  {c.status === "concluida" ? (
+                    <span className="font-mono font-bold shrink-0" style={{ color: ORANGE }}>{c.grupoAAcertos}×{c.grupoBAcertos}</span>
+                  ) : (
+                    <Swords size={12} className="shrink-0" style={{ color: "rgba(255,255,255,0.3)" }} />
+                  )}
+                  <span className="text-white truncate text-right">{c.grupoBNome}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function CasosClinicosArquivos() {
   const { student, sessionToken } = useStudentAuth();
   const [openId, setOpenId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"campeonato" | "arquivos">("campeonato");
 
   const classId = student?.classId;
 
@@ -54,6 +130,44 @@ export default function CasosClinicosArquivos() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6">
+        {/* Abas */}
+        <div className="flex gap-1 mb-5 p-1 rounded-xl" style={{ backgroundColor: CARD_BG, border: "1px solid rgba(255,255,255,0.08)" }}>
+          <button
+            onClick={() => setActiveTab("campeonato")}
+            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all"
+            style={activeTab === "campeonato" ? { backgroundColor: "rgba(247,148,29,0.15)", color: ORANGE } : { color: "rgba(255,255,255,0.5)" }}
+          >
+            <Trophy size={14} /> Campeonato
+          </button>
+          <button
+            onClick={() => setActiveTab("arquivos")}
+            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all"
+            style={activeTab === "arquivos" ? { backgroundColor: "rgba(247,148,29,0.15)", color: ORANGE } : { color: "rgba(255,255,255,0.5)" }}
+          >
+            <FileText size={14} /> Arquivos
+          </button>
+        </div>
+
+        {activeTab === "campeonato" && classId && (
+          <div className="space-y-6">
+            <div>
+              <p className="text-xs font-semibold text-white flex items-center gap-1.5 mb-2"><Trophy size={13} style={{ color: ORANGE }} /> Classificação</p>
+              <TabelaClassificacao classId={classId} />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-white flex items-center gap-1.5 mb-2"><Swords size={13} style={{ color: ORANGE }} /> Confrontos por rodada</p>
+              <Confrontos classId={classId} />
+            </div>
+          </div>
+        )}
+        {activeTab === "campeonato" && !classId && (
+          <p className="text-sm text-center py-10" style={{ color: "rgba(255,255,255,0.4)" }}>
+            Não conseguimos identificar sua turma. Fale com o professor ou monitor.
+          </p>
+        )}
+
+        {activeTab === "arquivos" && (
+          <>
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 size={24} className="animate-spin" style={{ color: ORANGE }} />
@@ -84,6 +198,8 @@ export default function CasosClinicosArquivos() {
               </button>
             ))}
           </div>
+        )}
+          </>
         )}
       </div>
 
