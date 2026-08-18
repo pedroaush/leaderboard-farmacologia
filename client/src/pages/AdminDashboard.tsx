@@ -143,6 +143,15 @@ export default function AdminDashboard() {
               <span className="hidden sm:inline">Painel Professor</span>
             </button>
             <button
+              onClick={() => window.location.href = "/monitor"}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105 text-sm"
+              style={{ backgroundColor: "rgba(167,139,250,0.15)", color: "#A78BFA", border: "1px solid rgba(167,139,250,0.3)" }}
+              title="Acessar Portal do Monitor"
+            >
+              <GraduationCap size={16} />
+              <span className="hidden sm:inline">Portal Monitor</span>
+            </button>
+            <button
               onClick={() => window.location.href = "/leaderboard"}
               className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105 text-sm"
               style={{ backgroundColor: `rgba(100,200,255,0.15)`, color: "#64C8FF", border: "1px solid rgba(100,200,255,0.3)" }}
