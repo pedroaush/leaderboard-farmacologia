@@ -34,7 +34,6 @@ import { ENV } from "./_core/env";
 import { seminarioPosterRouter } from "./routers/seminarioPoster";
 import { casosClinicosRouter } from "./routers/casosClinicos";
 
-
 // Helper: fire-and-forget notification (never blocks the main operation)
 function sendNotificationAsync(title: string, content: string) {
   notifyOwner({ title, content }).catch(err => console.warn("[Notification] Failed:", err));
@@ -4211,6 +4210,85 @@ if (!SUPER_ADMIN_SECRET) {
           }
         }
         return { success: true, updated, errors, total: accounts.length };
+      }),
+
+    // ─── Buscar conta(s) de aluno por nome (pra corrigir email digitado ───
+    // ─── errado no cadastro, sem precisar do Workbench). ───
+    buscarAlunoPorNome: publicProcedure
+      .input(z.object({
+        sessionToken: z.string().optional(),
+        password: z.string().optional(),
+        nome: z.string().min(2),
+      }))
+      .query(async ({ input }) => {
+        let authorized = false;
+        if (input.sessionToken) {
+          const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+          if (teacher && (teacher.role === "super_admin" || teacher.role === "coordenador")) authorized = true;
+        }
+        if (!authorized && input.password) {
+          authorized = await verifyAdminPassword(input.password);
+        }
+        if (!authorized) throw new Error("Não autorizado");
+
+        const [accounts, allMembers] = await Promise.all([
+          db.getAllStudentAccounts(),
+          db.getAllMembers(),
+        ]);
+        const buscaLower = input.nome.toLowerCase();
+        const membrosEncontrados = allMembers.filter((m: any) => (m.name || "").toLowerCase().includes(buscaLower));
+        const memberIds = new Set(membrosEncontrados.map((m: any) => m.id));
+
+        const contasEncontradas = accounts.filter((a: any) =>
+          (a.memberId && memberIds.has(a.memberId)) ||
+          (a.displayName || "").toLowerCase().includes(buscaLower)
+        );
+
+        return contasEncontradas.map((a: any) => {
+          const member = membrosEncontrados.find((m: any) => m.id === a.memberId);
+          return {
+            studentAccountId: a.id,
+            nome: member?.name || a.displayName || "(sem nome)",
+            email: a.email,
+            matricula: a.matricula,
+            accountType: a.accountType,
+            isActive: a.isActive,
+          };
+        });
+      }),
+
+    // ─── Corrigir o email de uma conta de aluno (erro de digitação no ───
+    // ─── cadastro, por exemplo). ───
+    corrigirEmailAluno: publicProcedure
+      .input(z.object({
+        sessionToken: z.string().optional(),
+        password: z.string().optional(),
+        studentAccountId: z.number(),
+        novoEmail: z.string().email(),
+      }))
+      .mutation(async ({ input }) => {
+        let authorized = false;
+        if (input.sessionToken) {
+          const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+          if (teacher && (teacher.role === "super_admin" || teacher.role === "coordenador")) authorized = true;
+        }
+        if (!authorized && input.password) {
+          authorized = await verifyAdminPassword(input.password);
+        }
+        if (!authorized) throw new Error("Não autorizado");
+
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database unavailable");
+        const { studentAccounts: studentAccountsTable } = await import("../../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+
+        // Confere se o novo email já não está em uso por outra conta
+        const existentes = await dbConn.select().from(studentAccountsTable).where(eq(studentAccountsTable.email, input.novoEmail));
+        const emColisao = existentes.find((a: any) => a.id !== input.studentAccountId);
+        if (emColisao) throw new Error(`Esse email já está em uso por outra conta (id ${emColisao.id}).`);
+
+        await dbConn.update(studentAccountsTable).set({ email: input.novoEmail }).where(eq(studentAccountsTable.id, input.studentAccountId));
+        return { success: true };
       }),
 
     // Admin: export attendance report data
