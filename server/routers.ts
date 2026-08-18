@@ -4186,10 +4186,17 @@ if (!SUPER_ADMIN_SECRET) {
 
     // Admin: reset ALL student passwords to their matricula
     resetAllPasswordsToMatricula: publicProcedure
-      .input(z.object({ password: z.string() }))
+      .input(z.object({ password: z.string().optional(), sessionToken: z.string().optional() }))
       .mutation(async ({ input }) => {
-        const valid = await verifyAdminPassword(input.password);
-        if (!valid) throw new Error("Não autorizado");
+        let authorized = false;
+        if (input.sessionToken) {
+          const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+          if (teacher && (teacher.role === "super_admin" || teacher.role === "coordenador")) authorized = true;
+        }
+        if (!authorized && input.password) {
+          authorized = await verifyAdminPassword(input.password);
+        }
+        if (!authorized) throw new Error("Não autorizado");
         const accounts = await db.getAllStudentAccounts();
         let updated = 0;
         let errors = 0;
