@@ -97,6 +97,12 @@ export default function Cronograma() {
     { retry: 1, staleTime: 60_000 }
   );
 
+  // Sem turma resolvida nenhuma (nem do aluno logado, nem da URL) — em vez de
+  // cair no cronograma estático antigo (2026.1, sempre desatualizado), pede
+  // pra escolher a turma. Acontece principalmente quando um admin/professor
+  // entra aqui sem estar "sendo" nenhum aluno específico.
+  const { data: allClassesForPicker } = trpc.classes.listAll.useQuery(undefined, { enabled: !classId });
+
   // Use DB data if available, otherwise fall back to static data
   type TimelineEntry = {
     weekLabel: string;
@@ -122,7 +128,8 @@ export default function Cronograma() {
         isGameWeekUnlocked: e.isGameWeekUnlocked ?? null,
         gameWeekNumber: e.gameWeekNumber ?? null,
       }))
-    : staticTimeline.map((e) => ({ ...e, isCurrentGameWeek: false, isGameWeekUnlocked: null, gameWeekNumber: null }));
+    : []; // turma sem cronograma cadastrado ainda — não mostra mais o
+           // cronograma estático de 2026.1 (ficava enganoso, parecendo real)
 
   // Find the index of the current game week in the full timeline
   const currentWeekIndex = timeline.findIndex(item => item.isCurrentGameWeek);
@@ -180,6 +187,47 @@ export default function Cronograma() {
     jigsaw: "#c084fc",
     prova: "#F7941D",
   };
+
+  // Sem turma resolvida — pede pra escolher, em vez de mostrar o cronograma
+  // estático desatualizado.
+  if (!classId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: "#0A1628" }}>
+        <div className="w-full max-w-md">
+          <button
+            onClick={() => window.history.back()}
+            className="flex items-center gap-2 text-sm mb-6 transition-colors"
+            style={{ color: "rgba(255,255,255,0.5)" }}
+          >
+            <ArrowLeft size={16} /> Voltar
+          </button>
+          <h1 className="text-xl font-bold text-white mb-1">Escolha a turma</h1>
+          <p className="text-sm mb-6" style={{ color: "rgba(255,255,255,0.5)" }}>
+            Selecione uma turma para ver o cronograma dela.
+          </p>
+          <div className="space-y-2">
+            {!allClassesForPicker ? (
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Carregando turmas...</p>
+            ) : allClassesForPicker.length === 0 ? (
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Nenhuma turma encontrada.</p>
+            ) : (
+              allClassesForPicker.map((c: any) => (
+                <a
+                  key={c.id}
+                  href={`/cronograma?classId=${c.id}`}
+                  className="block w-full text-left px-4 py-3 rounded-lg transition-colors hover:bg-white/10"
+                  style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  <span className="text-sm font-medium text-white">{c.name}</span>
+                  {c.course && <span className="text-xs block" style={{ color: "rgba(255,255,255,0.4)" }}>{c.course}</span>}
+                </a>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#0A1628" }}>
@@ -342,6 +390,20 @@ export default function Cronograma() {
               </button>
             ))}
           </motion.div>
+
+          {!isLoading && timeline.length === 0 && (
+            <motion.div
+              className="mb-8 p-6 rounded-xl border text-center"
+              style={{ backgroundColor: "rgba(255,255,255,0.03)", borderColor: "rgba(255,255,255,0.1)" }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <p className="text-sm font-medium text-white mb-1">Cronograma ainda não cadastrado para esta turma</p>
+              <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                O professor ainda não publicou as semanas dessa disciplina. Volte em breve.
+              </p>
+            </motion.div>
+          )}
 
           {/* Feriados Alert */}
           <motion.div

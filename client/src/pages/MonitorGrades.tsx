@@ -1,8 +1,10 @@
 /**
  * Monitor Grades — Planilha do Monitor
  *
- * Casos Clínicos: a nota vem automaticamente da classificação da liga de
- * pontos corridos (fase3PF) — o monitor só acompanha, não lança manual.
+ * Casos Clínicos: o monitor lança o resultado de cada confronto (3x0/3x1/3x2)
+ * depois que ele acontece presencialmente — a nota de cada grupo é calculada
+ * sozinha a partir da classificação. Também pode subir os arquivos do caso
+ * pra turma estudar (só visualizar, não baixar).
  * Seminário: o monitor lança a nota do pôster por checklist (mesma lógica
  * do painel do professor), aplicada a todos os integrantes do grupo.
  *
@@ -15,6 +17,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, BookOpen, FlaskConical, Users, Save, Loader2,
   ChevronDown, ChevronUp, RefreshCw, ClipboardCheck, FileText, Trophy,
+  Upload, Eye, Medal, Swords,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -28,6 +31,224 @@ const CRITERIOS_LABEL: Record<string, string> = {
   gabaritoCorreto: "O gabarito enviado está correto",
 };
 const CRITERIOS_PADRAO = Object.keys(CRITERIOS_LABEL);
+
+const RODADAS_CS = [1, 2, 3, 4];
+
+// ─── Card de uma disputa (confronto) dentro de uma rodada ───
+function DisputaCard({ disputa, sessionToken, onChanged }: { disputa: any; sessionToken: string; onChanged: () => void }) {
+  const [enviando, setEnviando] = useState<string | null>(null);
+  const registrar = trpc.casosClinicos.registrarResultado.useMutation({
+    onSuccess: () => { toast.success("Resultado registrado!"); onChanged(); },
+    onError: (e) => toast.error(e.message || "Erro ao registrar resultado"),
+    onSettled: () => setEnviando(null),
+  });
+
+  const jaConcluida = disputa.status === "concluida";
+  const placares = [
+    { label: "3×0", a: 3, b: 0 }, { label: "3×1", a: 3, b: 1 }, { label: "3×2", a: 3, b: 2 },
+  ];
+
+  const lancar = (grupoAAcertos: number, grupoBAcertos: number, key: string) => {
+    setEnviando(key);
+    registrar.mutate({ sessionToken, disputaId: disputa.id, grupoAAcertos, grupoBAcertos });
+  };
+
+  return (
+    <div className="rounded-xl border border-border p-4" style={{ backgroundColor: "oklch(0.195 0.03 264.052)" }}>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <span>{disputa.grupoANome}</span>
+          <Swords size={13} className="text-muted-foreground" />
+          <span>{disputa.grupoBNome}</span>
+        </div>
+        {jaConcluida && (
+          <span className="text-xs px-2 py-0.5 rounded-full font-mono font-bold bg-emerald-500/15 text-emerald-400">
+            {disputa.grupoAAcertos} × {disputa.grupoBAcertos}
+          </span>
+        )}
+      </div>
+
+      {jaConcluida ? (
+        <p className="text-[11px] text-muted-foreground">Registrado por {disputa.registradoPorNome}</p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground mb-1">Vitória de {disputa.grupoANome}:</p>
+          <div className="flex gap-2 flex-wrap">
+            {placares.map((p) => (
+              <button
+                key={`a-${p.label}`}
+                onClick={() => lancar(p.a, p.b, `a-${p.label}`)}
+                disabled={!!enviando}
+                className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-secondary text-foreground hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
+              >
+                {enviando === `a-${p.label}` ? <Loader2 size={12} className="animate-spin" /> : p.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground mb-1 mt-2">Vitória de {disputa.grupoBNome}:</p>
+          <div className="flex gap-2 flex-wrap">
+            {placares.map((p) => (
+              <button
+                key={`b-${p.label}`}
+                onClick={() => lancar(p.b, p.a, `b-${p.label}`)}
+                disabled={!!enviando}
+                className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-secondary text-foreground hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
+              >
+                {enviando === `b-${p.label}` ? <Loader2 size={12} className="animate-spin" /> : p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Tabela de classificação (ao vivo) ───
+function TabelaClassificacao({ classId }: { classId: number }) {
+  const { data: tabela = [], isLoading } = trpc.casosClinicos.getTabelaClassificacao.useQuery({ classId });
+
+  if (isLoading) return <div className="flex items-center justify-center py-6 text-muted-foreground"><Loader2 size={16} className="animate-spin" /></div>;
+  if (!tabela.length) return <p className="text-xs text-muted-foreground py-4">Nenhum grupo encontrado.</p>;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-muted-foreground border-b border-border">
+            <th className="py-1.5 pr-2">#</th>
+            <th className="py-1.5 pr-2">Grupo</th>
+            <th className="py-1.5 px-2 text-center">Pts</th>
+            <th className="py-1.5 px-2 text-center">V</th>
+            <th className="py-1.5 px-2 text-center">E</th>
+            <th className="py-1.5 px-2 text-center">D</th>
+            <th className="py-1.5 pl-2 text-center">J</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tabela.map((t: any, i: number) => (
+            <tr key={t.grupoId} className="border-b border-border/40">
+              <td className="py-1.5 pr-2 text-muted-foreground">{i + 1}º</td>
+              <td className="py-1.5 pr-2 text-foreground font-medium">{t.nome}</td>
+              <td className="py-1.5 px-2 text-center font-mono font-bold text-foreground">{t.pontos}</td>
+              <td className="py-1.5 px-2 text-center text-emerald-400">{t.vitorias}</td>
+              <td className="py-1.5 px-2 text-center text-amber-400">{t.empates}</td>
+              <td className="py-1.5 px-2 text-center text-red-400">{t.derrotas}</td>
+              <td className="py-1.5 pl-2 text-center text-muted-foreground">{t.jogos}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Upload de arquivo do Caso Clínico (visualização, não download) ───
+function UploadArquivoCaso({ sessionToken, classId, rodada, onChanged }: {
+  sessionToken: string; classId: number; rodada: number; onChanged: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [titulo, setTitulo] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  const upload = trpc.casosClinicos.publicarArquivo.useMutation({
+    onSuccess: () => { toast.success("Arquivo publicado para a turma!"); setFile(null); setTitulo(""); onChanged(); },
+    onError: (e) => toast.error(e.message || "Erro ao enviar arquivo"),
+    onSettled: () => setEnviando(false),
+  });
+
+  const handleUpload = async () => {
+    if (!file || !titulo.trim()) return;
+    setEnviando(true);
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(",")[1] || "");
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    upload.mutate({
+      sessionToken, classId, titulo: titulo.trim(), rodada,
+      fileName: file.name, mimeType: file.type as any, fileBase64: base64,
+    });
+  };
+
+  return (
+    <div className="rounded-xl border border-dashed border-border p-4 space-y-2" style={{ backgroundColor: "oklch(0.18 0.03 264.052)" }}>
+      <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><Upload size={13} /> Publicar arquivo do caso (CS{rodada})</p>
+      <p className="text-[11px] text-muted-foreground">A turma só consegue visualizar — não é possível baixar.</p>
+      <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Título (ex: Caso Clínico 1 — Enunciado)"
+        className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 text-foreground" />
+      <input type="file" accept="application/pdf,image/jpeg,image/png"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+        className="w-full text-xs text-muted-foreground" />
+      <button
+        onClick={handleUpload}
+        disabled={enviando || !file || !titulo.trim()}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+      >
+        {enviando ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+        Publicar
+      </button>
+    </div>
+  );
+}
+
+// ─── Seletor de rodada + confrontos daquela rodada + upload de arquivo ───
+function RodadaCasosClinicos({ sessionToken, classId }: { sessionToken: string; classId: number }) {
+  const [rodada, setRodada] = useState(1);
+  const [showUpload, setShowUpload] = useState(false);
+
+  const { data: disputas, isLoading, refetch } = trpc.casosClinicos.getDisputasDaRodada.useQuery(
+    { sessionToken, classId, rodada },
+    { enabled: !!sessionToken && !!classId }
+  );
+
+  return (
+    <div className="rounded-xl border border-border p-4 space-y-3" style={{ backgroundColor: "oklch(0.195 0.03 264.052)" }}>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs font-semibold text-foreground flex items-center gap-1.5"><Swords size={13} /> Confrontos por rodada</p>
+        <div className="flex gap-1">
+          {RODADAS_CS.map((r) => (
+            <button
+              key={r}
+              onClick={() => setRodada(r)}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                rodada === r ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              CS{r}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8 text-muted-foreground"><Loader2 size={16} className="animate-spin" /></div>
+      ) : !disputas?.length ? (
+        <p className="text-xs text-muted-foreground py-4">Nenhum confronto encontrado para essa rodada — o calendário pode ainda não ter sido gerado.</p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {disputas.map((d: any) => (
+            <DisputaCard key={d.id} disputa={d} sessionToken={sessionToken} onChanged={refetch} />
+          ))}
+        </div>
+      )}
+
+      <div className="pt-2 border-t border-border/50">
+        {showUpload ? (
+          <UploadArquivoCaso sessionToken={sessionToken} classId={classId} rodada={rodada} onChanged={() => setShowUpload(false)} />
+        ) : (
+          <button
+            onClick={() => setShowUpload(true)}
+            className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            <Upload size={13} /> Publicar arquivo do caso pra turma estudar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Card de um grupo de Casos Clínicos (leitura) ───
 function CasoClinicoCard({ group }: { group: any }) {
@@ -157,7 +378,9 @@ function SeminarioCard({ group, sessionToken, classId, onChanged }: {
 }
 
 export default function MonitorGrades() {
-  const [sessionToken, setSessionToken] = useState<string>(() => localStorage.getItem(MONITOR_SESSION_KEY) || "");
+  const [sessionToken, setSessionToken] = useState<string>(() =>
+    localStorage.getItem(MONITOR_SESSION_KEY) || localStorage.getItem("teacherSessionToken") || ""
+  );
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"casos_clinicos" | "seminario">("casos_clinicos");
 
@@ -318,23 +541,36 @@ export default function MonitorGrades() {
             </div>
 
             {activeTab === "casos_clinicos" && (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground mb-2">
-                  A nota de Casos Clínicos é calculada automaticamente pela classificação da liga de pontos corridos
-                  (atualizada pelo professor conforme os resultados das rodadas). Aqui você só acompanha.
+              <div className="space-y-5">
+                <p className="text-xs text-muted-foreground">
+                  Depois que a rodada acontece presencialmente, registre o placar de cada confronto abaixo — a nota de
+                  cada grupo é recalculada sozinha a partir da classificação.
                 </p>
-                {loadingCasos ? (
-                  <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
-                    <Loader2 size={18} className="animate-spin" /> Carregando grupos...
+
+                <RodadaCasosClinicos sessionToken={sessionToken} classId={selectedClassId!} />
+
+                <div className="rounded-xl border border-border p-4" style={{ backgroundColor: "oklch(0.195 0.03 264.052)" }}>
+                  <p className="text-xs font-semibold text-foreground flex items-center gap-1.5 mb-2"><Medal size={13} /> Classificação geral</p>
+                  <TabelaClassificacao classId={selectedClassId!} />
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-foreground flex items-center gap-1.5 mb-2"><Users size={13} /> Grupos</p>
+                  <div className="space-y-3">
+                    {loadingCasos ? (
+                      <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+                        <Loader2 size={18} className="animate-spin" /> Carregando grupos...
+                      </div>
+                    ) : !casosClinicosGroups?.length ? (
+                      <div className="text-center py-12">
+                        <FlaskConical size={32} className="mx-auto mb-3 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Nenhum grupo de Casos Clínicos encontrado para esta turma.</p>
+                      </div>
+                    ) : (
+                      casosClinicosGroups.map((g: any) => <CasoClinicoCard key={g.id} group={g} />)
+                    )}
                   </div>
-                ) : !casosClinicosGroups?.length ? (
-                  <div className="text-center py-12">
-                    <FlaskConical size={32} className="mx-auto mb-3 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Nenhum grupo de Casos Clínicos encontrado para esta turma.</p>
-                  </div>
-                ) : (
-                  casosClinicosGroups.map((g: any) => <CasoClinicoCard key={g.id} group={g} />)
-                )}
+                </div>
               </div>
             )}
 

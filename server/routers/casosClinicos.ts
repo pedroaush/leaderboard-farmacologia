@@ -1,15 +1,38 @@
 import { router, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { eq, and } from "drizzle-orm";
-import { getDb, getTeacherAccountBySessionToken } from "../db";
+import { eq, and, desc } from "drizzle-orm";
+import { getDb, getTeacherAccountBySessionToken, getStudentAccountBySessionToken } from "../db";
 import {
   jigsawGroups,
   jigsawMembers,
   casosClinicosDisputas,
+  casosClinicosArquivos,
   jigsawScores,
   members,
+  studentAccounts,
 } from "../../drizzle/schema";
+
+/**
+ * Autentica quem está chamando como professor OU monitor (o monitor precisa
+ * estar vinculado à mesma turma, salvo se for o bypass de admin/professor,
+ * que tem assignedClassId nulo = acesso a todas). Usado nas rotas que agora
+ * o monitor também pode acessar (ver disputas, registrar resultado).
+ */
+async function autenticarProfessorOuMonitor(db: any, sessionToken: string, classId: number): Promise<{ id: number; name: string }> {
+  const teacher = await getTeacherAccountBySessionToken(sessionToken);
+  if (teacher) return { id: teacher.id, name: teacher.name };
+
+  const monitorRows = await db.select().from(studentAccounts)
+    .where(and(eq(studentAccounts.sessionToken, sessionToken), eq(studentAccounts.accountType, "monitor"), eq(studentAccounts.isActive, 1)))
+    .limit(1);
+  const monitor = monitorRows[0];
+  if (!monitor) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+  if (monitor.assignedClassId && monitor.assignedClassId !== classId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode acessar dados da sua turma." });
+  }
+  return { id: monitor.id, name: `${monitor.displayName || monitor.email} (monitor)` };
+}
 
 /**
  * ============================================================================
@@ -360,8 +383,7 @@ export const casosClinicosRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
-      const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
-      if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      await autenticarProfessorOuMonitor(db, input.sessionToken, input.classId);
 
       const disputas = await db.select().from(casosClinicosDisputas)
         .where(and(eq(casosClinicosDisputas.classId, input.classId), eq(casosClinicosDisputas.rodada, input.rodada)));
@@ -390,22 +412,33 @@ export const casosClinicosRouter = router({
       try {
         const db = await getDb();
         if (!db) throw new Error("Database not available");
-        const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
-        if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
 
         const disputa = await db.select().from(casosClinicosDisputas).where(eq(casosClinicosDisputas.id, input.disputaId)).limit(1);
         if (!disputa.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Disputa não encontrada" });
         const d = disputa[0];
 
+        const quemRegistrou = await autenticarProfessorOuMonitor(db, input.sessionToken, d.classId);
+
+        // Formato "melhor de 5, primeiro a 3": o placar sempre tem um lado
+        // com exatamente 3 (quem venceu) e o outro com 0, 1 ou 2 — nunca
+        // empate, e nunca os dois times somando mais que 5.
+        const maior = Math.max(input.grupoAAcertos, input.grupoBAcertos);
+        const menor = Math.min(input.grupoAAcertos, input.grupoBAcertos);
+        if (maior !== 3 || menor > 2 || input.grupoAAcertos === input.grupoBAcertos) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Placar inválido — só são aceitos os formatos 3x0, 3x1 ou 3x2 (melhor de 5, primeiro a 3 pontos).",
+          });
+        }
+
         let pontosGrupoA: number, pontosGrupoB: number;
         if (input.grupoAAcertos > input.grupoBAcertos) { pontosGrupoA = PONTOS_VITORIA; pontosGrupoB = PONTOS_DERROTA; }
-        else if (input.grupoBAcertos > input.grupoAAcertos) { pontosGrupoA = PONTOS_DERROTA; pontosGrupoB = PONTOS_VITORIA; }
-        else { pontosGrupoA = PONTOS_EMPATE; pontosGrupoB = PONTOS_EMPATE; }
+        else { pontosGrupoA = PONTOS_DERROTA; pontosGrupoB = PONTOS_VITORIA; }
 
         await db.update(casosClinicosDisputas).set({
           grupoAAcertos: input.grupoAAcertos, grupoBAcertos: input.grupoBAcertos,
           pontosGrupoA, pontosGrupoB, status: "concluida",
-          registradoPor: teacher.id, registradoPorNome: teacher.name, registradoEm: new Date(),
+          registradoPor: quemRegistrou.id, registradoPorNome: quemRegistrou.name, registradoEm: new Date(),
         }).where(eq(casosClinicosDisputas.id, input.disputaId));
 
         await recalcularNotasCasosClinicos(db, d.classId);
@@ -427,6 +460,74 @@ export const casosClinicosRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database not available");
       return calcularTabela(db, input.classId);
+    }),
+
+  // ─── PROFESSOR/MONITOR: publica um arquivo do caso (enunciado, gabarito ───
+  // ─── etc.) para a turma estudar. A turma só visualiza, não baixa. ───
+  publicarArquivo: publicProcedure
+    .input(z.object({
+      sessionToken: z.string(),
+      classId: z.number(),
+      rodada: z.number().min(1).max(TOTAL_RODADAS),
+      titulo: z.string().min(1).max(300),
+      fileName: z.string().min(1).max(300),
+      mimeType: z.enum(["application/pdf", "image/jpeg", "image/jpg", "image/png"]),
+      fileBase64: z.string().min(1).max(2_800_000), // ~2MB de arquivo real
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const quem = await autenticarProfessorOuMonitor(db, input.sessionToken, input.classId);
+
+      await db.insert(casosClinicosArquivos).values({
+        classId: input.classId, rodada: input.rodada, titulo: input.titulo,
+        fileName: input.fileName, mimeType: input.mimeType, fileBase64: input.fileBase64,
+        uploadedBy: quem.id, uploadedByName: quem.name,
+      });
+
+      return { success: true };
+    }),
+
+  // ─── ALUNO: lista os arquivos publicados da turma (sem o conteúdo, só ───
+  // ─── metadados — o conteúdo só vem quando o aluno abre um arquivo). ───
+  listarArquivos: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const aluno = await getStudentAccountBySessionToken(input.sessionToken);
+      if (!aluno) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+      const arquivos = await db.select({
+        id: casosClinicosArquivos.id,
+        rodada: casosClinicosArquivos.rodada,
+        titulo: casosClinicosArquivos.titulo,
+        fileName: casosClinicosArquivos.fileName,
+        mimeType: casosClinicosArquivos.mimeType,
+        uploadedByName: casosClinicosArquivos.uploadedByName,
+        createdAt: casosClinicosArquivos.createdAt,
+      }).from(casosClinicosArquivos)
+        .where(and(eq(casosClinicosArquivos.classId, input.classId), eq(casosClinicosArquivos.isActive, true)))
+        .orderBy(desc(casosClinicosArquivos.createdAt));
+
+      return arquivos;
+    }),
+
+  // ─── ALUNO: busca o conteúdo de UM arquivo, pra mostrar embutido na tela ───
+  // ─── (nunca em um link de download). ───
+  verArquivo: publicProcedure
+    .input(z.object({ sessionToken: z.string(), arquivoId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const aluno = await getStudentAccountBySessionToken(input.sessionToken);
+      if (!aluno) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+      const rows = await db.select().from(casosClinicosArquivos)
+        .where(and(eq(casosClinicosArquivos.id, input.arquivoId), eq(casosClinicosArquivos.isActive, true))).limit(1);
+      if (!rows.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo não encontrado" });
+
+      return { titulo: rows[0].titulo, mimeType: rows[0].mimeType, fileBase64: rows[0].fileBase64 };
     }),
 });
 

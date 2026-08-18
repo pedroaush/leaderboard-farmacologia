@@ -4,7 +4,9 @@
  * FÓRMULA:
  *   Nota Provas   = (P1 + P2) / 2                          → peso 0,75
  *   Nota Atividades = média(Casos Clínicos, Jigsaw)         → peso 0,25
- *     - Caso Clínico 1-4: média dos 4 casos (0-10 cada)
+ *     - Casos Clínicos: nota única (0-10), calculada automaticamente pela
+ *       classificação da liga de pontos corridos (não é mais somada caso a
+ *       caso — os 4 casos individuais deixaram de ser avaliados assim).
  *     - Jigsaw Total (0-10)
  *   Média Final = (NotaProvas × 0,75) + (NotaAtividades × 0,25)
  *   Prova Final: Média Final < 6,0
@@ -26,7 +28,6 @@ import {
 type GradeField =
   | "p1" | "p2"
   | "kahoot_1" | "kahoot_2" | "kahoot_3" | "kahoot_4"
-  | "caso_1" | "caso_2" | "caso_3" | "caso_4"
   | "jigsaw_fase1" | "jigsaw_fase2" | "jigsaw_fase3" | "jigsaw_total";
 
 interface GradeRow {
@@ -74,8 +75,7 @@ const DEFAULT_WEIGHTS: WeightConfig = {
 const FIELD_TO_ACTIVITY: Record<GradeField, string> = {
   p1: "P1", p2: "P2",
   kahoot_1: "Kahoot 1", kahoot_2: "Kahoot 2", kahoot_3: "Kahoot 3", kahoot_4: "Kahoot 4",
-  caso_1: "Caso Clínico 1", caso_2: "Caso Clínico 2", caso_3: "Caso Clínico 3", caso_4: "Caso Clínico 4",
-  jigsaw_fase1: "Jigsaw F1", jigsaw_fase2: "Jigsaw F2", jigsaw_fase3: "Jigsaw F3", jigsaw_total: "Jigsaw Total",
+  jigsaw_fase1: "Jigsaw F1", jigsaw_fase2: "Jigsaw F2", jigsaw_fase3: "Casos Clínicos", jigsaw_total: "Jigsaw Total",
 };
 
 // ─── Helpers ───
@@ -100,10 +100,11 @@ function getFieldValue(row: GradeRow, field: GradeField): number | null {
   if (field === "jigsaw_fase2") return row.jigsawFase2;
   if (field === "jigsaw_fase3") return row.jigsawFase3;
   if (field === "jigsaw_total") return row.jigsawTotal;
-  // Kahoot / Caso Clínico: busca em teacherGrades primeiro, depois monitorGrades
+  // Kahoot: mantido só para exibição histórica — busca em teacherGrades
+  // primeiro, depois monitorGrades. Casos Clínicos não usa mais esse
+  // caminho (agora é sempre jigsawFase3, tratado acima).
   const actName = FIELD_TO_ACTIVITY[field];
-  const type = field.startsWith("kahoot") ? "kahoot" : "clinical_case";
-  const key = `${type}:::${actName}`;
+  const key = `kahoot:::${actName}`;
   const tv = row.teacherGrades[key];
   if (tv !== null && tv !== undefined) return tv;
   const mv = row.monitorGrades[key];
@@ -112,33 +113,32 @@ function getFieldValue(row: GradeRow, field: GradeField): number | null {
 }
 
 function calcNotaAtividades(row: GradeRow, localOverrides: Record<string, Record<GradeField, number | null>>): {
-  nota: number | null; mediaKahoots: number | null; mediaCasos: number | null; jigsawNota: number | null;
+  nota: number | null; mediaKahoots: number | null; notaCasosClinicos: number | null; jigsawNota: number | null;
 } {
   const override = localOverrides[row.memberId] || {};
   const get = (f: GradeField) => f in override ? override[f] : getFieldValue(row, f);
 
   const kahoots = (["kahoot_1", "kahoot_2", "kahoot_3", "kahoot_4"] as GradeField[])
     .map(f => get(f)).filter(v => v !== null) as number[];
-  const casos = (["caso_1", "caso_2", "caso_3", "caso_4"] as GradeField[])
-    .map(f => get(f)).filter(v => v !== null) as number[];
   const jigsawNota = get("jigsaw_total");
 
   // Kahoot mantido só para exibição (não usado na fórmula).
   const mediaKahoots = kahoots.length > 0 ? kahoots.reduce((s, v) => s + v, 0) / kahoots.length : null;
 
-  // Casos Clínicos: SOMA DIRETA dos 4 casos (cada um vale 0 a 2,5 por grupo,
-  // então a soma dos 4 já fica naturalmente entre 0 e 10) — não é mais média.
-  const mediaCasos = casos.length > 0 ? Math.min(10, casos.reduce((s, v) => s + v, 0)) : null;
+  // Casos Clínicos: nota única (0-10), calculada automaticamente pela
+  // classificação da liga de pontos corridos — não é mais soma dos 4 casos
+  // individuais lançados manualmente.
+  const notaCasosClinicos = get("jigsaw_fase3");
 
   // Nota de Trabalhos = (Seminários + Casos Clínicos) / 2. Se nenhum dos dois
   // estiver disponível ainda, fica null (sem nota lançada). Se só um estiver
   // disponível, o outro entra como 0 na soma (não é mais média entre "o que
   // existir" — é sempre dividido por 2, como especificado).
-  const nota = (jigsawNota === null && mediaCasos === null)
+  const nota = (jigsawNota === null && notaCasosClinicos === null)
     ? null
-    : ((jigsawNota ?? 0) + (mediaCasos ?? 0)) / 2;
+    : ((jigsawNota ?? 0) + (notaCasosClinicos ?? 0)) / 2;
 
-  return { nota, mediaKahoots, mediaCasos, jigsawNota };
+  return { nota, mediaKahoots, notaCasosClinicos, jigsawNota };
 }
 
 function calcFinalGrade(row: GradeRow, weights: WeightConfig, localOverrides: Record<string, Record<GradeField, number | null>>): number | null {
@@ -268,6 +268,15 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
   const ccGroups = (gradeSheet?.ccGroups ?? []) as GroupOption[];
   const seminarioGroups = (gradeSheet?.seminarioGroups ?? []) as GroupOption[];
 
+  // ─── Classificação de Casos Clínicos (pontuação do campeonato) ───
+  const [showClassificacao, setShowClassificacao] = useState(false);
+  const { data: classificacaoCC = [], isLoading: loadingClassificacao } = trpc.casosClinicos.getTabelaClassificacao.useQuery(
+    { classId: selectedClassId! },
+    { enabled: !!selectedClassId && showClassificacao }
+  );
+  /** Mesma fórmula do back-end (casosClinicos.ts): 1º=10, cai 0,5 por posição. */
+  const notaPorColocacao = (posicao: number) => Math.max(0, 10 - 0.5 * (posicao - 1));
+
   // ─── Lançamento em bloco por grupo (Casos Clínicos ou Seminário) ───
   const [showBulk, setShowBulk] = useState(false);
   const [bulkKind, setBulkKind] = useState<"cc" | "seminario">("cc");
@@ -367,8 +376,8 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
       "Nome", "Equipe",
       "P1", "P2", "Média Provas",
       "Kahoot 1", "Kahoot 2", "Kahoot 3", "Kahoot 4", "Média Kahoots",
-      "Caso Clínico 1", "Caso Clínico 2", "Caso Clínico 3", "Caso Clínico 4", "Média Casos",
-      "Jigsaw F1 /2", "Jigsaw F2 /5", "Jigsaw F3 /3", "Jigsaw Total /10",
+      "Casos Clínicos (nota final)",
+      "Jigsaw F1 /2", "Jigsaw F2 /5", "Jigsaw Total /10",
       "Nota Atividades", "Média Final", "Prova Final?"
     ];
     const rows = filteredRows.map(r => {
@@ -377,19 +386,16 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
       const p1 = g("p1"); const p2 = g("p2");
       const mediaProvas = p1 !== null && p2 !== null ? (p1 + p2) / 2 : p1 ?? p2;
       const ks = (["kahoot_1","kahoot_2","kahoot_3","kahoot_4"] as GradeField[]).map(f => g(f));
-      const cs = (["caso_1","caso_2","caso_3","caso_4"] as GradeField[]).map(f => g(f));
       const mediaKs = ks.filter(v => v !== null).length > 0 ? (ks.filter(v => v !== null) as number[]).reduce((s,v)=>s+v,0)/(ks.filter(v=>v!==null).length) : null;
-      const mediaCs = cs.filter(v => v !== null).length > 0 ? (cs.filter(v => v !== null) as number[]).reduce((s,v)=>s+v,0)/(cs.filter(v=>v!==null).length) : null;
-      const { nota: notaAtiv } = calcNotaAtividades(r, localOverrides);
+      const { nota: notaAtiv, notaCasosClinicos } = calcNotaAtividades(r, localOverrides);
       const media = calcFinalGrade(r, weights, localOverrides);
       return [
         r.memberName, `${r.teamEmoji} ${r.teamName}`,
         p1, p2, mediaProvas !== null ? parseFloat(mediaProvas.toFixed(2)) : null,
         ...ks,
         mediaKs !== null ? parseFloat(mediaKs.toFixed(2)) : null,
-        ...cs,
-        mediaCs !== null ? parseFloat(mediaCs.toFixed(2)) : null,
-        g("jigsaw_fase1"), g("jigsaw_fase2"), g("jigsaw_fase3"), g("jigsaw_total"),
+        notaCasosClinicos,
+        g("jigsaw_fase1"), g("jigsaw_fase2"), g("jigsaw_total"),
         notaAtiv !== null ? parseFloat(notaAtiv.toFixed(2)) : null,
         media !== null ? parseFloat(media.toFixed(2)) : null,
         media !== null ? (media < weights.minPassGrade ? "SIM" : "NÃO") : "",
@@ -469,6 +475,10 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
           <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">Clique em qualquer célula para editar</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => setShowClassificacao(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary border border-border text-xs text-foreground hover:bg-secondary/80 transition-colors">
+            <FileSpreadsheet size={13} /> Classificação Casos Clínicos
+          </button>
           <button onClick={() => setShowBulk(v => !v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary border border-border text-xs text-foreground hover:bg-secondary/80 transition-colors">
             <Users size={13} /> Lançar em bloco
@@ -544,13 +554,7 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
                 <select value={bulkField} onChange={e => setBulkField(e.target.value as GradeField)}
                   className="w-full px-2 py-1.5 rounded bg-secondary border border-border text-sm text-foreground">
                   {bulkKind === "cc" ? (
-                    <>
-                      <option value="jigsaw_fase3">Casos Clínicos (campeonato)</option>
-                      <option value="caso_1">Caso Clínico 1 (legado)</option>
-                      <option value="caso_2">Caso Clínico 2 (legado)</option>
-                      <option value="caso_3">Caso Clínico 3 (legado)</option>
-                      <option value="caso_4">Caso Clínico 4 (legado)</option>
-                    </>
+                    <option value="jigsaw_fase3">Casos Clínicos — nota final</option>
                   ) : (
                     <>
                       <option value="jigsaw_fase1">Seminário — Fase 1 (pôster)</option>
@@ -581,6 +585,66 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
                   </span>
                 )}
               </div>
+              {bulkKind === "cc" && (
+                <div className="col-span-2 sm:col-span-4">
+                  <p className="text-[11px] text-amber-400/80 flex items-start gap-1.5">
+                    <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                    A nota de Casos Clínicos normalmente é calculada sozinha pela classificação do campeonato. Um
+                    lançamento manual aqui é sobrescrito automaticamente se um novo resultado de rodada for registrado depois.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Classificação de Casos Clínicos */}
+      {showClassificacao && (
+        <div className="rounded-lg border border-border p-4 space-y-3" style={{ backgroundColor: "oklch(0.18 0.025 264)" }}>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <FileSpreadsheet size={14} className="text-orange-400" /> Classificação — Liga de Pontos Corridos
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Pontuação após as rodadas já disputadas (3 pts por vitória, 0 por derrota — empate não ocorre no formato
+            atual, melhor de 5). A coluna Nota é a mesma que já aparece na Planilha, calculada automaticamente.
+          </p>
+          {!selectedClassId ? (
+            <p className="text-xs text-muted-foreground">Selecione uma turma acima primeiro.</p>
+          ) : loadingClassificacao ? (
+            <div className="flex items-center justify-center py-6 text-muted-foreground"><Loader2 size={16} className="animate-spin" /></div>
+          ) : !classificacaoCC.length ? (
+            <p className="text-xs text-muted-foreground py-2">Nenhum grupo de Casos Clínicos encontrado para esta turma.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b border-border" style={{ backgroundColor: "oklch(0.22 0.035 264)" }}>
+                    <th className="py-2 px-3">#</th>
+                    <th className="py-2 px-3">Grupo</th>
+                    <th className="py-2 px-3 text-center">Pts</th>
+                    <th className="py-2 px-3 text-center">V</th>
+                    <th className="py-2 px-3 text-center">E</th>
+                    <th className="py-2 px-3 text-center">D</th>
+                    <th className="py-2 px-3 text-center">J</th>
+                    <th className="py-2 px-3 text-center text-orange-300">Nota</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classificacaoCC.map((t: any, i: number) => (
+                    <tr key={t.grupoId} className="border-b border-border/40">
+                      <td className="py-1.5 px-3 text-muted-foreground">{i + 1}º</td>
+                      <td className="py-1.5 px-3 text-foreground font-medium">{t.nome}</td>
+                      <td className="py-1.5 px-3 text-center font-mono font-bold text-foreground">{t.pontos}</td>
+                      <td className="py-1.5 px-3 text-center text-emerald-400">{t.vitorias}</td>
+                      <td className="py-1.5 px-3 text-center text-amber-400">{t.empates}</td>
+                      <td className="py-1.5 px-3 text-center text-red-400">{t.derrotas}</td>
+                      <td className="py-1.5 px-3 text-center text-muted-foreground">{t.jogos}</td>
+                      <td className="py-1.5 px-3 text-center font-mono font-bold text-orange-300">{notaPorColocacao(i + 1).toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -677,10 +741,10 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
                 <th colSpan={5} className={`${thBase} text-yellow-300 border-r`}>
                   Kahoots <span className="text-yellow-300/60 font-normal">(2,5 pts cada)</span>
                 </th>
-                <th colSpan={5} className={`${thBase} text-orange-300 border-r`}>
-                  Casos Clínicos <span className="text-orange-300/60 font-normal">(2,5 pts cada)</span>
+                <th className={`${thBase} text-orange-300 border-r`} rowSpan={2}>
+                  Casos<br />Clínicos<br /><span className="font-normal text-[10px] text-orange-300/60">(0-10)</span>
                 </th>
-                <th colSpan={4} className={`${thBase} text-purple-300 border-r`}>
+                <th colSpan={3} className={`${thBase} text-purple-300 border-r`}>
                   Jigsaw
                 </th>
                 <th className={`${thBase} text-violet-300 border-r`} rowSpan={2}>
@@ -706,13 +770,9 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
                 {/* Kahoots */}
                 {[1,2,3,4].map(n => <th key={n} className={`${thBase} text-yellow-200`}>K{n}</th>)}
                 <th className={`${thBase} text-yellow-300`}>Média</th>
-                {/* Casos */}
-                {[1,2,3,4].map(n => <th key={n} className={`${thBase} text-orange-200`}>CC{n}</th>)}
-                <th className={`${thBase} text-orange-300`}>Média</th>
                 {/* Jigsaw */}
                 <th className={`${thBase} text-purple-200 text-[10px]`}>F1 /2</th>
                 <th className={`${thBase} text-purple-200 text-[10px]`}>F2 /5</th>
-                <th className={`${thBase} text-purple-200 text-[10px]`}>F3 /3</th>
                 <th className={`${thBase} text-purple-300`}>Total</th>
               </tr>
             </thead>
@@ -723,12 +783,9 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
                 const p1 = g("p1"); const p2 = g("p2");
                 const mediaProvas = p1 !== null && p2 !== null ? (p1 + p2) / 2 : p1 ?? p2;
                 const ks = [g("kahoot_1"), g("kahoot_2"), g("kahoot_3"), g("kahoot_4")];
-                const cs = [g("caso_1"), g("caso_2"), g("caso_3"), g("caso_4")];
                 const validKs = ks.filter(v => v !== null) as number[];
-                const validCs = cs.filter(v => v !== null) as number[];
                 const mediaKs = validKs.length > 0 ? validKs.reduce((s,v)=>s+v,0)/validKs.length : null;
-                const mediaCs = validCs.length > 0 ? validCs.reduce((s,v)=>s+v,0)/validCs.length : null;
-                const { nota: notaAtiv } = calcNotaAtividades(row, localOverrides);
+                const { nota: notaAtiv, notaCasosClinicos } = calcNotaAtividades(row, localOverrides);
                 const media = calcFinalGrade(row, weights, localOverrides);
                 const needsFinal = media !== null && media < weights.minPassGrade;
                 const rowBg = idx % 2 === 0 ? "oklch(0.16 0.025 264)" : "oklch(0.175 0.028 264)";
@@ -763,20 +820,13 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
                     <td className="px-2 py-2 border-b border-r border-border text-center font-mono font-semibold">
                       <span className={gradeColor(mediaKs)}>{fmt(mediaKs)}</span>
                     </td>
-                    {/* Casos Clínicos */}
-                    {([1,2,3,4] as const).map(n => (
-                      <EditableCell key={n} {...cellProps} field={`caso_${n}` as GradeField} value={g(`caso_${n}` as GradeField)} onSaved={onSaved} />
-                    ))}
-                    {/* Média Casos */}
-                    <td className="px-2 py-2 border-b border-r border-border text-center font-mono font-semibold">
-                      <span className={gradeColor(mediaCs)}>{fmt(mediaCs)}</span>
-                    </td>
+                    {/* Casos Clínicos — nota única (mesmo campo jigsaw_fase3, calculado
+                        automaticamente pelo campeonato; editável manualmente se preciso) */}
+                    <EditableCell {...cellProps} field="jigsaw_fase3" value={notaCasosClinicos} onSaved={onSaved} />
                     {/* Jigsaw F1 */}
                     <EditableCell {...cellProps} field="jigsaw_fase1" value={g("jigsaw_fase1")} onSaved={onSaved} />
                     {/* Jigsaw F2 */}
                     <EditableCell {...cellProps} field="jigsaw_fase2" value={g("jigsaw_fase2")} onSaved={onSaved} />
-                    {/* Jigsaw F3 */}
-                    <EditableCell {...cellProps} field="jigsaw_fase3" value={g("jigsaw_fase3")} onSaved={onSaved} />
                     {/* Jigsaw Total */}
                     <EditableCell {...cellProps} field="jigsaw_total" value={g("jigsaw_total")} onSaved={onSaved} />
                     {/* Nota Atividades */}
@@ -817,7 +867,7 @@ export default function GradesSpreadsheet({ teacherToken }: { teacherToken: stri
         <div className="flex flex-wrap gap-4 text-[11px] text-muted-foreground pt-1">
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> P1/P2 = Provas (0–10) · peso {weights.pesoProvas}</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> Kahoot 1–4 = 2,5 pts cada</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /> Caso Clínico 1–4 = 2,5 pts cada</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /> Casos Clínicos = nota única (0-10), automática pelo campeonato</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-purple-400 inline-block" /> Jigsaw Total (0–10)</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-violet-400 inline-block" /> Nota Atividades = média(Kahoots, Casos, Jigsaw) · peso {weights.pesoAtividades}</span>
           <span className="flex items-center gap-1.5 text-primary">✏️ Clique em qualquer célula para editar — salva automaticamente</span>

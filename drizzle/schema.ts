@@ -2076,3 +2076,18 @@ export type InsertAttendanceJustification = typeof attendanceJustifications.$inf
  * drizzle. Rode `npx drizzle-kit generate` e confira a migration gerada
  * antes de aplicar, especialmente esse campo.
  */
+export const casosClinicosArquivos = mysqlTable("casosClinicosArquivos", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  rodada: int("rodada").notNull(), // 1-4 (CS1-CS4)
+  titulo: varchar("titulo", { length: 300 }).notNull(),
+  fileName: varchar("fileName", { length: 300 }).notNull(),
+  mimeType: varchar("mimeType", { length: 100 }).notNull(),
+  fileBase64: text("fileBase64", { length: "medium" }).notNull(),
+  uploadedBy: int("uploadedBy").notNull(), // teacherAccounts.id OU studentAccounts.id (monitor) — sem FK
+  uploadedByName: varchar("uploadedByName", { length: 200 }),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type CasoClinicoArquivo = typeof casosClinicosArquivos.$inferSelect;
+export type InsertCasoClinicoArquivo = typeof casosClinicosArquivos.$inferInsert;

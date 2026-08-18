@@ -28,14 +28,6 @@ interface MonitorInfo {
 // Monitor feature cards
 const MONITOR_FEATURES = [
   {
-    icon: <Calendar size={28} />,
-    label: "Cronograma",
-    description: "Programação das aulas e atividades do semestre",
-    href: "/cronograma",
-    color: "#a855f7",
-    bg: "from-purple-500/20 to-purple-600/10",
-  },
-  {
     icon: <FileSpreadsheet size={28} />,
     label: "Planilha de Notas",
     description: "Casos Clínicos (automático) e nota do pôster do Seminário da sua turma",
@@ -46,18 +38,10 @@ const MONITOR_FEATURES = [
   {
     icon: <Users size={28} />,
     label: "Turmas",
-    description: "Visualizar alunos e informações da sua turma",
-    href: "/turmas",
+    description: "Escolher uma turma para ver cronograma e notas",
+    href: "/monitor/turmas",
     color: "#6366f1",
     bg: "from-indigo-500/20 to-indigo-600/10",
-  },
-  {
-    icon: <Shield size={28} />,
-    label: "Equipes",
-    description: "Ver os grupos de Casos Clínicos e Seminário da sua turma",
-    href: "/monitor/notas",
-    color: "#10b981",
-    bg: "from-emerald-500/20 to-emerald-600/10",
   },
   {
     icon: <Presentation size={28} />,
@@ -444,7 +428,12 @@ function MonitorDashboard({ monitor, sessionToken, onLogout }: {
     { monitorSessionToken: sessionToken },
     { enabled: !!sessionToken }
   );
-  const assignedClass = classesData?.[0];
+  // Só considera "minha turma" quando há exatamente 1 — é o caso de um
+  // monitor de verdade, vinculado a uma turma só. Quando são várias (admin
+  // ou professor, que agora tem acesso a todas), não faz sentido escolher
+  // uma ao acaso — os cards levam pra tela de Turmas em vez disso.
+  const assignedClass = classesData?.length === 1 ? classesData[0] : undefined;
+  const hasMultipleClasses = (classesData?.length ?? 0) > 1;
 
   const logoutMutation = trpc.monitors.logout.useMutation({
     onSuccess: () => {
@@ -469,14 +458,21 @@ function MonitorDashboard({ monitor, sessionToken, onLogout }: {
 
   // Ajustar href para filtrar pela turma do monitor
   const featuresWithClass = MONITOR_FEATURES.map((f) => {
-    if (f.href === "/cronograma" && assignedClass?.id) {
-      return { ...f, href: `/cronograma?classId=${assignedClass.id}` };
+    if (f.href === "/cronograma") {
+      if (assignedClass?.id) return { ...f, href: `/cronograma?classId=${assignedClass.id}` };
+      // Sem turma única: leva pra Turmas, que já lista todas com botão de
+      // cronograma completo de cada uma — confirmado que é esse o comportamento certo.
+      return { ...f, href: "/monitor/turmas", description: "Ver o cronograma de cada turma" };
     }
     if (f.href === "/monitor/notas" && assignedClass?.id) {
+      // Com 1 turma só, já manda direto pra ela. Com várias, deixa o link
+      // puro (/monitor/notas) — essa página já tem seu próprio seletor de
+      // turma embutido, não precisa passar por Turmas.
       return { ...f, href: `/monitor/notas?classId=${assignedClass.id}` };
     }
-    if (f.href === "/jogo" && assignedClass?.id) {
-      return { ...f, href: `/jogo/${assignedClass.id}` };
+    if (f.href === "/jogo") {
+      // Hub geral do jogo — não precisa de turma específica.
+      return { ...f, href: "/game/hub" };
     }
     return f;
   });
@@ -623,14 +619,22 @@ export default function MonitorPortal() {
   const [monitor, setMonitor] = useState<MonitorInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check for existing session on mount
+  // Check for existing session on mount — primeiro tenta sessão de monitor
+  // de verdade; se não tiver, tenta o token de professor/admin (já logado
+  // no resto da plataforma), que o back-end agora também aceita. Assim o
+  // admin/professor não esbarra na tela de login do monitor.
   useEffect(() => {
-    const token = localStorage.getItem(MONITOR_SESSION_KEY);
-    if (token) {
-      setSessionToken(token);
-    } else {
-      setLoading(false);
+    const monitorToken = localStorage.getItem(MONITOR_SESSION_KEY);
+    if (monitorToken) {
+      setSessionToken(monitorToken);
+      return;
     }
+    const teacherToken = localStorage.getItem("teacherSessionToken");
+    if (teacherToken) {
+      setSessionToken(teacherToken);
+      return;
+    }
+    setLoading(false);
   }, []);
 
   // Validate session token
