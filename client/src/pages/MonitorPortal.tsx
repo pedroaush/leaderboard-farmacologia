@@ -471,9 +471,8 @@ function MonitorDashboard({ monitor, sessionToken, onLogout }: {
       return { ...f, href: `/monitor/notas?classId=${assignedClass.id}` };
     }
     if (f.href === "/jogo") {
-      // Sempre leva pra Turmas — de lá o monitor escolhe a turma e entra no
-      // jogo dela.
-      return { ...f, href: "/monitor/turmas", description: "Escolher a turma para ver o jogo dela" };
+      // Hub geral do jogo — não precisa de turma específica.
+      return { ...f, href: "/game/hub" };
     }
     return f;
   });
