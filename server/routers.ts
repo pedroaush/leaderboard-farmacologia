@@ -4279,7 +4279,7 @@ if (!SUPER_ADMIN_SECRET) {
 
         const dbConn = await db.getDb();
         if (!dbConn) throw new Error("Database unavailable");
-        const { studentAccounts: studentAccountsTable } = await import("../../drizzle/schema");
+        const { studentAccounts: studentAccountsTable } = await import("../drizzle/schema");
         const { eq } = await import("drizzle-orm");
 
         // Confere se o novo email já não está em uso por outra conta
