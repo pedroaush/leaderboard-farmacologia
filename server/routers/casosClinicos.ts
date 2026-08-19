@@ -551,7 +551,8 @@ export const casosClinicosRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database not available");
       const aluno = await getStudentAccountBySessionToken(input.sessionToken);
-      if (!aluno) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      const teacher = aluno ? null : await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!aluno && !teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
 
       const arquivos = await db.select({
         id: casosClinicosArquivos.id,
@@ -576,7 +577,8 @@ export const casosClinicosRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database not available");
       const aluno = await getStudentAccountBySessionToken(input.sessionToken);
-      if (!aluno) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      const teacher = aluno ? null : await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!aluno && !teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
 
       const rows = await db.select().from(casosClinicosArquivos)
         .where(and(eq(casosClinicosArquivos.id, input.arquivoId), eq(casosClinicosArquivos.isActive, true))).limit(1);

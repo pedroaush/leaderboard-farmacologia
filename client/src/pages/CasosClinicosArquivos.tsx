@@ -88,11 +88,21 @@ function Confrontos({ classId }: { classId: number }) {
 }
 
 export default function CasosClinicosArquivos() {
-  const { student, sessionToken } = useStudentAuth();
+  const { student, sessionToken: studentSessionToken } = useStudentAuth();
   const [openId, setOpenId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"campeonato" | "arquivos">("campeonato");
 
-  const classId = student?.classId;
+  // Aceita sessão de aluno OU, se não houver, o token de professor/admin já
+  // logado no resto da plataforma (mesmo bypass usado no Portal do Monitor).
+  const teacherSessionToken = typeof window !== "undefined" ? localStorage.getItem("teacherSessionToken") : null;
+  const isTeacherView = !studentSessionToken && !!teacherSessionToken;
+  const sessionToken = studentSessionToken || teacherSessionToken || "";
+
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const classIdFromUrl = searchParams.get("classId") ? parseInt(searchParams.get("classId")!) : null;
+  const classId = student?.classId || classIdFromUrl;
+
+  const { data: classesForPicker } = trpc.classes.listAll.useQuery(undefined, { enabled: isTeacherView && !classId });
 
   const { data: arquivos, isLoading } = trpc.casosClinicos.listarArquivos.useQuery(
     { sessionToken: sessionToken || "", classId: classId! },
@@ -110,6 +120,36 @@ export default function CasosClinicosArquivos() {
         <div className="text-center">
           <p className="text-white mb-4">Faça login para acessar os arquivos de Casos Clínicos.</p>
           <Link href="/login-aluno" className="text-sm underline" style={{ color: ORANGE }}>Ir para o login</Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Professor/admin sem turma na URL: pede pra escolher, em vez de travar.
+  if (isTeacherView && !classId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: DARK_BG }}>
+        <div className="w-full max-w-md">
+          <h1 className="text-xl font-bold text-white mb-1">Escolha a turma</h1>
+          <p className="text-sm mb-6" style={{ color: "rgba(255,255,255,0.5)" }}>
+            Selecione uma turma para ver os Casos Clínicos dela.
+          </p>
+          <div className="space-y-2">
+            {!classesForPicker ? (
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Carregando turmas...</p>
+            ) : (
+              classesForPicker.map((c: any) => (
+                <a
+                  key={c.id}
+                  href={`/casos-clinicos/arquivos?classId=${c.id}`}
+                  className="block w-full text-left px-4 py-3 rounded-lg transition-colors hover:bg-white/10"
+                  style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  <span className="text-sm font-medium text-white">{c.name}</span>
+                </a>
+              ))
+            )}
+          </div>
         </div>
       </div>
     );
@@ -245,4 +285,3 @@ export default function CasosClinicosArquivos() {
     </div>
   );
 }
-
