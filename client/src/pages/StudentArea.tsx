@@ -11,7 +11,7 @@ import {
   BarChart3, BookOpen, Gamepad2, Target, Users,
   Download, Clock, CheckCircle, XCircle, FileText,
   Puzzle, FlaskConical, Shuffle, Star, ChevronDown, ChevronUp, Zap,
-  Music, VolumeX, Upload, Paperclip
+  Music, VolumeX, Upload, Paperclip, Loader2
 } from "lucide-react";
 
 const DARK_BG = "#0A1628";
@@ -353,6 +353,7 @@ export default function StudentArea() {
               { key: "presenca", label: "Presença", icon: <QrCode size={14} /> },
               { key: "media", label: "Média", icon: <BarChart3 size={14} /> },
               { key: "materiais", label: "Materiais", icon: <BookOpen size={14} /> },
+              { key: "casos_clinicos", label: "Casos Clínicos", icon: <FlaskConical size={14} /> },
               { key: "jogo", label: "Jogo", icon: <Gamepad2 size={14} /> },
               { key: "atividades", label: "Atividades", icon: <Target size={14} /> },
               { key: "equipes", label: "Equipes", icon: <Users size={14} /> },
@@ -837,6 +838,42 @@ export default function StudentArea() {
           </div>
         )}
 
+        {/* ═══ CASOS CLÍNICOS ═══ */}
+        {activeTab === "casos_clinicos" && (
+          <div>
+            <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+              <FlaskConical size={20} className="sm:hidden" style={{ color: ORANGE }} />
+              <FlaskConical size={24} className="hidden sm:block" style={{ color: ORANGE }} />
+              <h2 className="text-xl sm:text-2xl font-bold text-white">Casos Clínicos — Liga de Pontos Corridos</h2>
+            </div>
+            {!classId ? (
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Não foi possível identificar sua turma.</p>
+            ) : (
+              <div className="space-y-6">
+                <div>
+                  <p className="text-sm font-semibold text-white flex items-center gap-1.5 mb-2">
+                    <Star size={14} style={{ color: ORANGE }} /> Classificação
+                  </p>
+                  <CasosClinicosClassificacao classId={classId} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white flex items-center gap-1.5 mb-2">
+                    <Shuffle size={14} style={{ color: ORANGE }} /> Confrontos por rodada
+                  </p>
+                  <CasosClinicosConfrontos classId={classId} />
+                </div>
+                <div className="text-center">
+                  <Link href="/casos-clinicos/arquivos">
+                    <span className="inline-flex items-center gap-1.5 text-xs underline" style={{ color: ORANGE }}>
+                      Ver arquivos publicados pelos monitores →
+                    </span>
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ═══ JOGO ═══ */}
         {activeTab === "jogo" && (
           <div>
@@ -1206,6 +1243,83 @@ export default function StudentArea() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Casos Clínicos: tabela de classificação (pontos corridos) ───
+function CasosClinicosClassificacao({ classId }: { classId: number }) {
+  const { data: tabela = [], isLoading } = trpc.casosClinicos.getTabelaClassificacao.useQuery({ classId });
+  if (isLoading) return <div className="flex items-center justify-center py-6"><Loader2 size={16} className="animate-spin" style={{ color: ORANGE }} /></div>;
+  if (!tabela.length) return <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>Nenhum grupo encontrado.</p>;
+  return (
+    <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left" style={{ backgroundColor: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.5)" }}>
+            <th className="py-2 px-3">#</th>
+            <th className="py-2 px-3">Grupo</th>
+            <th className="py-2 px-3 text-center">Pts</th>
+            <th className="py-2 px-3 text-center">V</th>
+            <th className="py-2 px-3 text-center">E</th>
+            <th className="py-2 px-3 text-center">D</th>
+            <th className="py-2 px-3 text-center">J</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tabela.map((t: any, i: number) => (
+            <tr key={t.grupoId} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <td className="py-1.5 px-3" style={{ color: "rgba(255,255,255,0.4)" }}>{i + 1}º</td>
+              <td className="py-1.5 px-3 text-white font-medium">{t.nome}</td>
+              <td className="py-1.5 px-3 text-center font-mono font-bold text-white">{t.pontos}</td>
+              <td className="py-1.5 px-3 text-center text-emerald-400">{t.vitorias}</td>
+              <td className="py-1.5 px-3 text-center text-amber-400">{t.empates}</td>
+              <td className="py-1.5 px-3 text-center text-red-400">{t.derrotas}</td>
+              <td className="py-1.5 px-3 text-center" style={{ color: "rgba(255,255,255,0.4)" }}>{t.jogos}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Casos Clínicos: confrontos por rodada, com data ───
+function CasosClinicosConfrontos({ classId }: { classId: number }) {
+  const { data: rodadas, isLoading } = trpc.casosClinicos.getTodosConfrontos.useQuery({ classId });
+  if (isLoading) return <div className="flex items-center justify-center py-6"><Loader2 size={16} className="animate-spin" style={{ color: ORANGE }} /></div>;
+  if (!rodadas?.length) return <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>Calendário ainda não gerado.</p>;
+  return (
+    <div className="space-y-3">
+      {rodadas.map((r: any) => (
+        <div key={r.rodada} className="rounded-lg p-3" style={{ backgroundColor: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs font-bold" style={{ color: ORANGE }}>CS{r.rodada}</span>
+            {r.data && (
+              <span className="text-xs flex items-center gap-1" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <Calendar size={11} /> {r.data}
+              </span>
+            )}
+          </div>
+          {r.confrontos.length === 0 ? (
+            <p className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>Sem confrontos definidos.</p>
+          ) : (
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {r.confrontos.map((c: any) => (
+                <div key={c.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded text-xs" style={{ backgroundColor: "rgba(255,255,255,0.03)" }}>
+                  <span className="text-white truncate">{c.grupoANome}</span>
+                  {c.status === "concluida" ? (
+                    <span className="font-mono font-bold shrink-0" style={{ color: ORANGE }}>{c.grupoAAcertos}×{c.grupoBAcertos}</span>
+                  ) : (
+                    <Shuffle size={12} className="shrink-0" style={{ color: "rgba(255,255,255,0.3)" }} />
+                  )}
+                  <span className="text-white truncate text-right">{c.grupoBNome}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
