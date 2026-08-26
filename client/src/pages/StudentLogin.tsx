@@ -60,7 +60,6 @@ export default function StudentLogin() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [matricula, setMatricula] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [selectedClassIdForRegister, setSelectedClassIdForRegister] = useState<number | "" >("");
@@ -171,19 +170,11 @@ export default function StudentLogin() {
     setError("");
     setSuccess("");
 
-    if (password.length < 5) {
-      setError("A senha deve ter pelo menos 5 caracteres");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("As senhas não coincidem");
-      return;
-    }
     if (!selectedMemberId) {
       setError("Selecione seu nome na lista de alunos");
       return;
     }
-    if (matricula.length < 5) {
+    if (matricula.trim().length < 5) {
       setError("A matrícula deve ter pelo menos 5 caracteres");
       return;
     }
@@ -196,8 +187,14 @@ export default function StudentLogin() {
       const result = await registerMutation.mutateAsync({
         email,
         name: nameToSend,
-        matricula,
-        password,
+        matricula: matricula.trim(),
+        // A senha é SEMPRE a própria matrícula — nunca um valor digitado à
+        // parte. Antes disso, existiam campos separados de "Senha" e
+        // "Confirmar Senha" que o aluno podia preencher com algo diferente
+        // da matrícula sem perceber, e depois não conseguia mais entrar
+        // (porque a tela de login pede a matrícula como senha). Isso
+        // causava "senha incorreta" pra quem se cadastrava assim.
+        password: matricula.trim(),
         memberId: selectedMemberId!,
       });
       if (result.success && "sessionToken" in result) {
@@ -601,66 +598,9 @@ export default function StudentLogin() {
                       }}
                     />
                   </div>
-                </div>
-
-                {/* Senha (matrícula) */}
-                <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.6)" }}>
-                    Senha (matrícula)
-                  </label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="Sua matrícula será sua senha"
-                      required
-                      className="w-full pl-10 pr-12 py-3 rounded-lg text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 transition-all"
-                      style={{
-                        backgroundColor: "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2"
-                      style={{ color: "rgba(255,255,255,0.3)" }}
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
                   <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>
-                    Sua matrícula é sua senha de acesso
+                    Sua matrícula será sua senha de acesso — não tem senha separada pra criar.
                   </p>
-                </div>
-
-                {/* Confirmar Senha */}
-                <div>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.6)" }}>
-                    Confirmar Senha
-                  </label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={confirmPassword}
-                      onChange={e => setConfirmPassword(e.target.value)}
-                      placeholder="Repita a matrícula"
-                      required
-                      className="w-full pl-10 pr-4 py-3 rounded-lg text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 transition-all"
-                      style={{
-                        backgroundColor: "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                      }}
-                    />
-                  </div>
-                  {confirmPassword && password !== confirmPassword && (
-                    <p className="text-xs mt-1" style={{ color: "#ef4444" }}>
-                      As senhas não coincidem
-                    </p>
-                  )}
                 </div>
 
                 {/* Submit */}
