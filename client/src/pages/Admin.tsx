@@ -4520,7 +4520,7 @@ function TurmasManager({ teacherToken }: { teacherToken: string | null }) {
               <input type="color" value={newTeamColor} onChange={e => setNewTeamColor(e.target.value)} className="w-10 h-10 rounded-md border border-border cursor-pointer" />
               <button
                 onClick={() => {
-                  createTeamMut.mutate({ password: "authenticated", name: newTeamName, emoji: newTeamEmoji, color: newTeamColor, classId: selectedClass });
+                  createTeamMut.mutate({ sessionToken: teacherToken || "", name: newTeamName, emoji: newTeamEmoji, color: newTeamColor, classId: selectedClass });
                 }}
                 disabled={!newTeamName || createTeamMut.isPending}
                 className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
@@ -4544,7 +4544,7 @@ function TurmasManager({ teacherToken }: { teacherToken: string | null }) {
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: team.color }} />
                       <span className="text-xs text-muted-foreground font-mono">{teamMembers.length} alunos</span>
                       <button
-                        onClick={() => { if (confirm(`Remover equipe "${team.name}"?`)) deleteTeamMut.mutate({ password: "authenticated", id: team.id }); }}
+                        onClick={() => { if (confirm(`Remover equipe "${team.name}"?`)) deleteTeamMut.mutate({ sessionToken: teacherToken || "", id: team.id }); }}
                         className="p-1 rounded hover:bg-destructive/20 text-destructive"
                       >
                         <Trash2 size={14} />
@@ -4557,7 +4557,7 @@ function TurmasManager({ teacherToken }: { teacherToken: string | null }) {
                             <span className="text-foreground">{m.name}</span>
                             <span className="text-xs font-mono text-primary">{parseFloat(m.xp || "0").toFixed(1)} PF</span>
                             <button
-                              onClick={() => { if (confirm(`Remover aluno "${m.name}"?`)) deleteMemberMut.mutate({ password: "authenticated", id: m.id }); }}
+                              onClick={() => { if (confirm(`Remover aluno "${m.name}"?`)) deleteMemberMut.mutate({ sessionToken: teacherToken || "", id: m.id }); }}
                               className="p-0.5 rounded hover:bg-destructive/20 text-destructive ml-auto"
                             >
                               <Trash2 size={12} />
@@ -4656,7 +4656,7 @@ function TurmasManager({ teacherToken }: { teacherToken: string | null }) {
               <button
                 onClick={() => {
                   if (newStudentName && newStudentTeamId) {
-                    createMemberMut.mutate({ password: "authenticated", teamId: newStudentTeamId, name: newStudentName, classId: selectedClass });
+                    createMemberMut.mutate({ sessionToken: teacherToken || "", teamId: newStudentTeamId, name: newStudentName, classId: selectedClass });
                   }
                 }}
                 disabled={!newStudentName || !newStudentTeamId || createMemberMut.isPending}
@@ -4689,7 +4689,7 @@ function TurmasManager({ teacherToken }: { teacherToken: string | null }) {
                         )}
                         <span className="text-xs font-mono font-bold text-primary">{parseFloat(m.xp || "0").toFixed(1)} PF</span>
                         <button
-                          onClick={() => { if (confirm(`Remover aluno "${m.name}"?`)) deleteMemberMut.mutate({ password: "authenticated", id: m.id }); }}
+                          onClick={() => { if (confirm(`Remover aluno "${m.name}"?`)) deleteMemberMut.mutate({ sessionToken: teacherToken || "", id: m.id }); }}
                           className="p-1 rounded hover:bg-destructive/20 text-destructive"
                         >
                           <Trash2 size={14} />

@@ -2253,32 +2253,48 @@ if (!SUPER_ADMIN_SECRET) {
 
     create: publicProcedure
       .input(z.object({
-        password: z.string(),
+        password: z.string().optional(),
+        sessionToken: z.string().optional(),
         name: z.string().min(1),
         emoji: z.string().default("🧪"),
         color: z.string().default("#10b981"),
         classId: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
-        const valid = await verifyAdminPassword(input.password);
-        if (!valid) throw new Error("Não autorizado");
-        const { password, ...data } = input;
+        let authorized = false;
+        if (input.sessionToken) {
+          const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+          if (teacher && (teacher.role === "super_admin" || teacher.role === "coordenador")) authorized = true;
+        }
+        if (!authorized && input.password) {
+          authorized = await verifyAdminPassword(input.password);
+        }
+        if (!authorized) throw new Error("Não autorizado");
+        const { password, sessionToken, ...data } = input;
         const id = await db.createTeam(data);
         return { id };
       }),
 
     update: publicProcedure
       .input(z.object({
-        password: z.string(),
+        password: z.string().optional(),
+        sessionToken: z.string().optional(),
         id: z.number(),
         name: z.string().optional(),
         emoji: z.string().optional(),
         color: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const valid = await verifyAdminPassword(input.password);
-        if (!valid) throw new Error("Não autorizado");
-        const { password, id, ...data } = input;
+        let authorized = false;
+        if (input.sessionToken) {
+          const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+          if (teacher && (teacher.role === "super_admin" || teacher.role === "coordenador")) authorized = true;
+        }
+        if (!authorized && input.password) {
+          authorized = await verifyAdminPassword(input.password);
+        }
+        if (!authorized) throw new Error("Não autorizado");
+        const { password, sessionToken, id, ...data } = input;
         await db.updateTeam(id, data);
         return { success: true };
       }),
