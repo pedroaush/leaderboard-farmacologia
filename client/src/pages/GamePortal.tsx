@@ -296,8 +296,18 @@ export default function GamePortal() {
         // Regular question: short chime or buzz
         if (result.isCorrect) {
           playCorrectSound();
-          // If this was the last regular quest (questionInWeek === 4), trigger Boss Battle automatically
-          const isLastRegularQuest = selectedQuest?.questionInWeek === 4;
+          // Dispara o chefe automaticamente após a ÚLTIMA pergunta regular da
+          // semana — antes disso era sempre "questionInWeek === 4" (fixo),
+          // mas agora algumas semanas de revisão (antes das provas) têm mais
+          // perguntas regulares que outras, então o número precisa ser
+          // calculado dinamicamente por semana, não fixo.
+          const weekQuests = (availableQuests || []).filter(
+            (q: any) => q.weekNumber === selectedQuest?.weekNumber && !q.isBossQuestion
+          );
+          const maxQInWeekForThisWeek = weekQuests.length > 0
+            ? Math.max(...weekQuests.map((q: any) => q.questionInWeek))
+            : 4;
+          const isLastRegularQuest = selectedQuest?.questionInWeek === maxQInWeekForThisWeek;
           if (isLastRegularQuest) {
             playWeekCompleteSound();
             // Store the week number — the result screen will show a countdown and then launch the boss
