@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import {
   FileText, Link2, MessageSquare, Download, ExternalLink,
   FlaskConical, ArrowLeft, BookOpen, Search, Filter,
@@ -16,20 +17,39 @@ export default function Materiais() {
   const [expandedPlaylist, setExpandedPlaylist] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
-  // Função para download via proxy do servidor (evita 401 do Cloudinary)
+  // Função para download via proxy do servidor (evita 401 do Cloudinary).
+  // Antes disso, usava window.open() direto — o que geralmente ABRE o PDF
+  // dentro do navegador em vez de baixar de verdade (confuso no celular), e
+  // nunca mostrava erro nenhum se o servidor falhasse (window.open não
+  // "quebra" o try/catch, mesmo com erro 404/500 do servidor).
   const handleDownload = useCallback(async (mat: any) => {
     if (!mat.fileKey) {
-      window.open(mat.url, '_blank');
+      if (mat.url) {
+        window.open(mat.url, '_blank');
+      } else {
+        toast.error("Este material não tem arquivo nem link disponível.");
+      }
       return;
     }
     setDownloadingId(mat.id);
     try {
-      // Usar o endpoint de proxy que baixa do Cloudinary via Admin API
       const proxyUrl = `/api/materials/download?fileKey=${encodeURIComponent(mat.fileKey)}`;
-      window.open(proxyUrl, '_blank');
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw new Error(`Servidor respondeu com erro ${response.status}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = mat.fileName || mat.title || "arquivo";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
     } catch (error) {
       console.error("Erro ao baixar material:", error);
-      window.open(mat.url, '_blank');
+      toast.error("Não foi possível baixar este arquivo agora. Tente de novo em instantes ou avise o professor.");
     } finally {
       setDownloadingId(null);
     }
