@@ -345,7 +345,16 @@ async function startServer() {
       });
       
       const key = fileKey.replace(/^\/+/, '');
-      const fullPublicId = key.startsWith('farmacologia-materiais/') ? key : `farmacologia-materiais/${key}`;
+      // IMPORTANTE: o upload (storage.ts/cloudinaryPut) remove a extensão do
+      // arquivo antes de gerar o public_id no Cloudinary
+      // (`.replace(/\.[^.]+$/, "")`), mas o fileKey gravado no banco mantém
+      // a extensão (usado como nome de exibição). Sem remover a extensão
+      // aqui também, o public_id nunca batia com o que o Cloudinary
+      // realmente tem — causa raiz do erro 400 em TODOS os downloads.
+      const keyWithoutExtension = key.replace(/\.[^.]+$/, '');
+      const fullPublicId = keyWithoutExtension.startsWith('farmacologia-materiais/')
+        ? keyWithoutExtension
+        : `farmacologia-materiais/${keyWithoutExtension}`;
       
       // Extrair nome do arquivo original (remover timestamp prefix)
       const rawFileName = fileKey.split('/').pop() || 'download';
@@ -367,8 +376,13 @@ async function startServer() {
       // Baixar o ZIP do Cloudinary
       const zipResp = await globalThis.fetch(downloadUrl);
       if (!zipResp.ok) {
-        console.error(`[Download] Archive download failed: ${zipResp.status}`);
-        return res.status(404).json({ error: 'Arquivo não encontrado no Cloudinary' });
+        const bodyText = await zipResp.text().catch(() => "(sem corpo)");
+        console.error(`[Download] Archive download failed: ${zipResp.status} — ${bodyText}`);
+        // Reflete o status real (antes sempre respondia 404 pro navegador,
+        // mesmo quando o Cloudinary devolvia outro código como 400 —
+        // escondia a pista de que era um erro diferente).
+        return res.status(zipResp.status >= 400 && zipResp.status < 600 ? zipResp.status : 502)
+          .json({ error: 'Arquivo não encontrado no Cloudinary', cloudinaryStatus: zipResp.status });
       }
       
       const zipBuffer = Buffer.from(await zipResp.arrayBuffer());
