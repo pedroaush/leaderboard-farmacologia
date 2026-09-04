@@ -4191,10 +4191,17 @@ if (!SUPER_ADMIN_SECRET) {
 
     // Admin: reset password for a specific student account
     resetStudentPassword: publicProcedure
-      .input(z.object({ password: z.string(), studentAccountId: z.number(), newPassword: z.string().min(5) }))
+      .input(z.object({ password: z.string().optional(), sessionToken: z.string().optional(), studentAccountId: z.number(), newPassword: z.string().min(5) }))
       .mutation(async ({ input }) => {
-        const valid = await verifyAdminPassword(input.password);
-        if (!valid) throw new Error("Não autorizado");
+        let authorized = false;
+        if (input.sessionToken) {
+          const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+          if (teacher && (teacher.role === "super_admin" || teacher.role === "coordenador")) authorized = true;
+        }
+        if (!authorized && input.password) {
+          authorized = await verifyAdminPassword(input.password);
+        }
+        if (!authorized) throw new Error("Não autorizado");
         const passwordHash = await bcrypt.hash(input.newPassword, 10);
         await db.updateStudentAccountPassword(input.studentAccountId, passwordHash);
         return { success: true, message: "Senha resetada com sucesso" };
