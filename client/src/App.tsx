@@ -73,6 +73,8 @@ import AdminMonitors from "./pages/AdminMonitors";
 import DigitalExam from "./pages/DigitalExam";
 import LiveQuizStudent from "./pages/LiveQuizStudent";
 import { useStudentAuth } from "./pages/StudentLogin";
+import AccessibilityWidget from "./components/AccessibilityWidget";
+import VLibrasWidget from "./components/VLibrasWidget";
 
 function LiveQuizStudentWrapper() {
   const { student, sessionToken, isLoading } = useStudentAuth();
@@ -168,6 +170,8 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <LoungePlaylist />
+            <AccessibilityWidget />
+            <VLibrasWidget />
             <Router />
           </TooltipProvider>
         </AudioProvider>
