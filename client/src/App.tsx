@@ -72,8 +72,8 @@ import ProfessorGrades from "./pages/ProfessorGrades";
 import AdminMonitors from "./pages/AdminMonitors";
 import DigitalExam from "./pages/DigitalExam";
 import LiveQuizStudent from "./pages/LiveQuizStudent";
-import Gerenciarsimulacoes from "./pages/Gerenciarsimulacoes";
-import Praticasimulada from "./pages/Praticasimulada";
+import GerenciarSimulacoes from "./pages/GerenciarSimulacoes";
+import PraticaSimulada from "./pages/PraticaSimulada";
 import { useStudentAuth } from "./pages/StudentLogin";
 
 function LiveQuizStudentWrapper() {
