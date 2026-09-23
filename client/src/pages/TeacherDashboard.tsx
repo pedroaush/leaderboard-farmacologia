@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart, PieChart, TrendingUp, Users, Target, Zap, GraduationCap, ChevronRight, MessageCircle } from "lucide-react";
+import { BarChart, PieChart, TrendingUp, Users, Target, Zap, GraduationCap, ChevronRight, FlaskConical } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -202,21 +202,6 @@ export default function TeacherDashboard() {
           </Card>
         )}
 
-        {/* Seção de Chat */}
-        <Card className="p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-primary" />
-              Chat com Alunos e Monitores
-            </h3>
-            <Link href="/professor/chat">
-              <Button variant="outline" size="sm" className="gap-1">
-                Abrir Chat <ChevronRight size={14} />
-              </Button>
-            </Link>
-          </div>
-        </Card>
-
         {/* Seção de Monitores */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-4">
@@ -249,6 +234,24 @@ export default function TeacherDashboard() {
               </div>
             </Link>
           </div>
+        </Card>
+
+        <Card className="p-6 mt-6">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold flex items-center gap-2">
+              <FlaskConical className="w-5 h-5 text-primary" />
+              Casos Clínicos — Prática Simulada
+            </h3>
+            <Link href="/professor/simulacoes">
+              <Button variant="outline" size="sm" className="gap-1">
+                Gerenciar Simulações <ChevronRight size={14} />
+              </Button>
+            </Link>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Suba simulações interativas (tipo o caso GLP-1) — configure se contam como nota ou frequência,
+            e acompanhe quem completou.
+          </p>
         </Card>
       </div>
     </div>

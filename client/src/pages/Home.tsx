@@ -9,7 +9,7 @@ import {
   Trophy, Users, Zap, TrendingUp, ChevronDown, ChevronUp,
   Award, Target, Star, FlaskConical, Activity, Settings, Youtube, Bell,
   ArrowLeft, BookOpen, ClipboardList, LogOut, MapPin, BarChart3,
-  Calendar, QrCode, Gamepad2, Calculator, Medal, Music, VolumeX
+  Calendar, QrCode, Gamepad2, Calculator, Medal, Music, VolumeX, Play
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Link, useLocation } from "wouter";
@@ -712,6 +712,20 @@ export default function Home() {
                 >
                   <FlaskConical className="w-6 h-6 sm:w-7 sm:h-7" />
                   <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Casos Clínicos</span>
+                </motion.div>
+              </Link>
+
+              {/* Prática Simulada */}
+              <Link href="/casos-clinicos/pratica-simulada">
+                <motion.div
+                  className="flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-xl cursor-pointer"
+                  style={{ backgroundColor: "rgba(168,85,247,0.15)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.35)" }}
+                  whileHover={{ scale: 1.06, y: -3, backgroundColor: "rgba(168,85,247,0.25)", boxShadow: "0 6px 20px rgba(168,85,247,0.3)" }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                >
+                  <Play className="w-6 h-6 sm:w-7 sm:h-7" />
+                  <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Prática Simulada</span>
                 </motion.div>
               </Link>
 

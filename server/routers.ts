@@ -25,6 +25,7 @@ import { studentNotificationsRouter } from "./routers/student-notifications";
 import { activitiesRouter } from "./routers/activities";
 import { studentActivitiesRouter } from "./routers/studentActivities";
 import { chatRouter } from "./routers/chat";
+import { simulacoesClinicasRouter } from "./routers/simulacoesClinicas";
 import { studentStatsRouter } from "./routers/student-stats";
 import { attendanceReportsDetailedRouter } from "./routers/attendance-reports-detailed";
 import { monitorsRouter } from "./routers/monitors";
@@ -4840,6 +4841,7 @@ if (!SUPER_ADMIN_SECRET) {
   settings: settingsRouter,
   studentActivities: studentActivitiesRouter,
   chat: chatRouter,
+  simulacoesClinicas: simulacoesClinicasRouter,
 
   // Temporary seed endpoint for Jigsaw data restoration
   jigsawSeed: router({

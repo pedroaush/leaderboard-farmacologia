@@ -72,9 +72,9 @@ import ProfessorGrades from "./pages/ProfessorGrades";
 import AdminMonitors from "./pages/AdminMonitors";
 import DigitalExam from "./pages/DigitalExam";
 import LiveQuizStudent from "./pages/LiveQuizStudent";
+import GerenciarSimulacoes from "./pages/GerenciarSimulacoes";
+import PraticaSimulada from "./pages/PraticaSimulada";
 import { useStudentAuth } from "./pages/StudentLogin";
-import AccessibilityWidget from "./components/AccessibilityWidget";
-import VLibrasWidget from "./components/VLibrasWidget";
 
 function LiveQuizStudentWrapper() {
   const { student, sessionToken, isLoading } = useStudentAuth();
@@ -131,6 +131,8 @@ function Router() {
       <Route path={"/chat"} component={ChatLive} />
       <Route path={"/professor/chat"} component={TeacherChat} />
       <Route path={"/casos-clinicos/arquivos"} component={CasosClinicosArquivos} />
+      <Route path={"/casos-clinicos/pratica-simulada"} component={PraticaSimulada} />
+      <Route path={"/professor/simulacoes"} component={GerenciarSimulacoes} />
       <Route path={"/estatisticas"} component={StudentStats} />
       <Route path={"/professor/avaliar-atividades"} component={TeacherFeedback} />
       <Route path={"/professor/relatorios-presenca"} component={AttendanceReports} />
@@ -170,8 +172,6 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <LoungePlaylist />
-            <AccessibilityWidget />
-            <VLibrasWidget />
             <Router />
           </TooltipProvider>
         </AudioProvider>

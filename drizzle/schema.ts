@@ -2091,3 +2091,66 @@ export const casosClinicosArquivos = mysqlTable("casosClinicosArquivos", {
 });
 export type CasoClinicoArquivo = typeof casosClinicosArquivos.$inferSelect;
 export type InsertCasoClinicoArquivo = typeof casosClinicosArquivos.$inferInsert;
+/**
+ * ADICIONAR ao schema.ts — Sistema de Casos Clínicos: Prática Simulada
+ * (simulações HTML interativas, tipo o caso de GLP-1/gastroparesia).
+ *
+ * Diferente do sistema de Casos Clínicos "liga de pontos corridos" que já
+ * existe (casosClinicosDisputas) — isso é conteúdo interativo autocontido
+ * (HTML/JS), que o aluno joga sozinho e tem o progresso registrado.
+ */
+export const simulacoesClinicas = mysqlTable("simulacoesClinicas", {
+  id: int("id").autoincrement().primaryKey(),
+  titulo: varchar("titulo", { length: 300 }).notNull(),
+  descricao: text("descricao"),
+  // HTML completo do simulador, guardado como texto (o mesmo padrão de
+  // "guardar o arquivo direto no banco" já usado em casosClinicosArquivos).
+  htmlConteudo: text("htmlConteudo", { length: "long" }).notNull(),
+  // Turmas em que aparece — null/vazio = todas as turmas
+  classIds: text("classIds"), // JSON array de classId, ou null = todas
+  // Configurações que o professor liga/desliga por simulação
+  contaComoNota: boolean("contaComoNota").notNull().default(false),
+  contaComoFrequencia: boolean("contaComoFrequencia").notNull().default(false),
+  pontuacaoMaxima: int("pontuacaoMaxima").notNull().default(5), // bate com maxScore do simulador
+  isActive: boolean("isActive").notNull().default(true),
+  createdBy: int("createdBy"), // teacherAccounts.id
+  createdByName: varchar("createdByName", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SimulacaoClinica = typeof simulacoesClinicas.$inferSelect;
+export type InsertSimulacaoClinica = typeof simulacoesClinicas.$inferInsert;
+
+/**
+ * Progresso/conclusão de cada aluno em cada simulação. Uma linha por
+ * aluno+simulação (se ele refizer, atualiza a mesma linha com a pontuação
+ * mais recente — não acumula tentativas separadas, já que o simulador em si
+ * já tem sua própria lógica de repetição sem penalidade).
+ */
+export const simulacoesClinicasProgresso = mysqlTable("simulacoesClinicasProgresso", {
+  id: int("id").autoincrement().primaryKey(),
+  simulacaoId: int("simulacaoId").notNull().references(() => simulacoesClinicas.id, { onDelete: "cascade" }),
+  memberId: int("memberId").notNull().references(() => members.id, { onDelete: "cascade" }),
+  classId: int("classId").notNull(),
+  currentStep: int("currentStep").notNull().default(0),
+  completedSteps: int("completedSteps").notNull().default(0),
+  totalSteps: int("totalSteps").notNull().default(5),
+  score: int("score").notNull().default(0),
+  maxScore: int("maxScore").notNull().default(5),
+  completed: boolean("completed").notNull().default(false),
+  firstStartedAt: timestamp("firstStartedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uniqueAlunoSimulacao: uniqueIndex("simulacoesClinicasProgresso_member_simulacao").on(t.memberId, t.simulacaoId),
+}));
+export type SimulacaoClinicaProgresso = typeof simulacoesClinicasProgresso.$inferSelect;
+export type InsertSimulacaoClinicaProgresso = typeof simulacoesClinicasProgresso.$inferInsert;
+
+/**
+ * NOTA sobre htmlConteudo: mesma observação já feita em outras tabelas que
+ * guardam arquivo grande direto no banco — confira se `text(...,
+ * {length:"long"})` é aceito pela sua versão do drizzle-orm rodando
+ * `npx drizzle-kit generate` antes de aplicar; troque por `longtext(...)`
+ * se necessário. O arquivo do GLP-1 tem ~29KB, cabe tranquilamente.
+ */
