@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Shield, Sword, Heart, Zap, Star, Trophy, Skull,
@@ -579,6 +579,9 @@ export default function BossBattle({ weekNumber, gender = "male", onComplete, on
   const [flashDamage, setFlashDamage] = useState(false);
   const [phasesCompleted, setPhasesCompleted] = useState(0);
   const [animPhase, setAnimPhase] = useState(0);
+  // Trava pra garantir que o resultado só é salvo UMA vez, mesmo se o efeito
+  // abaixo rodar de novo por algum motivo (ex: re-render).
+  const resultadoJaSalvoRef = useRef(false);
 
   // Intro animation
   useEffect(() => {
@@ -750,6 +753,21 @@ export default function BossBattle({ weekNumber, gender = "male", onComplete, on
     });
   };
 
+  // Salva o resultado da luta automaticamente, assim que a tela de vitória
+  // ou derrota aparece — sem depender de o aluno clicar em "Resgatar
+  // Recompensas"/"Voltar ao Mapa". Antes disso, se o aluno fechasse a aba ou
+  // simplesmente não clicasse nesse botão (a tela já mostra os números como
+  // se já estivessem creditados, então é fácil achar que já terminou), o
+  // resultado nunca era enviado ao servidor — causa raiz de lutas vencidas
+  // de verdade que não apareciam registradas em nenhum lugar.
+  useEffect(() => {
+    if ((battleState === "victory" || battleState === "defeat") && !resultadoJaSalvoRef.current) {
+      resultadoJaSalvoRef.current = true;
+      handleBattleEnd();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [battleState]);
+
   const handleRetry = () => {
     setPhase(0);
     setQuestionIdx(0);
@@ -765,6 +783,9 @@ export default function BossBattle({ weekNumber, gender = "male", onComplete, on
     setBattleState("fighting");
     setPhasesCompleted(0);
     setAnimPhase(0);
+    // Libera a trava de salvamento pra essa nova tentativa poder ser salva
+    // quando terminar (senão só a primeira tentativa seria registrada).
+    resultadoJaSalvoRef.current = false;
   };
 
   // ═══════════════════════════════════════
@@ -908,7 +929,7 @@ export default function BossBattle({ weekNumber, gender = "male", onComplete, on
           </div>
 
           <Button
-            onClick={handleBattleEnd}
+            onClick={onBack}
             className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700 text-black font-bold text-lg py-6"
           >
             <Trophy size={20} className="mr-2" /> Resgatar Recompensas
@@ -993,7 +1014,7 @@ export default function BossBattle({ weekNumber, gender = "male", onComplete, on
 
           <div className="flex gap-3">
             <Button
-              onClick={handleBattleEnd}
+              onClick={onBack}
               variant="outline"
               className="flex-1 border-red-500/30 text-red-400 hover:bg-red-500/10"
             >
