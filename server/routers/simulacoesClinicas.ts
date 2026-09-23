@@ -195,7 +195,8 @@ export const simulacoesClinicasRouter = router({
     .input(z.object({ sessionToken: z.string(), simulacaoId: z.number() }))
     .query(async ({ input }) => {
       const aluno = await getStudentAccountBySessionToken(input.sessionToken);
-      if (!aluno) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      const professor = aluno ? null : await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!aluno && !professor) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
