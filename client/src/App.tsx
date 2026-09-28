@@ -78,14 +78,18 @@ import { useStudentAuth } from "./pages/StudentLogin";
 
 function LiveQuizStudentWrapper() {
   const { student, sessionToken, isLoading } = useStudentAuth();
+  // Lido do QR code: 2026.conexaofarmacologia.com.br/quiz-ao-vivo?code=XXXXXX
+  const codeFromUrl = new URLSearchParams(window.location.search).get("code") || undefined;
   if (isLoading) return <div style={{color:'white',padding:'2rem'}}>Carregando...</div>;
   if (!sessionToken) {
-    localStorage.setItem("attendance_return_url", "/quiz-ao-vivo");
+    // Preserva o código na URL de retorno, senão ele se perde no fluxo de login
+    const returnUrl = codeFromUrl ? `/quiz-ao-vivo?code=${codeFromUrl}` : "/quiz-ao-vivo";
+    localStorage.setItem("attendance_return_url", returnUrl);
     window.location.href = "/login-aluno";
     return null;
   }
   const name = student?.memberName || student?.name || "Aluno";
-  return <LiveQuizStudent studentToken={sessionToken} studentName={name} />;
+  return <LiveQuizStudent studentToken={sessionToken} studentName={name} initialCode={codeFromUrl} />;
 }
 
 function Router() {

@@ -1982,6 +1982,28 @@ export const liveQuizSessions = mysqlTable("liveQuizSessions", {
 }, (t) => ({
   uniqueCode: uniqueIndex("liveQuizSessions_accessCode").on(t.accessCode),
 }));
+export const liveQuizSessions = mysqlTable("liveQuizSessions", {
+  id: int("id").autoincrement().primaryKey(),
+  accessCode: varchar("accessCode", { length: 8 }).notNull(),
+  title: varchar("title", { length: 200 }).notNull().default("P2 - Quiz ao Vivo"),
+  provaType: varchar("provaType", { length: 10 }).notNull().default("P2"),
+  classId: int("classId").notNull(),
+  teacherSessionToken: varchar("teacherSessionToken", { length: 200 }).notNull(),
+  questions: text("questions").notNull(),
+  currentQuestionIndex: int("currentQuestionIndex").notNull().default(-1),
+  // ── NOVO ──
+  currentQuestionStartedAt: timestamp("currentQuestionStartedAt"),
+  timeLimitSeconds: int("timeLimitSeconds").notNull().default(20),
+  // ── fim novo ──
+  totalQuestions: int("totalQuestions").notNull().default(0),
+  status: mysqlEnum("status", ["lobby", "active", "question_closed", "finished", "gabarito_released"]).notNull().default("lobby"),
+  gabarito: text("gabarito").notNull(),
+  gabaritReleasedAt: timestamp("gabaritReleasedAt"),
+  finishedAt: timestamp("finishedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueCode: uniqueIndex("liveQuizSessions_accessCode").on(t.accessCode),
+}));
 export type LiveQuizSession = typeof liveQuizSessions.$inferSelect;
 export type InsertLiveQuizSession = typeof liveQuizSessions.$inferInsert;
 

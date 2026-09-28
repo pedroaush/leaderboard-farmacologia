@@ -1,7 +1,8 @@
 /**
- * LiveQuizStudent - Tela do aluno para o Quiz ao Vivo (P2)
+ * LiveQuizStudent - Tela do aluno para o Quiz ao Vivo (P2 / Seminário)
  * Design: Conexão Farmacologia — vermelho escarlate, fundo escuro
- * Fluxo: digitar código → aguardar no lobby → responder questões → ver gabarito e nota
+ * Fluxo: digitar código (ou vir direto do QR code) → lobby → responder com
+ * cronômetro de 20s por questão → ver gabarito e nota
  */
 import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
@@ -12,16 +13,17 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   CheckCircle2, XCircle, Clock, BookOpen, Loader2, AlertCircle,
-  ChevronRight, Trophy, Wifi, WifiOff
+  ChevronRight, Trophy, Wifi, WifiOff, TimerReset
 } from "lucide-react";
 
 interface LiveQuizStudentProps {
   studentToken: string;
   studentName: string;
+  initialCode?: string; // vindo do QR code (?code=XXXXXX na URL)
 }
 
-export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizStudentProps) {
-  const [code, setCode] = useState("");
+export default function LiveQuizStudent({ studentToken, studentName, initialCode }: LiveQuizStudentProps) {
+  const [code, setCode] = useState(initialCode ? initialCode.toUpperCase() : "");
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [joinData, setJoinData] = useState<any>(null);
   const [currentQuestion, setCurrentQuestion] = useState<any>(null);
@@ -29,6 +31,8 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
   const [submitted, setSubmitted] = useState(false);
   const [phase, setPhase] = useState<"enter_code" | "lobby" | "question" | "waiting" | "finished" | "gabarito">("enter_code");
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [segundosRestantes, setSegundosRestantes] = useState<number | null>(null);
+  const [autoJoinTried, setAutoJoinTried] = useState(false);
 
   // Monitorar conexão
   useEffect(() => {
@@ -59,11 +63,37 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
         setPhase("waiting");
         toast.success("Resposta enviada!");
       } else {
-        toast.error(data.message || "Erro ao enviar resposta");
+        toast.error(data.message || "Tempo esgotado — não deu pra enviar a tempo");
       }
     },
     onError: (e) => toast.error("Erro: " + e.message),
   });
+
+  const handleJoin = useCallback(async () => {
+    if (code.length < 4) { toast.error("Digite o código de acesso"); return; }
+    const result = await refetchJoin();
+    if (result.data?.found) {
+      setSessionId(result.data.sessionId);
+      setJoinData(result.data);
+      if (result.data.status === "gabarito_released") {
+        setPhase("gabarito");
+      } else {
+        setPhase("lobby");
+      }
+      toast.success("Conectado ao quiz!");
+    } else {
+      toast.error(result.data?.message || "Código inválido");
+    }
+  }, [code, refetchJoin]);
+
+  // Se veio um código pelo QR code (?code=XXXXXX), entra automaticamente
+  // assim que a tela carrega — sem o aluno precisar digitar nada.
+  useEffect(() => {
+    if (initialCode && !autoJoinTried && phase === "enter_code") {
+      setAutoJoinTried(true);
+      handleJoin();
+    }
+  }, [initialCode, autoJoinTried, phase, handleJoin]);
 
   // Processar dados da questão atual
   useEffect(() => {
@@ -96,28 +126,31 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
     }
   }, [questionData]);
 
+  // Cronômetro: recalcula a partir do horário do servidor
+  // (currentQuestionStartedAt) — sincronizado, não depende de quando ESTE
+  // celular específico recebeu a pergunta. Quando chega a 0, trava a
+  // escolha (o servidor também recusa respostas atrasadas).
+  useEffect(() => {
+    const startedAt = questionData?.currentQuestionStartedAt;
+    const limite = questionData?.timeLimitSeconds || 20;
+    if (!startedAt || phase !== "question") {
+      setSegundosRestantes(null);
+      return;
+    }
+    const tick = () => {
+      const decorrido = (Date.now() - new Date(startedAt).getTime()) / 1000;
+      setSegundosRestantes(Math.max(0, Math.ceil(limite - decorrido)));
+    };
+    tick();
+    const interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, [questionData?.currentQuestionStartedAt, phase]);
+
   // Buscar gabarito quando liberado
   const { data: gabaritData, refetch: refetchGabarito } = trpc.studentAuth.joinLiveQuiz.useQuery(
     { accessCode: code.toUpperCase(), sessionToken: studentToken },
     { enabled: phase === "gabarito", refetchInterval: false }
   );
-
-  const handleJoin = async () => {
-    if (code.length < 4) { toast.error("Digite o código de acesso"); return; }
-    const result = await refetchJoin();
-    if (result.data?.found) {
-      setSessionId(result.data.sessionId);
-      setJoinData(result.data);
-      if (result.data.status === "gabarito_released") {
-        setPhase("gabarito");
-      } else {
-        setPhase("lobby");
-      }
-      toast.success("Conectado ao quiz!");
-    } else {
-      toast.error(result.data?.message || "Código inválido");
-    }
-  };
 
   const handleSubmit = () => {
     if (!selectedAnswer || !sessionId || currentQuestion === null) return;
@@ -130,6 +163,8 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
   };
 
   const typeLabel = (type: string) => ({ mc: "Múltipla Escolha", vf: "Verdadeiro/Falso", correlacao: "Correlação de Colunas" }[type] || type);
+
+  const tempoEsgotado = segundosRestantes === 0;
 
   // ─── TELA: Digitar código ───
   if (phase === "enter_code") {
@@ -211,6 +246,15 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
           {isOnline ? <Wifi className="w-4 h-4 text-green-400" /> : <WifiOff className="w-4 h-4 text-yellow-400" />}
         </div>
 
+        {/* Cronômetro grande, bem visível */}
+        {segundosRestantes !== null && (
+          <div className={`mb-4 flex items-center justify-center gap-2 rounded-xl py-3 font-mono font-bold text-3xl ${
+            segundosRestantes <= 5 ? "bg-red-900/40 text-red-400 animate-pulse" : "bg-gray-900 border border-gray-700 text-white"
+          }`}>
+            <TimerReset className="w-7 h-7" /> {segundosRestantes}s
+          </div>
+        )}
+
         {/* Tópico */}
         <p className="text-red-400 text-xs font-semibold uppercase tracking-wide mb-3">{currentQuestion.topic}</p>
 
@@ -225,8 +269,9 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
             {Object.entries(currentQuestion.alternativas).map(([key, val]) => (
               <button
                 key={key}
-                onClick={() => !submitted && setSelectedAnswer(key)}
-                className={`w-full text-left rounded-xl border p-3 transition-all ${
+                onClick={() => !submitted && !tempoEsgotado && setSelectedAnswer(key)}
+                disabled={tempoEsgotado}
+                className={`w-full text-left rounded-xl border p-3 transition-all disabled:opacity-40 ${
                   selectedAnswer === key
                     ? "bg-red-600 border-red-500 text-white"
                     : "bg-gray-900 border-gray-700 text-gray-300 hover:border-gray-500 hover:bg-gray-800"
@@ -243,11 +288,11 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-gray-950 border-t border-gray-800">
           <Button
             onClick={handleSubmit}
-            disabled={!selectedAnswer || submitted || submitMutation.isPending}
+            disabled={!selectedAnswer || submitted || submitMutation.isPending || tempoEsgotado}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-bold h-12 disabled:opacity-50"
           >
             {submitMutation.isPending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
-            {submitted ? "Resposta Enviada ✓" : "Confirmar Resposta"}
+            {submitted ? "Resposta Enviada ✓" : tempoEsgotado ? "Tempo esgotado" : "Confirmar Resposta"}
           </Button>
         </div>
       </div>
@@ -260,7 +305,7 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
       <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center p-4">
         <div className="text-center space-y-4">
           <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto" />
-          <h2 className="text-xl font-bold text-white">Resposta enviada!</h2>
+          <h2 className="text-xl font-bold text-white">{submitted ? "Resposta enviada!" : "Tempo encerrado"}</h2>
           <p className="text-gray-400">Aguardando o professor avançar para a próxima questão...</p>
           <div className="flex items-center gap-2 justify-center text-gray-500 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -304,9 +349,6 @@ export default function LiveQuizStudent({ studentToken, studentName }: LiveQuizS
           </div>
           <h1 className="text-3xl font-bold text-white">{score.toFixed(1)}</h1>
           <p className="text-gray-400">{totalCorrect} de {totalQ} questões corretas</p>
-          <Badge className={`mt-2 ${score >= 6 ? "bg-green-700" : "bg-red-700"} text-white`}>
-            {score >= 6 ? "✓ Aprovado na P2" : "✗ Necessário Prova Final"}
-          </Badge>
         </div>
 
         {/* Gabarito questão a questão */}

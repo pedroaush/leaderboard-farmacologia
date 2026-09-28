@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import {
   Play, ChevronRight, CheckCircle2, XCircle, Users, BookOpen,
   Loader2, Trophy, Send, Eye, SkipForward, Lock, Unlock,
-  Monitor, Smartphone, AlertCircle, RefreshCw
+  Monitor, Smartphone, AlertCircle, RefreshCw, QrCode, TimerReset
 } from "lucide-react";
 
 const API_BASE = "/api/trpc";
@@ -31,6 +31,7 @@ async function callApi(endpoint: string, input: any) {
 }
 
 const TEACHER_TOKEN_KEY = "prof_grades_teacher_token";
+const JOIN_BASE_URL = "https://2026.conexaofarmacologia.com.br/quiz-ao-vivo";
 
 const TURMAS = [
   { id: 22, name: "Medicina 1" },
@@ -42,7 +43,6 @@ const TURMAS = [
   { id: 28, name: "Nutrição Noturno" },
 ];
 
-// Questões da P2 pré-carregadas
 const P2_QUESTIONS = [
   // Bloco I — Farmacologia Adrenérgica (Q1-Q5)
   {
@@ -379,6 +379,8 @@ interface LiveQuizControlProps {
   teacherToken?: string;
 }
 
+type FonteQuiz = "p2" | "seminario";
+
 export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizControlProps = {}) {
   const [token, setToken] = useState(() => propToken || localStorage.getItem(TEACHER_TOKEN_KEY) || "");
   const [email, setEmail] = useState("");
@@ -396,7 +398,26 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
   const [grading, setGrading] = useState(false);
   const [selectedClassId, setSelectedClassId] = useState<number>(22);
   const [selectedProva, setSelectedProva] = useState<"P1" | "P2">("P2");
-  const [timeLimitSec, setTimeLimitSec] = useState(90);
+  const [timeLimitSec, setTimeLimitSec] = useState(20);
+
+  // Fonte das perguntas: P2 (fixas) ou Seminário (grupos)
+  const [fonte, setFonte] = useState<FonteQuiz>("p2");
+  const [gruposSeminario, setGruposSeminario] = useState<{ id: number; name: string }[]>([]);
+  const [gruposSelecionados, setGruposSelecionados] = useState<number[]>([]);
+  const [carregandoGrupos, setCarregandoGrupos] = useState(false);
+
+  // Cronômetro visível, sincronizado com o servidor
+  const [segundosRestantes, setSegundosRestantes] = useState<number | null>(null);
+
+  // Buscar grupos do Seminário quando a fonte muda pra "seminario"
+  useEffect(() => {
+    if (fonte !== "seminario" || !token) return;
+    setCarregandoGrupos(true);
+    callApi("teacherAuth.listAllGroups", { sessionToken: token, classId: selectedClassId })
+      .then((data) => setGruposSeminario((data?.seminario || []).map((g: any) => ({ id: g.id, name: g.name }))))
+      .catch(() => toast.error("Erro ao buscar grupos do Seminário"))
+      .finally(() => setCarregandoGrupos(false));
+  }, [fonte, token, selectedClassId]);
 
   // Polling do status da sessão
   useEffect(() => {
@@ -405,11 +426,35 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
       try {
         const data = await callApi("teacherAuth.getLiveQuizStatus", { sessionToken: token, sessionId });
         setSessionStatus(data);
-        if (data?.currentQuestionIndex !== undefined) setCurrentQIdx(data.currentQuestionIndex);
+        if (data?.session?.currentQuestionIndex !== undefined) setCurrentQIdx(data.session.currentQuestionIndex);
       } catch (e) { /* ignore */ }
     }, 2000);
     return () => clearInterval(interval);
   }, [sessionId, token]);
+
+  // Cronômetro: recalcula a cada meio segundo a partir do horário do
+  // servidor (currentQuestionStartedAt), pra ficar sincronizado mesmo se a
+  // aba recarregar ou a rede atrasar um pouco. Fecha a questão sozinho
+  // quando chega a 0.
+  useEffect(() => {
+    const startedAt = sessionStatus?.session?.currentQuestionStartedAt;
+    const limite = sessionStatus?.session?.timeLimitSeconds || timeLimitSec;
+    if (!startedAt || currentQIdx < 0 || sessionStatus?.session?.status !== "active") {
+      setSegundosRestantes(null);
+      return;
+    }
+    const tick = () => {
+      const decorrido = (Date.now() - new Date(startedAt).getTime()) / 1000;
+      const restante = Math.max(0, Math.ceil(limite - decorrido));
+      setSegundosRestantes(restante);
+      if (restante === 0 && sessionId) {
+        callApi("teacherAuth.closeLiveQuizQuestion", { sessionToken: token, sessionId }).catch(() => {});
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, [sessionStatus?.session?.currentQuestionStartedAt, sessionStatus?.session?.status, currentQIdx]);
 
   const handleLogin = async () => {
     setLoginLoading(true);
@@ -433,20 +478,30 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
   const handleCreate = async () => {
     setCreating(true);
     try {
-      // Serializar questions e extrair gabarito separadamente
-      const gabarito = JSON.stringify(
-        P2_QUESTIONS.reduce((acc: Record<number, string>, q: any, idx: number) => {
-          acc[idx] = q.gabarito;
-          return acc;
-        }, {})
-      );
-      const res = await callApi("teacherAuth.createLiveQuiz", {
-        sessionToken: token,
-        classId: selectedClassId,
-        provaType: selectedProva,
-        questions: JSON.stringify(P2_QUESTIONS),
-        gabarito,
-      });
+      let res: any;
+      if (fonte === "seminario") {
+        res = await callApi("teacherAuth.createLiveSeminarQuiz", {
+          sessionToken: token,
+          classId: selectedClassId,
+          timeLimitSeconds: timeLimitSec,
+          groupIds: gruposSelecionados.length > 0 ? gruposSelecionados : undefined,
+        });
+      } else {
+        const gabarito = JSON.stringify(
+          P2_QUESTIONS.reduce((acc: Record<number, string>, q: any, idx: number) => {
+            acc[idx] = q.gabarito;
+            return acc;
+          }, {})
+        );
+        res = await callApi("teacherAuth.createLiveQuiz", {
+          sessionToken: token,
+          classId: selectedClassId,
+          provaType: selectedProva,
+          questions: JSON.stringify(P2_QUESTIONS),
+          gabarito,
+          timeLimitSeconds: timeLimitSec,
+        });
+      }
       if (res?.sessionId) {
         setSessionId(res.sessionId);
         setAccessCode(res.accessCode);
@@ -466,15 +521,10 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
     if (!sessionId) return;
     setAdvancing(true);
     try {
-      const nextIdx = currentQIdx + 1;
-      const res = await callApi("teacherAuth.advanceLiveQuiz", {
-        sessionToken: token,
-        sessionId,
-        questionIndex: nextIdx,
-      });
+      const res = await callApi("teacherAuth.advanceLiveQuiz", { sessionToken: token, sessionId });
       if (res?.success) {
-        setCurrentQIdx(nextIdx);
-        toast.success(`Questão ${nextIdx + 1} exibida`);
+        setCurrentQIdx(res.currentIndex);
+        toast.success(res.finished ? "Última questão exibida" : `Questão ${res.currentIndex + 1} exibida`);
       } else {
         toast.error(res?.message || "Erro ao avançar");
       }
@@ -499,11 +549,7 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
     if (!sessionId) return;
     setReleasing(true);
     try {
-      const res = await callApi("teacherAuth.releaseLiveQuizGabarito", {
-        sessionToken: token,
-        sessionId,
-        gabarito: P2_QUESTIONS.map(q => ({ gabarito: q.gabarito, justificativa: q.justificativa })),
-      });
+      const res = await callApi("teacherAuth.releaseLiveQuizGabarito", { sessionToken: token, sessionId });
       if (res?.success) {
         toast.success("Gabarito liberado para os alunos!");
       } else {
@@ -523,11 +569,10 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
       const res = await callApi("teacherAuth.gradeLiveQuiz", {
         sessionToken: token,
         sessionId,
-        classId: selectedClassId,
-        provaType: selectedProva,
+        provaType: fonte === "seminario" ? "P2" : selectedProva,
       });
       if (res?.success) {
-        toast.success(`Notas lançadas! ${res.gradedCount} alunos corrigidos.`);
+        toast.success(`Notas lançadas! ${res.launched} alunos corrigidos.`);
       } else {
         toast.error(res?.message || "Erro ao lançar notas");
       }
@@ -538,13 +583,13 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
     }
   };
 
-  const currentQ = currentQIdx >= 0 ? P2_QUESTIONS[currentQIdx] : null;
-  const totalQ = P2_QUESTIONS.length;
+  const totalQ = fonte === "seminario" ? (sessionStatus?.session?.totalQuestions ?? 0) : P2_QUESTIONS.length;
   const answeredCount = sessionStatus?.answersCurrentQuestion || 0;
   const totalStudents = sessionStatus?.totalStudentsAnswered || 0;
   const participants: { memberId: number; memberName: string }[] = sessionStatus?.participants || [];
   const participantCount = sessionStatus?.participantCount || participants.length || 0;
-  const isFinished = sessionStatus?.status === "finished" || sessionStatus?.status === "gabarito_released";
+  const isFinished = sessionStatus?.session?.status === "finished" || sessionStatus?.session?.status === "gabarito_released";
+  const joinUrl = accessCode ? `${JOIN_BASE_URL}?code=${accessCode}` : "";
 
   // ─── LOGIN ───
   if (showLogin) {
@@ -579,6 +624,25 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
         <Card className="bg-gray-900 border-gray-700">
           <CardHeader><CardTitle className="text-white text-base">Configurar Quiz</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            {/* Fonte das perguntas */}
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Perguntas de</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFonte("p2")}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium ${fonte === "p2" ? "bg-red-600 text-white" : "bg-gray-800 text-gray-400"}`}
+                >
+                  P2 (fixas)
+                </button>
+                <button
+                  onClick={() => setFonte("seminario")}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium ${fonte === "seminario" ? "bg-red-600 text-white" : "bg-gray-800 text-gray-400"}`}
+                >
+                  Seminário (grupos)
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-gray-400 text-xs mb-1 block">Turma</label>
@@ -591,42 +655,73 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Prova</label>
-                <Select value={selectedProva} onValueChange={v => setSelectedProva(v as "P1" | "P2")}>
-                  <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="P1">P1</SelectItem>
-                    <SelectItem value="P2">P2</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {fonte === "p2" && (
+                <div>
+                  <label className="text-gray-400 text-xs mb-1 block">Prova</label>
+                  <Select value={selectedProva} onValueChange={v => setSelectedProva(v as "P1" | "P2")}>
+                    <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="P1">P1</SelectItem>
+                      <SelectItem value="P2">P2</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
+
+            {/* Escolha de grupo(s) do Seminário */}
+            {fonte === "seminario" && (
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">
+                  Grupo(s) — deixe tudo desmarcado pra usar as perguntas de todos os grupos aprovados
+                </label>
+                {carregandoGrupos ? (
+                  <p className="text-gray-500 text-xs">Carregando grupos...</p>
+                ) : gruposSeminario.length === 0 ? (
+                  <p className="text-gray-500 text-xs">Nenhum grupo de Seminário encontrado pra essa turma.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {gruposSeminario.map(g => {
+                      const marcado = gruposSelecionados.includes(g.id);
+                      return (
+                        <button
+                          key={g.id}
+                          onClick={() => setGruposSelecionados(prev => marcado ? prev.filter(id => id !== g.id) : [...prev, g.id])}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${marcado ? "bg-red-600 border-red-500 text-white" : "bg-gray-800 border-gray-700 text-gray-400"}`}
+                        >
+                          {g.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
-              <label className="text-gray-400 text-xs mb-1 block">Tempo por questão (segundos)</label>
+              <label className="text-gray-400 text-xs mb-1 block flex items-center gap-1"><TimerReset size={12} /> Tempo por questão (segundos)</label>
               <Select value={String(timeLimitSec)} onValueChange={v => setTimeLimitSec(Number(v))}>
                 <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="20">20 segundos (padrão do Seminário)</SelectItem>
                   <SelectItem value="60">60 segundos</SelectItem>
-                  <SelectItem value="90">90 segundos (padrão)</SelectItem>
+                  <SelectItem value="90">90 segundos</SelectItem>
                   <SelectItem value="120">120 segundos</SelectItem>
                   <SelectItem value="180">180 segundos</SelectItem>
-                  <SelectItem value="0">Sem limite</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-300">
-              <p className="font-semibold text-white mb-1">📋 {totalQ} questões carregadas:</p>
-              <p>• Q1–Q5: Farmacologia Adrenérgica</p>
-              <p>• Q6–Q10: AINEs e Glicocorticoides</p>
-              <p>• Q11–Q15: Anestésicos Locais</p>
-              <p>• Q16–Q19: Anti-histamínicos</p>
-              <p>• Q20–Q25: Artigos Jigsaw Fase 1</p>
-            </div>
+
+            {fonte === "p2" && (
+              <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-300">
+                <p className="font-semibold text-white mb-1">📋 {P2_QUESTIONS.length} questões carregadas (P2)</p>
+              </div>
+            )}
+
             <Button onClick={handleCreate} disabled={creating} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold">
               {creating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
               Criar Sessão do Quiz
@@ -638,30 +733,42 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
       {/* Sessão ativa */}
       {sessionId && (
         <>
-          {/* Código de acesso */}
+          {/* Código de acesso + QR Code */}
           <Card className="bg-gray-900 border-green-700">
             <CardContent className="pt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-gray-400 text-xs">Código de acesso</p>
                   <p className="text-4xl font-mono font-bold text-green-400 tracking-widest">{accessCode}</p>
                   <p className="text-gray-400 text-xs mt-1">Alunos acessam: <span className="text-white">2026.conexaofarmacologia.com.br/quiz-ao-vivo</span></p>
+                  <p className="text-gray-500 text-xs mt-1">Ou escaneiam o QR code ao lado — se der erro na leitura, digitam o código manualmente.</p>
                 </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-1 text-green-400">
-                    <Users className="w-4 h-4" />
-                    <span className="text-2xl font-bold">{participantCount}</span>
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  <div className="bg-white p-1.5 rounded-lg">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(joinUrl)}`}
+                      alt="QR code de acesso ao quiz"
+                      width={140}
+                      height={140}
+                    />
                   </div>
-                  <p className="text-gray-400 text-xs">no lobby</p>
-                  {answeredCount > 0 && (
-                    <p className="text-yellow-400 text-xs mt-1">{answeredCount} responderam</p>
-                  )}
+                  <span className="text-gray-500 text-[10px] flex items-center gap-1"><QrCode size={10} /> escaneie</span>
                 </div>
+              </div>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-800">
+                <div className="flex items-center gap-1 text-green-400">
+                  <Users className="w-4 h-4" />
+                  <span className="text-xl font-bold">{participantCount}</span>
+                  <span className="text-gray-400 text-xs">no lobby</span>
+                </div>
+                {answeredCount > 0 && (
+                  <p className="text-yellow-400 text-xs">{answeredCount} responderam</p>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Questão atual */}
+          {/* Questão atual + cronômetro */}
           <Card className="bg-gray-900 border-gray-700">
             <CardContent className="pt-4 space-y-3">
               {currentQIdx === -1 ? (
@@ -680,20 +787,22 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
                     </div>
                   )}
                 </div>
-              ) : currentQ ? (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Badge className="bg-red-600 text-white">Q{currentQIdx + 1}/{totalQ}</Badge>
-                    <Badge variant="outline" className="border-gray-600 text-gray-300 text-xs">{currentQ.topic}</Badge>
-                    <Badge variant="outline" className="border-gray-600 text-gray-300 text-xs">{currentQ.type === "mc" ? "Múltipla Escolha" : currentQ.type === "vf" ? "V/F" : "Correlação"}</Badge>
-                  </div>
-                  <p className="text-white text-sm leading-relaxed whitespace-pre-line line-clamp-4">{currentQ.enunciado}</p>
-                  <div className="mt-2 bg-green-900/30 border border-green-700 rounded px-3 py-1 text-sm">
-                    <span className="text-gray-400">Gabarito: </span>
-                    <span className="text-green-400 font-bold">{currentQ.gabarito}</span>
-                  </div>
-                </div>
               ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-red-600 text-white">Q{currentQIdx + 1}/{totalQ}</Badge>
+                    </div>
+                    {segundosRestantes !== null && (
+                      <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-mono font-bold text-lg ${segundosRestantes <= 5 ? "bg-red-900/50 text-red-400 animate-pulse" : "bg-gray-800 text-white"}`}>
+                        <TimerReset size={16} /> {segundosRestantes}s
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-white text-sm leading-relaxed">Questão em exibição pros alunos (a turma responde no próprio celular).</p>
+                </div>
+              )}
+              {isFinished && currentQIdx >= 0 && (
                 <div className="text-center py-4">
                   <Trophy className="w-8 h-8 text-yellow-400 mx-auto mb-2" />
                   <p className="text-white font-semibold">Todas as questões foram exibidas!</p>
@@ -718,19 +827,22 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
               variant="outline"
               className="border-gray-600 text-gray-300 hover:bg-gray-700"
             >
-              <Lock className="w-4 h-4 mr-2" /> Fechar Respostas
+              <Lock className="w-4 h-4 mr-2" /> Fechar Respostas Agora
             </Button>
           </div>
+          <p className="text-gray-500 text-[11px] -mt-2">
+            O cronômetro fecha as respostas sozinho quando chega a 0 — esse botão é só pra fechar antes do tempo, se precisar.
+          </p>
 
           {/* Liberar gabarito + Lançar notas */}
           <div className="grid grid-cols-2 gap-3">
             <Button
               onClick={handleReleaseGabarito}
-              disabled={releasing || sessionStatus?.status === "gabarito_released"}
+              disabled={releasing || sessionStatus?.session?.status === "gabarito_released"}
               className="bg-yellow-600 hover:bg-yellow-700 text-white"
             >
               {releasing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
-              {sessionStatus?.status === "gabarito_released" ? "Gabarito Liberado ✓" : "Liberar Gabarito"}
+              {sessionStatus?.session?.status === "gabarito_released" ? "Gabarito Liberado ✓" : "Liberar Gabarito"}
             </Button>
             <Button
               onClick={handleGradeAndLaunch}
@@ -745,53 +857,11 @@ export default function LiveQuizControl({ teacherToken: propToken }: LiveQuizCon
           {/* Status */}
           {sessionStatus && (
             <div className="bg-gray-800 rounded-lg p-3 text-xs text-gray-400 space-y-1">
-              <p>Status: <span className="text-white">{sessionStatus.status}</span></p>
+              <p>Status: <span className="text-white">{sessionStatus.session?.status}</span></p>
               <p>Questão atual: <span className="text-white">{currentQIdx >= 0 ? `Q${currentQIdx + 1}` : "Lobby"}</span></p>
               <p>Respostas recebidas: <span className="text-white">{answeredCount}/{totalStudents}</span></p>
             </div>
           )}
-
-          {/* Gerar novo código sem sair do painel */}
-          <Button
-            onClick={async () => {
-              if (!window.confirm("Criar nova sessão? O código atual será substituído.")) return;
-              setCreating(true);
-              try {
-                const gabarito = JSON.stringify(
-                  P2_QUESTIONS.reduce((acc: Record<number, string>, q: any, idx: number) => {
-                    acc[idx] = q.gabarito;
-                    return acc;
-                  }, {})
-                );
-                const res = await callApi("teacherAuth.createLiveQuiz", {
-                  sessionToken: token,
-                  classId: selectedClassId,
-                  provaType: selectedProva,
-                  questions: JSON.stringify(P2_QUESTIONS),
-                  gabarito,
-                });
-                if (res?.sessionId) {
-                  setSessionId(res.sessionId);
-                  setAccessCode(res.accessCode);
-                  setCurrentQIdx(-1);
-                  setSessionStatus(null);
-                  toast.success(`Nova sessão criada! Código: ${res.accessCode}`);
-                } else {
-                  toast.error(res?.message || "Erro ao criar nova sessão");
-                }
-              } catch (e: any) {
-                toast.error(e.message || "Erro ao criar nova sessão");
-              } finally {
-                setCreating(false);
-              }
-            }}
-            disabled={creating}
-            variant="outline"
-            className="w-full border-orange-700 text-orange-400 hover:bg-orange-900/30 text-xs mt-1"
-          >
-            {creating ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-            Gerar Novo Código (nova sessão)
-          </Button>
         </>
       )}
     </div>

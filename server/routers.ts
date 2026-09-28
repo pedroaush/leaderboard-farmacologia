@@ -25,7 +25,6 @@ import { studentNotificationsRouter } from "./routers/student-notifications";
 import { activitiesRouter } from "./routers/activities";
 import { studentActivitiesRouter } from "./routers/studentActivities";
 import { chatRouter } from "./routers/chat";
-import { simulacoesClinicasRouter } from "./routers/simulacoesClinicas";
 import { studentStatsRouter } from "./routers/student-stats";
 import { attendanceReportsDetailedRouter } from "./routers/attendance-reports-detailed";
 import { monitorsRouter } from "./routers/monitors";
@@ -1536,6 +1535,7 @@ if (!SUPER_ADMIN_SECRET) {
         title: z.string().default("P2 - Quiz ao Vivo"),
         questions: z.string(),
         gabarito: z.string(),
+        timeLimitSeconds: z.number().min(5).max(300).default(20),
       }))
       .mutation(async ({ input }) => {
         const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
@@ -1558,8 +1558,79 @@ if (!SUPER_ADMIN_SECRET) {
           gabarito: input.gabarito,
           status: "lobby",
           currentQuestionIndex: -1,
+          timeLimitSeconds: input.timeLimitSeconds,
         });
         return { success: true, sessionId: (result as any).insertId, accessCode };
+      }),
+
+    // ─── Quiz ao Vivo: criar sessao a partir das perguntas do Seminário ───
+    // ─── (jigsawIntegrationQuestions, status='approved') em vez das ───
+    // ─── perguntas fixas da P2. Reaproveita a mesma tabela liveQuizSessions. ───
+    createLiveSeminarQuiz: publicProcedure
+      .input(z.object({
+        sessionToken: z.string(),
+        classId: z.number(),
+        timeLimitSeconds: z.number().min(5).max(300).default(20),
+        groupIds: z.array(z.number()).optional(), // filtra por grupo(s); vazio/omitido = todas as perguntas aprovadas da turma
+      }))
+      .mutation(async ({ input }) => {
+        const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
+        if (!teacher) throw new Error("Nao autorizado");
+        const { liveQuizSessions, jigsawIntegrationQuestions } = await import("../drizzle/schema.js");
+        const { eq, and } = await import("drizzle-orm");
+        const dbConn = await (await import("./db.js")).getDb();
+        if (!dbConn) throw new Error("Database not available");
+
+        let perguntas = await dbConn.select().from(jigsawIntegrationQuestions)
+          .where(and(eq(jigsawIntegrationQuestions.classId, input.classId), eq(jigsawIntegrationQuestions.status, "approved")));
+
+        if (input.groupIds && input.groupIds.length > 0) {
+          const groupIdSet = new Set(input.groupIds);
+          perguntas = perguntas.filter((p: any) => p.authorGroupId !== null && groupIdSet.has(p.authorGroupId));
+        }
+        if (!perguntas.length) throw new Error("Nenhuma pergunta aprovada encontrada para essa turma/grupo(s)");
+
+        // Converte do formato do Seminário ({id,texto,correta}[]) pro formato
+        // que o Quiz ao Vivo já usa ({A: "...", B: "...", ...} + gabarito
+        // separado por índice de questão).
+        const questoesFormatadas = perguntas.map((p: any) => {
+          const alts = p.alternativas as { id: string; texto: string; correta: boolean }[];
+          const alternativas: Record<string, string> = {};
+          alts.forEach((a, i) => { alternativas[String.fromCharCode(65 + i)] = a.texto; });
+          return {
+            idx: 0, // ajustado abaixo
+            type: "mc",
+            topic: p.topico,
+            enunciado: p.enunciado,
+            alternativas,
+            _questionId: p.id,
+          };
+        }).map((q: any, i: number) => ({ ...q, idx: i }));
+
+        const gabaritoFormatado = perguntas.map((p: any) => {
+          const alts = p.alternativas as { id: string; texto: string; correta: boolean }[];
+          const idxCorreta = alts.findIndex(a => a.correta);
+          const letra = String.fromCharCode(65 + idxCorreta);
+          return { gabarito: letra, justificativa: p.explicacao || "" };
+        });
+
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let accessCode = "";
+        for (let i = 0; i < 6; i++) accessCode += chars[Math.floor(Math.random() * chars.length)];
+        const [result] = await dbConn.insert(liveQuizSessions).values({
+          accessCode,
+          title: "Seminário - Quiz ao Vivo",
+          provaType: "SEMINARIO",
+          classId: input.classId,
+          teacherSessionToken: input.sessionToken,
+          questions: JSON.stringify(questoesFormatadas),
+          totalQuestions: questoesFormatadas.length,
+          gabarito: JSON.stringify(gabaritoFormatado),
+          status: "lobby",
+          currentQuestionIndex: -1,
+          timeLimitSeconds: input.timeLimitSeconds,
+        });
+        return { success: true, sessionId: (result as any).insertId, accessCode, totalQuestions: questoesFormatadas.length };
       }),
 
     // ─── Quiz ao Vivo: avancar questao ───
@@ -1580,6 +1651,7 @@ if (!SUPER_ADMIN_SECRET) {
           currentQuestionIndex: isFinished ? (session as any).totalQuestions - 1 : nextIndex,
           status: isFinished ? "finished" : "active",
           finishedAt: isFinished ? new Date() : undefined,
+          currentQuestionStartedAt: isFinished ? undefined : new Date(),
         }).where(eq(liveQuizSessions.id, input.sessionId));
         return { success: true, finished: isFinished, currentIndex: isFinished ? (session as any).totalQuestions - 1 : nextIndex };
       }),
@@ -1694,6 +1766,8 @@ if (!SUPER_ADMIN_SECRET) {
             currentQuestionIndex: currentIdx, totalQuestions: (session as any).totalQuestions,
             classId: (session as any).classId, gabaritReleasedAt: (session as any).gabaritReleasedAt,
             finishedAt: (session as any).finishedAt,
+            currentQuestionStartedAt: (session as any).currentQuestionStartedAt,
+            timeLimitSeconds: (session as any).timeLimitSeconds,
           },
           answersCurrentQuestion: answersCurrentQ.length,
           totalStudentsAnswered: uniqueStudents,
@@ -3807,6 +3881,8 @@ if (!SUPER_ADMIN_SECRET) {
           question: currentQ ? { ...currentQ, gabarito: undefined, justificativa: undefined } : null,
           alreadyAnswered: myAnswer.length > 0,
           myAnswer: myAnswer.length > 0 ? (myAnswer[0] as any).answer : null,
+          currentQuestionStartedAt: (session as any).currentQuestionStartedAt,
+          timeLimitSeconds: (session as any).timeLimitSeconds,
         };
       }),
 
@@ -3829,6 +3905,14 @@ if (!SUPER_ADMIN_SECRET) {
         if (!session) throw new Error("Sessao nao encontrada");
         if ((session as any).status === "question_closed" || (session as any).status === "finished") {
           return { success: false, message: "Tempo esgotado para esta questao" };
+        }
+        const startedAt = (session as any).currentQuestionStartedAt;
+        const limiteSeg = (session as any).timeLimitSeconds || 20;
+        if (startedAt && input.questionIndex === (session as any).currentQuestionIndex) {
+          const decorrido = (Date.now() - new Date(startedAt).getTime()) / 1000;
+          if (decorrido > limiteSeg + 2) { // +2s de tolerância de rede
+            return { success: false, message: "Tempo esgotado para esta questao" };
+          }
         }
         const gabarito = JSON.parse((session as any).gabarito || "[]");
         const correctAnswer = gabarito[input.questionIndex]?.gabarito || gabarito[input.questionIndex]?.answer || "";
@@ -4192,17 +4276,10 @@ if (!SUPER_ADMIN_SECRET) {
 
     // Admin: reset password for a specific student account
     resetStudentPassword: publicProcedure
-      .input(z.object({ password: z.string().optional(), sessionToken: z.string().optional(), studentAccountId: z.number(), newPassword: z.string().min(5) }))
+      .input(z.object({ password: z.string(), studentAccountId: z.number(), newPassword: z.string().min(5) }))
       .mutation(async ({ input }) => {
-        let authorized = false;
-        if (input.sessionToken) {
-          const teacher = await db.getTeacherAccountBySessionToken(input.sessionToken);
-          if (teacher && (teacher.role === "super_admin" || teacher.role === "coordenador")) authorized = true;
-        }
-        if (!authorized && input.password) {
-          authorized = await verifyAdminPassword(input.password);
-        }
-        if (!authorized) throw new Error("Não autorizado");
+        const valid = await verifyAdminPassword(input.password);
+        if (!valid) throw new Error("Não autorizado");
         const passwordHash = await bcrypt.hash(input.newPassword, 10);
         await db.updateStudentAccountPassword(input.studentAccountId, passwordHash);
         return { success: true, message: "Senha resetada com sucesso" };
@@ -4841,7 +4918,6 @@ if (!SUPER_ADMIN_SECRET) {
   settings: settingsRouter,
   studentActivities: studentActivitiesRouter,
   chat: chatRouter,
-  simulacoesClinicas: simulacoesClinicasRouter,
 
   // Temporary seed endpoint for Jigsaw data restoration
   jigsawSeed: router({
