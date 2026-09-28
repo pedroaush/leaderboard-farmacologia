@@ -729,6 +729,34 @@ export default function Home() {
                 </motion.div>
               </Link>
 
+              {/* Perguntas do Seminário (quiz individual/assíncrono) */}
+              <Link href="/seminario/perguntas">
+                <motion.div
+                  className="flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-xl cursor-pointer"
+                  style={{ backgroundColor: "rgba(59,130,246,0.15)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.35)" }}
+                  whileHover={{ scale: 1.06, y: -3, backgroundColor: "rgba(59,130,246,0.25)", boxShadow: "0 6px 20px rgba(59,130,246,0.3)" }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                >
+                  <BookOpen className="w-6 h-6 sm:w-7 sm:h-7" />
+                  <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Perguntas Seminário</span>
+                </motion.div>
+              </Link>
+
+              {/* Quiz ao Vivo (com QR code) */}
+              <Link href="/quiz-ao-vivo">
+                <motion.div
+                  className="flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-xl cursor-pointer"
+                  style={{ backgroundColor: "rgba(239,68,68,0.15)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.35)" }}
+                  whileHover={{ scale: 1.06, y: -3, backgroundColor: "rgba(239,68,68,0.25)", boxShadow: "0 6px 20px rgba(239,68,68,0.3)" }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                >
+                  <Gamepad2 className="w-6 h-6 sm:w-7 sm:h-7" />
+                  <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Quiz ao Vivo</span>
+                </motion.div>
+              </Link>
+
               {/* Presença */}
               <Link href="/attendance/check-in" className="relative">
                 <motion.div

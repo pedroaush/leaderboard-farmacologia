@@ -74,6 +74,7 @@ import DigitalExam from "./pages/DigitalExam";
 import LiveQuizStudent from "./pages/LiveQuizStudent";
 import GerenciarSimulacoes from "./pages/GerenciarSimulacoes";
 import PraticaSimulada from "./pages/PraticaSimulada";
+import PraticaSeminario from "./pages/PraticaSeminario";
 import { useStudentAuth } from "./pages/StudentLogin";
 
 function LiveQuizStudentWrapper() {
@@ -136,6 +137,7 @@ function Router() {
       <Route path={"/professor/chat"} component={TeacherChat} />
       <Route path={"/casos-clinicos/arquivos"} component={CasosClinicosArquivos} />
       <Route path={"/casos-clinicos/pratica-simulada"} component={PraticaSimulada} />
+      <Route path={"/seminario/perguntas"} component={PraticaSeminario} />
       <Route path={"/professor/simulacoes"} component={GerenciarSimulacoes} />
       <Route path={"/estatisticas"} component={StudentStats} />
       <Route path={"/professor/avaliar-atividades"} component={TeacherFeedback} />
