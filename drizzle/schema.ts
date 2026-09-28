@@ -1986,6 +1986,15 @@ export const liveQuizSessions = mysqlTable("liveQuizSessions", {
   currentQuestionStartedAt: timestamp("currentQuestionStartedAt"),
   timeLimitSeconds: int("timeLimitSeconds").notNull().default(20),
   // ── fim novo ──
+  totalQuestions: int("totalQuestions").notNull().default(0),
+  status: mysqlEnum("status", ["lobby", "active", "question_closed", "finished", "gabarito_released"]).notNull().default("lobby"),
+  gabarito: text("gabarito").notNull(),
+  gabaritReleasedAt: timestamp("gabaritReleasedAt"),
+  finishedAt: timestamp("finishedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueCode: uniqueIndex("liveQuizSessions_accessCode").on(t.accessCode),
+}));
 export type LiveQuizSession = typeof liveQuizSessions.$inferSelect;
 export type InsertLiveQuizSession = typeof liveQuizSessions.$inferInsert;
 
