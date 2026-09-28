@@ -4906,6 +4906,7 @@ export default function Admin() {
     { key: "qr-code" as const, label: "QR Code Presença", icon: <QrCode size={16} /> },
     { key: "settings" as const, label: "Configurações", icon: <Settings size={16} /> },
     { key: "provas" as const, label: "🖨️ Provas", icon: <Printer size={16} /> },
+    { key: "simulacoes" as const, label: "Casos Clínicos — Simulações", icon: <FlaskConical size={16} /> },
   ];
 
   return (
@@ -4934,7 +4935,13 @@ export default function Admin() {
         <ResponsiveTabNav
           tabs={sections}
           activeTab={activeSection}
-          onTabChange={setActiveSection}
+          onTabChange={(key: any) => {
+            if (key === "simulacoes") {
+              window.location.href = "/professor/simulacoes";
+              return;
+            }
+            setActiveSection(key);
+          }}
         />
       </div>
 

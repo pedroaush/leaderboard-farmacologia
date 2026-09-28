@@ -9,8 +9,31 @@ import { toast } from "sonner";
 import { Link } from "wouter";
 import {
   ArrowLeft, Upload, Loader2, FlaskConical, Trash2, Users,
-  CheckCircle2, ChevronDown, ChevronUp, GraduationCap, Calendar,
+  CheckCircle2, ChevronDown, ChevronUp, GraduationCap, Calendar, Eye, X,
 } from "lucide-react";
+
+function PreviewModal({ simulacaoId, sessionToken, onClose }: { simulacaoId: number; sessionToken: string; onClose: () => void }) {
+  const { data, isLoading } = trpc.simulacoesClinicas.abrir.useQuery({ sessionToken, simulacaoId });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4" style={{ backgroundColor: "rgba(0,0,0,0.9)" }}>
+      <div className="w-full max-w-4xl h-[90vh] rounded-xl overflow-hidden flex flex-col bg-card border border-border">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <p className="text-sm font-medium text-foreground truncate">{data?.titulo || "Carregando..."} <span className="text-xs text-muted-foreground">(pré-visualização)</span></p>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+            <X size={18} className="text-muted-foreground" />
+          </button>
+        </div>
+        <div className="flex-1 bg-white">
+          {isLoading ? (
+            <div className="w-full h-full flex items-center justify-center"><Loader2 size={28} className="animate-spin text-primary" /></div>
+          ) : (
+            <iframe srcDoc={data?.htmlConteudo || ""} title="Pré-visualização" className="w-full h-full border-0" sandbox="allow-scripts allow-same-origin" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function NovaSimulacao({ sessionToken, onCreated }: { sessionToken: string; onCreated: () => void }) {
   const [titulo, setTitulo] = useState("");
@@ -99,6 +122,7 @@ function NovaSimulacao({ sessionToken, onCreated }: { sessionToken: string; onCr
 
 function SimulacaoCard({ sim, sessionToken, onChanged }: { sim: any; sessionToken: string; onChanged: () => void }) {
   const [expandido, setExpandido] = useState(false);
+  const [previewAberto, setPreviewAberto] = useState(false);
   const { data: progresso, isLoading } = trpc.simulacoesClinicas.verProgressoDetalhado.useQuery(
     { sessionToken, simulacaoId: sim.id },
     { enabled: expandido }
@@ -132,6 +156,13 @@ function SimulacaoCard({ sim, sessionToken, onChanged }: { sim: any; sessionToke
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
+            onClick={() => setPreviewAberto(true)}
+            className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-secondary text-foreground text-xs"
+            title="Visualizar simulação"
+          >
+            <Eye size={14} /> Visualizar
+          </button>
+          <button
             onClick={() => { if (confirm(`Remover "${sim.titulo}"?`)) remover.mutate({ sessionToken, id: sim.id }); }}
             className="p-1.5 rounded hover:bg-destructive/20 text-destructive"
           >
@@ -142,6 +173,10 @@ function SimulacaoCard({ sim, sessionToken, onChanged }: { sim: any; sessionToke
           </button>
         </div>
       </div>
+
+      {previewAberto && (
+        <PreviewModal simulacaoId={sim.id} sessionToken={sessionToken} onClose={() => setPreviewAberto(false)} />
+      )}
 
       {expandido && (
         <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
