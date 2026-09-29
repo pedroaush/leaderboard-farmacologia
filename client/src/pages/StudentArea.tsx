@@ -1,3 +1,4 @@
+
 import { useState, useMemo, useEffect } from "react";
 import { useRoute, useLocation, Link } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -13,6 +14,7 @@ import {
   Puzzle, FlaskConical, Shuffle, Star, ChevronDown, ChevronUp, Zap,
   Music, VolumeX, Upload, Paperclip, Loader2
 } from "lucide-react";
+import SeminarioAluno from "./SeminarioAluno";
 
 const DARK_BG = "#0A1628";
 const CARD_BG = "#0D1B2A";
@@ -21,12 +23,21 @@ const ORANGE = "#F7941D";
 export default function StudentArea() {
   const [, params] = useRoute("/aluno/:classId");
   const classId = params?.classId ? Number(params.classId) : null;
-  const [activeTab, setActiveTab] = useState("cronograma");
+  const [activeTab, setActiveTab] = useState(
+  () => new URLSearchParams(window.location.search).get("aba") || "cronograma"
+);
   const [, setLocation] = useLocation();
 
   const { user } = useAuth();
   const { student: studentData, sessionToken: studentSessionToken } = useStudentAuth();
   const memberId = studentData?.memberId || null;
+  const teacherToken = localStorage.getItem("teacherSessionToken") || localStorage.getItem("sessionToken");
+  const { data: teacherCheck, isLoading: verificandoProfessor } = trpc.teacherAuth.verify.useQuery(
+  { sessionToken: teacherToken || "" },
+  { enabled: !studentSessionToken && !!teacherToken }
+);
+const modoConferencia = !studentSessionToken && !!teacherCheck?.valid;
+const tokenSeminario = studentSessionToken || (modoConferencia ? teacherToken : null);
   const { isMuted, toggleMuted } = useAudioContext();
 
   // ─── Justificativa de falta (anexo de atestado/laudo) ───
@@ -216,9 +227,12 @@ export default function StudentArea() {
     return (a1 * 0.3 + a2 * 0.3 + pfVal * 0.4);
   }, [av1, av2, pf]);
 
-  // Aceitar login OAuth (user) OU login de aluno via studentSessionToken
-  if (!user && !studentSessionToken) {
+    // Aceitar login OAuth (user) OU login de aluno via studentSessionToken OU professor em conferência
+  if (!user && !studentSessionToken && !modoConferencia) {
+    if (verificandoProfessor && teacherToken) return null; // evita piscar "Faça Login"
     return (
+      <div className="min-h-screen flex items-center justify-center" ...>
+        ...Faça Login...   ← o resto continua igual
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: DARK_BG }}>
         <div className="text-center">
           <AlertCircle size={48} className="mx-auto mb-4" style={{ color: ORANGE }} />
@@ -258,7 +272,7 @@ export default function StudentArea() {
   }
 
   // Alunos logados via studentSessionToken sempre têm acesso (já validado no login)
-  if (!studentSessionToken && !isEnrolled) {
+if (!studentSessionToken && !isEnrolled && !modoConferencia) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: DARK_BG }}>
         <div className="text-center max-w-md">
@@ -354,6 +368,7 @@ export default function StudentArea() {
               { key: "media", label: "Média", icon: <BarChart3 size={14} /> },
               { key: "materiais", label: "Materiais", icon: <BookOpen size={14} /> },
               { key: "casos_clinicos", label: "Casos Clínicos", icon: <FlaskConical size={14} /> },
+              { key: "seminario", label: "Seminário", icon: <FileText size={14} /> },
               { key: "jogo", label: "Jogo", icon: <Gamepad2 size={14} /> },
               { key: "atividades", label: "Atividades", icon: <Target size={14} /> },
               { key: "equipes", label: "Equipes", icon: <Users size={14} /> },
@@ -513,6 +528,10 @@ export default function StudentArea() {
             </div>
           </div>
         )}
+
+{activeTab === "seminario" && classId && (
+  <SeminarioAluno classId={classId} token={tokenSeminario} modoConferencia={modoConferencia} />
+)}
 
         {/* ═══ PRESENÇA ═══ */}
         {activeTab === "presenca" && (
