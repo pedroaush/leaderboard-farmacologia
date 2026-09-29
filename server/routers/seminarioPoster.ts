@@ -380,7 +380,7 @@ export const seminarioPosterRouter = router({
       sessionToken: z.string(),
       classId: z.number(),
       groupId: z.number(),
-      checklist: z.record(z.boolean()),
+      checklist: z.record(z.string(), z.boolean()),
       observacoes: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
