@@ -29,6 +29,11 @@ import {
  * 6. Professor lança nota do grupo por checklist (pôster + perguntas)
  * 7. Nota final de Seminário = combinação da nota do grupo + desempenho
  *    individual — gravada em jigsawScores.totalJigsawPF
+ *
+ * MODO CONFERÊNCIA: as rotas do aluno também aceitam o token de professor
+ * (ou de monitor). Nesse modo, quem está conferindo vê exatamente o que o
+ * aluno veria, mas NADA é gravado — nem resposta, nem nota, nem pergunta
+ * submetida. Serve para testar o botão Seminário do portal do aluno.
  * ============================================================================
  */
 export const PESO_NOTA_GRUPO = 0.5;
@@ -43,20 +48,52 @@ export const CRITERIOS_CHECKLIST_PADRAO = [
   "gabaritoCorreto",
 ];
 
-async function getMemberIdFromToken(db: any, token: string): Promise<number> {
+type QuemAcessa =
+  | { modo: "aluno"; memberId: number }
+  | { modo: "conferencia"; viewerId: number; viewerName: string };
+
+/**
+ * Aceita token de aluno (modo normal) OU token de professor/monitor (modo
+ * conferência, somente leitura).
+ */
+async function resolverAlunoOuConferencia(db: any, token: string): Promise<QuemAcessa> {
   const acc = await db.select().from(studentAccounts)
     .where(and(eq(studentAccounts.sessionToken, token), eq(studentAccounts.isActive, 1)))
     .limit(1);
-  if (!acc.length || !acc[0].memberId) {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido" });
+
+  if (acc.length && acc[0].memberId) {
+    return { modo: "aluno", memberId: acc[0].memberId };
   }
-  return acc[0].memberId!;
+  if (acc.length && acc[0].accountType === "monitor") {
+    return { modo: "conferencia", viewerId: acc[0].id, viewerName: `${acc[0].displayName || acc[0].email} (monitor)` };
+  }
+
+  const teacher = await getTeacherAccountBySessionToken(token);
+  if (teacher) {
+    return { modo: "conferencia", viewerId: 1_000_000 + teacher.id, viewerName: teacher.name };
+  }
+
+  throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido" });
 }
 
-function embaralhar<T>(arr: T[]): T[] {
+/**
+ * Embaralhamento determinístico: a mesma pessoa vê sempre a mesma ordem para
+ * a mesma pergunta (não "pula" a cada atualização da tela), mas pessoas
+ * diferentes veem ordens diferentes — continua valendo o controle contra
+ * "a resposta é a C".
+ */
+function embaralharComSemente<T>(arr: T[], semente: number): T[] {
   const copia = [...arr];
+  let s = (semente >>> 0) || 1;
+  const rand = () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
   for (let i = copia.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rand() * (i + 1));
     [copia[i], copia[j]] = [copia[j], copia[i]];
   }
   return copia;
@@ -79,12 +116,7 @@ export const seminarioPosterRouter = router({
       try {
         const db = await getDb();
         if (!db) throw new Error("Database not available");
-        const memberId = await getMemberIdFromToken(db, input.studentSessionToken);
-
-        const pertence = await db.select().from(jigsawHomeMembers)
-          .where(and(eq(jigsawHomeMembers.homeGroupId, input.groupId), eq(jigsawHomeMembers.memberId, memberId)))
-          .limit(1);
-        if (!pertence.length) throw new TRPCError({ code: "FORBIDDEN", message: "Você não pertence a este grupo" });
+        const quem = await resolverAlunoOuConferencia(db, input.studentSessionToken);
 
         for (const p of input.perguntas) {
           const numCorretas = p.alternativas.filter(a => a.correta).length;
@@ -92,6 +124,16 @@ export const seminarioPosterRouter = router({
             throw new TRPCError({ code: "BAD_REQUEST", message: `Pergunta "${p.enunciado.slice(0, 40)}..." precisa ter exatamente 1 alternativa correta` });
           }
         }
+
+        // Conferência: valida tudo, mas não grava
+        if (quem.modo === "conferencia") {
+          return { success: true, quantidade: input.perguntas.length, conferencia: true, message: "Modo conferência — perguntas válidas, mas NÃO foram gravadas" };
+        }
+
+        const pertence = await db.select().from(jigsawHomeMembers)
+          .where(and(eq(jigsawHomeMembers.homeGroupId, input.groupId), eq(jigsawHomeMembers.memberId, quem.memberId)))
+          .limit(1);
+        if (!pertence.length) throw new TRPCError({ code: "FORBIDDEN", message: "Você não pertence a este grupo" });
 
         for (const p of input.perguntas) {
           await db.insert(jigsawIntegrationQuestions).values({
@@ -101,7 +143,7 @@ export const seminarioPosterRouter = router({
           });
         }
 
-        return { success: true, quantidade: input.perguntas.length };
+        return { success: true, quantidade: input.perguntas.length, conferencia: false, message: "Perguntas enviadas para revisão" };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao enviar perguntas: ${error instanceof Error ? error.message : String(error)}` });
@@ -201,29 +243,51 @@ export const seminarioPosterRouter = router({
       return { success: true, liberadas: perguntas.length, expiraEm: expira };
     }),
 
+  /**
+   * ALUNO (ou conferência): perguntas com janela de resposta aberta agora.
+   * Em conferência, com incluirNaoLiberadas=true, também mostra as aprovadas
+   * que ainda não foram liberadas — para conferir o texto antes da aula.
+   */
   getQuizDisponivel: publicProcedure
-    .input(z.object({ studentSessionToken: z.string(), classId: z.number() }))
+    .input(z.object({
+      studentSessionToken: z.string(),
+      classId: z.number(),
+      incluirNaoLiberadas: z.boolean().optional(),
+    }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
-      const memberId = await getMemberIdFromToken(db, input.studentSessionToken);
+      const quem = await resolverAlunoOuConferencia(db, input.studentSessionToken);
 
-      const meuGrupo = await db.select().from(jigsawHomeMembers).where(eq(jigsawHomeMembers.memberId, memberId)).limit(1);
-      const meuGroupId = meuGrupo[0]?.homeGroupId ?? null;
+      let meuGroupId: number | null = null;
+      if (quem.modo === "aluno") {
+        const meuGrupo = await db.select().from(jigsawHomeMembers).where(eq(jigsawHomeMembers.memberId, quem.memberId)).limit(1);
+        meuGroupId = meuGrupo[0]?.homeGroupId ?? null;
+      }
+      const semente = quem.modo === "aluno" ? quem.memberId : quem.viewerId;
 
       const agora = new Date();
       const perguntas = await db.select().from(jigsawIntegrationQuestions)
         .where(and(eq(jigsawIntegrationQuestions.classId, input.classId), eq(jigsawIntegrationQuestions.status, "approved")));
 
+      const janelaAberta = (p: any) =>
+        !!p.releasedAt && new Date(p.releasedAt) <= agora && !!p.expiresAt && agora < new Date(p.expiresAt);
+      const mostrarNaoLiberadas = quem.modo === "conferencia" && !!input.incluirNaoLiberadas;
+
       return perguntas
-        .filter(p => p.authorGroupId === null || p.authorGroupId !== meuGroupId)
-        .filter(p => p.releasedAt && new Date(p.releasedAt) <= agora && p.expiresAt && agora < new Date(p.expiresAt))
-        .map(p => ({
+        .filter((p: any) => quem.modo === "conferencia" || p.authorGroupId === null || p.authorGroupId !== meuGroupId)
+        .filter((p: any) => janelaAberta(p) || (mostrarNaoLiberadas && !p.releasedAt))
+        .map((p: any) => ({
           id: p.id,
           topico: p.topico,
           enunciado: p.enunciado,
-          alternativas: embaralhar((p.alternativas as any[]).map(a => ({ id: a.id, texto: a.texto }))),
+          alternativas: embaralharComSemente(
+            (p.alternativas as any[]).map(a => ({ id: a.id, texto: a.texto })),
+            semente * 100003 + p.id
+          ),
           expiraEm: p.expiresAt,
+          authorGroupId: p.authorGroupId,
+          situacao: janelaAberta(p) ? ("aberta" as const) : ("nao_liberada" as const),
         }));
     }),
 
@@ -233,13 +297,29 @@ export const seminarioPosterRouter = router({
       try {
         const db = await getDb();
         if (!db) throw new Error("Database not available");
-        const memberId = await getMemberIdFromToken(db, input.studentSessionToken);
+        const quem = await resolverAlunoOuConferencia(db, input.studentSessionToken);
 
         const question = await db.select().from(jigsawIntegrationQuestions).where(eq(jigsawIntegrationQuestions.id, input.questionId)).limit(1);
         if (!question.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Pergunta não encontrada" });
         const q = question[0];
+        if (q.status !== "approved") throw new TRPCError({ code: "BAD_REQUEST", message: "Esta pergunta ainda não foi aprovada" });
 
-        if (q.status !== "approved" || !q.releasedAt || !q.expiresAt) {
+        const alternativas = q.alternativas as any[];
+        const correta = alternativas.find(a => a.correta);
+        const isCorrect = input.respostaEscolhida === correta?.id;
+
+        // Conferência: corrige para quem está testando, mas não grava nada
+        // e não exige janela aberta (dá pra testar antes de liberar).
+        if (quem.modo === "conferencia") {
+          return {
+            success: true,
+            conferencia: true,
+            acertou: isCorrect,
+            message: `Modo conferência — resposta NÃO gravada (${isCorrect ? "acertaria" : "erraria"})`,
+          };
+        }
+
+        if (!q.releasedAt || !q.expiresAt) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Esta pergunta ainda não foi liberada" });
         }
         const agora = new Date();
@@ -248,19 +328,15 @@ export const seminarioPosterRouter = router({
 
         if (q.authorGroupId !== null) {
           const souDoGrupoAutor = await db.select().from(jigsawHomeMembers)
-            .where(and(eq(jigsawHomeMembers.homeGroupId, q.authorGroupId), eq(jigsawHomeMembers.memberId, memberId)))
+            .where(and(eq(jigsawHomeMembers.homeGroupId, q.authorGroupId), eq(jigsawHomeMembers.memberId, quem.memberId)))
             .limit(1);
           if (souDoGrupoAutor.length > 0) {
             throw new TRPCError({ code: "FORBIDDEN", message: "Você não pode responder uma pergunta do seu próprio grupo" });
           }
         }
 
-        const alternativas = q.alternativas as any[];
-        const correta = alternativas.find(a => a.correta);
-        const isCorrect = input.respostaEscolhida === correta?.id;
-
         const existing = await db.select().from(jigsawIntegrationAnswers)
-          .where(and(eq(jigsawIntegrationAnswers.questionId, input.questionId), eq(jigsawIntegrationAnswers.memberId, memberId)))
+          .where(and(eq(jigsawIntegrationAnswers.questionId, input.questionId), eq(jigsawIntegrationAnswers.memberId, quem.memberId)))
           .limit(1);
 
         if (existing.length > 0) {
@@ -268,11 +344,11 @@ export const seminarioPosterRouter = router({
             .where(eq(jigsawIntegrationAnswers.id, existing[0].id));
         } else {
           await db.insert(jigsawIntegrationAnswers).values({
-            questionId: input.questionId, memberId, respostaEscolhida: input.respostaEscolhida, isCorrect: isCorrect ? 1 : 0,
+            questionId: input.questionId, memberId: quem.memberId, respostaEscolhida: input.respostaEscolhida, isCorrect: isCorrect ? 1 : 0,
           });
         }
 
-        return { success: true, message: "Resposta registrada" };
+        return { success: true, conferencia: false, acertou: undefined as boolean | undefined, message: "Resposta registrada" };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao responder: ${error instanceof Error ? error.message : String(error)}` });
@@ -284,15 +360,15 @@ export const seminarioPosterRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
-      await getMemberIdFromToken(db, input.studentSessionToken);
+      await resolverAlunoOuConferencia(db, input.studentSessionToken);
 
       const agora = new Date();
       const perguntas = await db.select().from(jigsawIntegrationQuestions)
         .where(and(eq(jigsawIntegrationQuestions.classId, input.classId), eq(jigsawIntegrationQuestions.status, "approved")));
 
       return perguntas
-        .filter(p => p.expiresAt && agora >= new Date(p.expiresAt))
-        .map(p => ({
+        .filter((p: any) => p.expiresAt && agora >= new Date(p.expiresAt))
+        .map((p: any) => ({
           id: p.id, topico: p.topico, enunciado: p.enunciado,
           alternativas: p.alternativas,
           explicacao: p.explicacao,
@@ -347,8 +423,14 @@ export const seminarioPosterRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
-      const memberId = await getMemberIdFromToken(db, input.studentSessionToken);
-      return recalcularNotaSeminario(db, memberId, input.classId);
+      const quem = await resolverAlunoOuConferencia(db, input.studentSessionToken);
+
+      // Conferência: não chama o recálculo (ele grava em jigsawScores)
+      if (quem.modo === "conferencia") {
+        return { notaPosterGrupo: 0, notaIndividual: 0, totalRespondidas: 0, acertos: 0, notaSeminario: 0, conferencia: true };
+      }
+      const nota = await recalcularNotaSeminario(db, quem.memberId, input.classId);
+      return { ...nota, conferencia: false };
     }),
 });
 
