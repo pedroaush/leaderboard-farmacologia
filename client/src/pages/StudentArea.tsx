@@ -96,10 +96,10 @@ const tokenSeminario = studentSessionToken || (modoConferencia ? teacherToken : 
     { enabled: !!studentSessionToken, refetchInterval: 15000 }
   );
 
-  // Para alunos (sem OAuth), usar endpoint público; para professores/OAuth usar getById
+    // Rota pública sempre; a completa só complementa quando existir
   const { data: classDataPublic } = trpc.classes.getPublicInfo.useQuery(
     { classId: classId || 0 },
-    { enabled: !!classId && !user }
+    { enabled: !!classId }
   );
   const { data: classDataFull } = trpc.classes.getById.useQuery(
     { classId: classId || 0, sessionToken: "" },
