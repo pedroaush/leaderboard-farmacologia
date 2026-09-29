@@ -105,7 +105,7 @@ const tokenSeminario = studentSessionToken || (modoConferencia ? teacherToken : 
     { classId: classId || 0, sessionToken: "" },
     { enabled: !!classId && !!user }
   );
-  const classData = user ? classDataFull : classDataPublic;
+  const classData = classDataFull || classDataPublic;
 
   // Buscar dados filtrados por turma
   const { data: leaderboardData } = trpc.leaderboard.getDataByClass.useQuery(
