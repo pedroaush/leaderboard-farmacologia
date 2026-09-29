@@ -227,12 +227,10 @@ const tokenSeminario = studentSessionToken || (modoConferencia ? teacherToken : 
     return (a1 * 0.3 + a2 * 0.3 + pfVal * 0.4);
   }, [av1, av2, pf]);
 
-    // Aceitar login OAuth (user) OU login de aluno via studentSessionToken OU professor em conferência
+      // Aceitar login OAuth (user) OU login de aluno via studentSessionToken OU professor em conferência
   if (!user && !studentSessionToken && !modoConferencia) {
-    if (verificandoProfessor && teacherToken) return null; // evita piscar "Faça Login"
+    if (verificandoProfessor && teacherToken) return null;
     return (
-      <div className="min-h-screen flex items-center justify-center" ...>
-        ...Faça Login...   ← o resto continua igual
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: DARK_BG }}>
         <div className="text-center">
           <AlertCircle size={48} className="mx-auto mb-4" style={{ color: ORANGE }} />
