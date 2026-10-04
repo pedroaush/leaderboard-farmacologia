@@ -418,6 +418,31 @@ export const seminarioPosterRouter = router({
       return { success: true, notaPoster };
     }),
 
+  /**
+   * PROFESSOR: notas de pôster já lançadas na turma (checklist marcado, nota,
+   * quem lançou e quando) — para o painel mostrar as caixas como foram salvas
+   * em vez de reabrir tudo desmarcado.
+   */
+  getApresentacoes: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+
+      const rows = await db.select().from(seminarioApresentacoes)
+        .where(eq(seminarioApresentacoes.classId, input.classId));
+      return rows.map((r: any) => ({
+        groupId: r.groupId,
+        checklist: (r.checklist || {}) as Record<string, boolean>,
+        notaPoster: Number(r.notaPoster),
+        observacoes: r.observacoes as string | null,
+        gradedByName: r.gradedByName as string | null,
+        gradedAt: r.gradedAt,
+      }));
+    }),
+
   getNotaSeminario: publicProcedure
     .input(z.object({ studentSessionToken: z.string(), classId: z.number() }))
     .query(async ({ input }) => {
