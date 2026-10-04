@@ -240,7 +240,25 @@ export const seminarioPosterRouter = router({
           eq(jigsawIntegrationQuestions.status, "approved")
         ));
 
+      // O total de perguntas possíveis mudou para todos — atualiza as notas
+      await recalcularTurma(db, input.classId);
+
       return { success: true, liberadas: perguntas.length, expiraEm: expira };
+    }),
+
+  /**
+   * PROFESSOR: recalcula a nota de Seminário de toda a turma com a regra
+   * atual. Use uma vez depois do deploy, para corrigir as notas antigas.
+   */
+  recalcularNotasTurma: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const teacher = await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Token inválido" });
+      const total = await recalcularTurma(db, input.classId);
+      return { success: true, alunosRecalculados: total };
     }),
 
   /**
@@ -348,6 +366,8 @@ export const seminarioPosterRouter = router({
           });
         }
 
+        await recalcularNotaSeminario(db, quem.memberId, q.classId);
+
         return { success: true, conferencia: false, acertou: undefined as boolean | undefined, message: "Resposta registrada" };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -452,40 +472,79 @@ export const seminarioPosterRouter = router({
 
       // Conferência: não chama o recálculo (ele grava em jigsawScores)
       if (quem.modo === "conferencia") {
-        return { notaPosterGrupo: 0, notaIndividual: 0, totalRespondidas: 0, acertos: 0, notaSeminario: 0, conferencia: true };
+        return { notaPosterGrupo: 0, notaIndividual: 0, totalRespondidas: 0, totalPossivel: 0, acertos: 0, notaSeminario: 0, conferencia: true };
       }
       const nota = await recalcularNotaSeminario(db, quem.memberId, input.classId);
       return { ...nota, conferencia: false };
     }),
 });
 
+/**
+ * Nota de Seminário de um aluno.
+ *
+ * Nota individual: cada grupo tem 5 perguntas, valendo 2 pontos cada acerto
+ * (0-10 por grupo); a nota individual é a média entre os grupos já liberados.
+ * Na prática = (acertos ÷ total de perguntas liberadas que o aluno podia
+ * responder) × 10. Pergunta liberada e não respondida conta como erro.
+ * As perguntas do próprio grupo não entram na conta.
+ */
 async function recalcularNotaSeminario(db: any, memberId: number, classId: number) {
   const meuGrupo = await db.select().from(jigsawHomeMembers).where(eq(jigsawHomeMembers.memberId, memberId)).limit(1);
+  const meuGroupId: number | null = meuGrupo[0]?.homeGroupId ?? null;
   let notaPosterGrupo = 0;
-  if (meuGrupo.length > 0) {
-    const apresentacao = await db.select().from(seminarioApresentacoes).where(eq(seminarioApresentacoes.groupId, meuGrupo[0].homeGroupId)).limit(1);
+  if (meuGroupId !== null) {
+    const apresentacao = await db.select().from(seminarioApresentacoes).where(eq(seminarioApresentacoes.groupId, meuGroupId)).limit(1);
     notaPosterGrupo = apresentacao.length > 0 ? Number(apresentacao[0].notaPoster) : 0;
   }
 
-  const questoesDaTurma = await db.select().from(jigsawIntegrationQuestions).where(eq(jigsawIntegrationQuestions.classId, classId));
-  const idsDaTurma = new Set(questoesDaTurma.map((q: any) => q.id));
-  const respostas = await db.select().from(jigsawIntegrationAnswers).where(eq(jigsawIntegrationAnswers.memberId, memberId));
-  const minhasRespostas = respostas.filter((r: any) => idsDaTurma.has(r.questionId));
+  const agora = new Date();
+  const questoesDaTurma = await db.select().from(jigsawIntegrationQuestions)
+    .where(and(eq(jigsawIntegrationQuestions.classId, classId), eq(jigsawIntegrationQuestions.status, "approved")));
+  const questoesValendo = questoesDaTurma.filter((q: any) =>
+    q.releasedAt && new Date(q.releasedAt) <= agora &&
+    (q.authorGroupId === null || q.authorGroupId !== meuGroupId)
+  );
+  const idsValendo = new Set(questoesValendo.map((q: any) => q.id));
 
+  const respostas = await db.select().from(jigsawIntegrationAnswers).where(eq(jigsawIntegrationAnswers.memberId, memberId));
+  const minhasRespostas = respostas.filter((r: any) => idsValendo.has(r.questionId));
+
+  const totalPossivel = questoesValendo.length;
   const totalRespondidas = minhasRespostas.length;
   const acertos = minhasRespostas.filter((r: any) => r.isCorrect === 1).length;
-  const notaIndividual = totalRespondidas > 0 ? (acertos / totalRespondidas) * 10 : 0;
+  const notaIndividual = totalPossivel > 0 ? Math.min(10, (acertos / totalPossivel) * 10) : 0;
   const notaSeminario = Math.round(((notaPosterGrupo * PESO_NOTA_GRUPO) + (notaIndividual * PESO_NOTA_INDIVIDUAL)) * 10) / 10;
 
+  // fase1PF = nota do pôster do grupo (0-10); fase2PF = desempenho individual
+  // no quiz (0-10); totalJigsawPF = nota final de Seminário (50/50).
+  // fase3PF NÃO é tocado aqui — é a nota de Casos Clínicos.
+  const campos = {
+    fase1PF: String(notaPosterGrupo.toFixed(2)),
+    fase2PF: String(notaIndividual.toFixed(2)),
+    totalJigsawPF: String(notaSeminario.toFixed(2)),
+  };
   const existing = await db.select().from(jigsawScores).where(eq(jigsawScores.memberId, memberId)).limit(1);
   if (existing.length > 0) {
-    await db.update(jigsawScores).set({ totalJigsawPF: String(notaSeminario.toFixed(2)) }).where(eq(jigsawScores.memberId, memberId));
+    await db.update(jigsawScores).set(campos).where(eq(jigsawScores.memberId, memberId));
   } else {
     await db.insert(jigsawScores).values({
       classId, memberId, totalPresentationScore: "0", totalParticipationScore: "0", totalPeerRating: "0",
-      fase1PF: "0", fase2PF: "0", fase3PF: "0", totalJigsawPF: String(notaSeminario.toFixed(2)),
+      fase3PF: "0", ...campos,
     });
   }
 
-  return { notaPosterGrupo, notaIndividual: Math.round(notaIndividual * 10) / 10, totalRespondidas, acertos, notaSeminario };
+  return { notaPosterGrupo, notaIndividual: Math.round(notaIndividual * 10) / 10, totalRespondidas, totalPossivel, acertos, notaSeminario };
+}
+
+/**
+ * Recalcula a nota de Seminário de todos os alunos da turma. Necessário
+ * sempre que um grupo é liberado: o total de perguntas possíveis aumenta
+ * para todo mundo, inclusive para quem não responder nada.
+ */
+async function recalcularTurma(db: any, classId: number): Promise<number> {
+  const alunos = await db.select().from(members).where(eq(members.classId, classId));
+  for (const a of alunos) {
+    await recalcularNotaSeminario(db, a.id, classId);
+  }
+  return alunos.length;
 }

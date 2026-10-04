@@ -103,7 +103,9 @@ export default function SeminarioAluno({ classId, token, modoConferencia }: Prop
             </div>
             <div className="p-2 rounded-lg" style={{ backgroundColor: "rgba(255,255,255,0.04)" }}>
               <div className="font-mono font-bold text-lg text-white">{Number(notaData.notaIndividual).toFixed(1)}</div>
-              <div className="text-[11px] text-white/50">Individual ({notaData.acertos}/{notaData.totalRespondidas})</div>
+              <div className="text-[11px] text-white/50">
+                Individual ({notaData.acertos} de {notaData.totalPossivel ?? notaData.totalRespondidas} perguntas)
+              </div>
             </div>
             <div className="p-2 rounded-lg" style={{ backgroundColor: "rgba(99,102,241,0.15)" }}>
               <div className="font-mono font-bold text-lg" style={{ color: INDIGO }}>{Number(notaData.notaSeminario).toFixed(1)}</div>
