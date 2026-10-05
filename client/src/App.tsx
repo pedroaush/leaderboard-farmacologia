@@ -76,6 +76,7 @@ import GerenciarSimulacoes from "./pages/GerenciarSimulacoes";
 import PraticaSimulada from "./pages/PraticaSimulada";
 import PraticaSeminario from "./pages/PraticaSeminario";
 import { useStudentAuth } from "./pages/StudentLogin";
+import CorrecaoCartao from "@/pages/CorrecaoCartao";
 
 function LiveQuizStudentWrapper() {
   const { student, sessionToken, isLoading } = useStudentAuth();
