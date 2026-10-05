@@ -153,6 +153,7 @@ function Router() {
       <Route path={"/professor/ferramentas-prova"} component={ExamTools} />
       <Route path={"/prova-digital"} component={DigitalExam} />
       <Route path={"/quiz-ao-vivo"} component={LiveQuizStudentWrapper} />
+      <Route path="/correcao" component={CorrecaoCartao} />
       <Route path={"/professor/notas"} component={ProfessorGrades} />
 
       <Route path={"/professor/perfil"} component={TeacherProfile} />      <Route path={"/professor/login"} component={ProfessorLogin} />

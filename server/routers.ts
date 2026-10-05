@@ -34,6 +34,7 @@ import { ENV } from "./_core/env";
 import { seminarioPosterRouter } from "./routers/seminarioPoster";
 import { casosClinicosRouter } from "./routers/casosClinicos";
 import { simulacoesClinicasRouter } from "./routers/simulacoesClinicas";
+import { correcaoProvaRouter } from "./routers/correcaoProva";
 
 // Helper: fire-and-forget notification (never blocks the main operation)
 function sendNotificationAsync(title: string, content: string) {
@@ -151,6 +152,7 @@ export const appRouter = router({
   spreadsheetImport: spreadsheetImportRouter,
   seminarioPoster: seminarioPosterRouter,
   casosClinicos: casosClinicosRouter,
+  correcaoProva: correcaoProvaRouter,
   qrcode: qrcodeRouter,
   studentNotifications: studentNotificationsRouter,
   studentStats: studentStatsRouter,
