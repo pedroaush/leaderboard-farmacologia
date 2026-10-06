@@ -321,18 +321,9 @@ export const gameRouter = router({
       const qIdx = input.questionIndex ?? 0;
       const activeQuestion = pool[qIdx] || originalQ;
 
-      // Check answer against the active question's alternatives
+            // Check answer against the active question's alternatives
       const correctAlt = activeQuestion.alternatives.find(a => a.isCorrect);
       const isCorrect = input.answer === correctAlt?.id;
-            // Missão já vencida antes? Repetir vale como treino: sem PF, XP ou contagem.
-      const vitoriaAnterior = await db.select({ id: gameCombats.id }).from(gameCombats)
-        .where(and(eq(gameCombats.gameProgressId, prog.id), eq(gameCombats.questId, input.questId), eq(gameCombats.isWon, true)))
-        .limit(1);
-      const jaConcluida = vitoriaAnterior.length > 0;
-      const primeiraVitoria = isCorrect && !jaConcluida;
-      const pfEarned = primeiraVitoria ? quest.farmacologiaPointsReward : 0;
-      const xpEarned = primeiraVitoria ? quest.experienceReward : 0;
-      const pfPenalty = (!isCorrect && !jaConcluida && quest.isBossQuestion && quest.pfPenalty) ? quest.pfPenalty : 0;
 
       // Get progress
       const progressRows = await db
@@ -348,6 +339,16 @@ export const gameRouter = router({
 
       if (!progressRows[0]) throw new Error("Game progress not found");
       const prog = progressRows[0];
+
+      // Missão já vencida antes? Repetir vale como treino: sem PF, XP ou contagem.
+      const vitoriaAnterior = await db.select({ id: gameCombats.id }).from(gameCombats)
+        .where(and(eq(gameCombats.gameProgressId, prog.id), eq(gameCombats.questId, input.questId), eq(gameCombats.isWon, true)))
+        .limit(1);
+      const jaConcluida = vitoriaAnterior.length > 0;
+      const primeiraVitoria = isCorrect && !jaConcluida;
+      const pfEarned = primeiraVitoria ? quest.farmacologiaPointsReward : 0;
+      const xpEarned = primeiraVitoria ? quest.experienceReward : 0;
+      const pfPenalty = (!isCorrect && !jaConcluida && quest.isBossQuestion && quest.pfPenalty) ? quest.pfPenalty : 0;
 
       // Update progress
       const updates: any = {
