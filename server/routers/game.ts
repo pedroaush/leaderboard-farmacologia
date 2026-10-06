@@ -1027,7 +1027,7 @@ export const gameRouter = router({
       const db = await getDb();
       if (!db) return { available: false, defeated: false, attempts: 0 };
 
-      const weekQuests = BUILTIN_QUESTS.filter(q => q.weekNumber === input.weekNumber);
+      const weekQuests = BUILTIN_QUESTS.filter(q => q.weekNumber === input.weekNumber && !q.isBossQuestion);
       if (weekQuests.length === 0) return { available: false, defeated: false, attempts: 0 };
 
       const progressRows = await db
@@ -1128,7 +1128,7 @@ export const gameRouter = router({
 
       const statuses = [];
       for (let week = 1; week <= 10; week++) {
-        const weekQuests = BUILTIN_QUESTS.filter(q => q.weekNumber === week);
+        const weekQuests = BUILTIN_QUESTS.filter(q => q.weekNumber === week && !q.isBossQuestion);
         const allCompleted = weekQuests.length > 0 && weekQuests.every(q => completedQuestIds.has(q.id));
         const weekBattles = allBossBattles.filter(b => b.weekNumber === week);
         const defeated = weekBattles.some(b => b.isVictory);
