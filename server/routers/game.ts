@@ -324,10 +324,15 @@ export const gameRouter = router({
       // Check answer against the active question's alternatives
       const correctAlt = activeQuestion.alternatives.find(a => a.isCorrect);
       const isCorrect = input.answer === correctAlt?.id;
-      const pfEarned = isCorrect ? quest.farmacologiaPointsReward : 0;
-      const xpEarned = isCorrect ? quest.experienceReward : 0;
-      // Boss penalty: if wrong answer on boss question, deduct pfPenalty
-      const pfPenalty = (!isCorrect && quest.isBossQuestion && quest.pfPenalty) ? quest.pfPenalty : 0;
+            // Missão já vencida antes? Repetir vale como treino: sem PF, XP ou contagem.
+      const vitoriaAnterior = await db.select({ id: gameCombats.id }).from(gameCombats)
+        .where(and(eq(gameCombats.gameProgressId, prog.id), eq(gameCombats.questId, input.questId), eq(gameCombats.isWon, true)))
+        .limit(1);
+      const jaConcluida = vitoriaAnterior.length > 0;
+      const primeiraVitoria = isCorrect && !jaConcluida;
+      const pfEarned = primeiraVitoria ? quest.farmacologiaPointsReward : 0;
+      const xpEarned = primeiraVitoria ? quest.experienceReward : 0;
+      const pfPenalty = (!isCorrect && !jaConcluida && quest.isBossQuestion && quest.pfPenalty) ? quest.pfPenalty : 0;
 
       // Get progress
       const progressRows = await db
@@ -353,11 +358,11 @@ export const gameRouter = router({
       if (isCorrect) {
         updates.farmacologiaPoints = prog.farmacologiaPoints + pfEarned;
         updates.experience = prog.experience + xpEarned;
-        updates.questsCompleted = prog.questsCompleted + 1;
+        updates.questsCompleted = prog.questsCompleted + (primeiraVitoria ? 1 : 0);
         updates.combatsWon = prog.combatsWon + 1;
 
         // Level up logic: every 5 quests = 1 level (max 17)
-        const newQuestsCompleted = prog.questsCompleted + 1;
+        const newQuestsCompleted = prog.questsCompleted + (primeiraVitoria ? 1 : 0);
         const newLevel = Math.min(Math.ceil(newQuestsCompleted / 5) + 1, 17);
         if (newLevel > prog.level) {
           updates.level = newLevel;
@@ -444,7 +449,7 @@ export const gameRouter = router({
       // Check achievements
       const newAchievements: string[] = [];
       const currentAchievements: string[] = JSON.parse(prog.achievements || "[]");
-      const newQC = (prog.questsCompleted || 0) + (isCorrect ? 1 : 0);
+      const newQC = (prog.questsCompleted || 0) + (primeiraVitoria ? 1 : 0);
       const newPF = (prog.farmacologiaPoints || 0) + pfEarned;
 
       for (const ach of ACHIEVEMENT_DEFS) {
@@ -495,8 +500,8 @@ export const gameRouter = router({
         isBossQuestion: quest.isBossQuestion || false,
         newAchievements: newAchievements.map(id => ACHIEVEMENT_DEFS.find(a => a.id === id)!),
         message: isCorrect
-          ? (quest.isBossQuestion ? `Chefe derrotado! +${pfEarned} PF!` : `Correto! +${pfEarned} PF`)
-          : (quest.isBossQuestion ? `O chefe venceu! -${pfPenalty} PF` : `Resposta incorreta. Tente novamente!`),
+         ? (jaConcluida ? "Correto! Missão já concluída — modo treino, sem PF." : quest.isBossQuestion ? `Chefe derrotado! +${pfEarned} PF!` : `Correto! +${pfEarned} PF`)
+         : (quest.isBossQuestion ? `O chefe venceu! -${pfPenalty} PF` : `Resposta incorreta. Tente novamente!`),
       };
     }),
 

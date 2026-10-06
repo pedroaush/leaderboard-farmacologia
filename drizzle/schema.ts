@@ -1086,8 +1086,8 @@ export type InsertGameQuest = typeof gameQuests.$inferInsert;
 export const gameCombats = mysqlTable("gameCombats", {
   id: int("id").autoincrement().primaryKey(),
   gameProgressId: int("gameProgressId").notNull().references(() => gameProgress.id, { onDelete: "cascade" }),
-  questId: int("questId").notNull().references(() => gameQuests.id, { onDelete: "cascade" }),
-  questionId: int("questionId").notNull().references(() => questionBank.id, { onDelete: "cascade" }),
+  questId: int("questId").notNull(), // missões vêm de ALL_GAME_QUESTIONS (código), não de gameQuests
+  questionId: int("questionId").notNull(),
   
   // Combat Result
   playerAnswer: varchar("playerAnswer", { length: 500 }),
