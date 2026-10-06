@@ -373,8 +373,6 @@ export default function GamePortal() {
     xpEarned: number;
     totalTimeSpent: number;
   }) => {
-    const semanaDoChefe = activeBossWeek;
-    let pfGanho = 0;
     try {
       const serverResult = await completeBossMutation.mutateAsync({
         classId: classIdNum,
@@ -382,7 +380,6 @@ export default function GamePortal() {
         weekNumber: activeBossWeek!,
         ...result,
       });
-      pfGanho = serverResult.pfEarned || 0;
 
       if (serverResult.isFirstVictory) {
         toast.success(serverResult.message);
@@ -396,18 +393,6 @@ export default function GamePortal() {
     } catch (error) {
       toast.error("Erro ao salvar resultado do boss");
     }
-
-    // Animação de vitória/derrota ao final da batalha (antes só aparecia na
-    // pergunta de chefe do mapa, nunca depois da Boss Battle em si).
-    const bossInfo = BOSSES.find((b: any) => b.weekNumber === semanaDoChefe);
-    setBossAnimData({
-      isVictory: result.isVictory,
-      bossEmoji: bossInfo?.emoji || "🐉",
-      bossName: result.bossName || bossInfo?.name || "Chefe",
-      pfEarned: pfGanho,
-      pfPenalty: 0,
-    });
-    setShowBossAnimation(true);
 
     setView("map");
     setActiveBossWeek(null);
@@ -797,22 +782,6 @@ export default function GamePortal() {
             </div>
           </div>
         </div>
-
-        {/* Animação de vitória/derrota depois da Boss Battle */}
-        {showBossAnimation && bossAnimData && (
-          <BossVictoryAnimation
-            isVictory={bossAnimData.isVictory}
-            characterEmoji="🧙"
-            bossEmoji={bossAnimData.bossEmoji}
-            bossName={bossAnimData.bossName}
-            pfEarned={bossAnimData.pfEarned}
-            pfPenalty={bossAnimData.pfPenalty}
-            onAnimationEnd={() => {
-              setShowBossAnimation(false);
-              setBossAnimData(null);
-            }}
-          />
-        )}
 
         {/* Week Review Modal (abre ao clicar numa missão já concluída no mapa) */}
         {reviewWeek && (
