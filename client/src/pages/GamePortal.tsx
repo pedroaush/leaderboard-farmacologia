@@ -140,7 +140,7 @@ export default function GamePortal() {
   const { data: availableQuests } = trpc.game.getAvailableQuests.useQuery({
     classId: classIdNum,
   });
-  const { data: completedQuestIds } = trpc.game.getCompletedQuests.useQuery(
+  const { data: completedQuestIds, refetch: refetchCompleted } = trpc.game.getCompletedQuests.useQuery(
     { classId: classIdNum, memberId },
     { enabled: memberId > 0 }
   );
@@ -215,23 +215,11 @@ export default function GamePortal() {
     }
   };
 
-  const handleQuestClick = async (quest: any) => {
-    if (completedQuestIds?.includes(quest.id)) {
-      // Open review mode for the week this quest belongs to
-      const weekNumber = quest.weekNumber || Math.ceil(quest.id / 5);
-      const boss = BOSSES.find(b => b.weekNumber === weekNumber);
-      setReviewWeek({ weekNumber, weekTitle: boss?.name || `Semana ${weekNumber}` });
-      return;
-    }
-    // Sequential unlock check: block access if previous quest not completed
-    if (!isQuestUnlocked.has(quest.id)) {
-      const qInWeek = quest.questionInWeek || 1;
-      const prevQuest = (availableQuests || []).find(
-        (q: any) => q.weekNumber === quest.weekNumber && q.questionInWeek === qInWeek - 1
-      );
-      toast.error(`🔒 Complete "${prevQuest?.title || 'a missão anterior'}" primeiro!`);
-      return;
-    }
+  // Abre uma missão diretamente (sem checar bloqueio). Usado pelo mapa (depois
+  // das checagens) e pelo botão "Próxima missão" — nesse caso a missão anterior
+  // acabou de ser vencida, mas a lista de concluídas ainda pode estar
+  // recarregando, então não dá para depender do bloqueio aqui.
+  const startQuest = async (quest: any) => {
     setSelectedQuest(quest);
     setSelectedAnswer(null);
     setTimeLeft(60);
@@ -257,6 +245,26 @@ export default function GamePortal() {
     }
   };
 
+  const handleQuestClick = async (quest: any) => {
+    if (completedQuestIds?.includes(quest.id)) {
+      // Open review mode for the week this quest belongs to
+      const weekNumber = quest.weekNumber || Math.ceil(quest.id / 5);
+      const boss = BOSSES.find(b => b.weekNumber === weekNumber);
+      setReviewWeek({ weekNumber, weekTitle: boss?.name || `Semana ${weekNumber}` });
+      return;
+    }
+    // Sequential unlock check: block access if previous quest not completed
+    if (!isQuestUnlocked.has(quest.id)) {
+      const qInWeek = quest.questionInWeek || 1;
+      const prevQuest = (availableQuests || []).find(
+        (q: any) => q.weekNumber === quest.weekNumber && q.questionInWeek === qInWeek - 1
+      );
+      toast.error(`🔒 Complete "${prevQuest?.title || 'a missão anterior'}" primeiro!`);
+      return;
+    }
+    await startQuest(quest);
+  };
+
   const handleSubmit = async (answer: string) => {
     if (!selectedQuest) return;
     setTimerActive(false);
@@ -274,6 +282,10 @@ export default function GamePortal() {
       setResultData(result);
       setShowResult(true);
       refetchProgress();
+      // Atualiza na hora quais missões estão concluídas (libera a próxima no
+      // mapa) e o estado dos chefes.
+      refetchCompleted();
+      refetchBossStatuses();
 
       // Play sound based on result
       if (result.isBossQuestion) {
@@ -377,6 +389,7 @@ export default function GamePortal() {
 
       refetchProgress();
       refetchBossStatuses();
+      refetchCompleted();
     } catch (error) {
       toast.error("Erro ao salvar resultado do boss");
     }
@@ -427,6 +440,25 @@ export default function GamePortal() {
   const defeatedBossCount = useMemo(() => {
     return Object.values(bossStatusMap).filter(s => s.defeated).length;
   }, [bossStatusMap]);
+
+  // Próxima missão regular da MESMA semana (a seguinte na sequência). Null se a
+  // missão atual for a última regular (aí entra o chefe) ou uma pergunta de chefe.
+  const nextQuestInWeek = (() => {
+    if (!selectedQuest || selectedQuest.isBossQuestion) return null;
+    return (availableQuests || []).find((q: any) =>
+      q.weekNumber === selectedQuest.weekNumber &&
+      !q.isBossQuestion &&
+      q.questionInWeek === (selectedQuest.questionInWeek || 0) + 1
+    ) || null;
+  })();
+
+  const voltarAoMapa = () => {
+    setPendingBossWeek(null);
+    setView("map");
+    setSelectedQuest(null);
+    setShowResult(false);
+    setResultData(null);
+  };
 
   // ═══════════════════════════════════════
   // RENDER: BOSS BATTLE VIEW
@@ -751,6 +783,15 @@ export default function GamePortal() {
           </div>
         </div>
 
+        {/* Week Review Modal (abre ao clicar numa missão já concluída no mapa) */}
+        {reviewWeek && (
+          <WeekReview
+            weekNumber={reviewWeek.weekNumber}
+            weekTitle={reviewWeek.weekTitle}
+            onClose={() => setReviewWeek(null)}
+          />
+        )}
+
         {/* Leaderboard Dialog */}
         <Dialog open={showMenu} onOpenChange={setShowMenu}>
           <DialogContent className="bg-[#111638] border-emerald-500/20 text-white max-w-md">
@@ -804,7 +845,7 @@ export default function GamePortal() {
         {/* Quest Header */}
         <div className="bg-[#0a0e27]/90 backdrop-blur-md border-b border-purple-500/20 px-4 py-3">
           <div className="max-w-3xl mx-auto flex items-center justify-between">
-            <Button variant="ghost" size="sm" onClick={() => setView("map")} className="text-gray-400">
+            <Button variant="ghost" size="sm" onClick={() => { setTimerActive(false); voltarAoMapa(); }} className="text-gray-400">
               <ArrowLeft size={18} className="mr-1" /> Mapa
             </Button>
             <div className="text-center">
@@ -905,7 +946,11 @@ export default function GamePortal() {
                     <>
                       <CheckCircle2 size={48} className="text-emerald-400 mx-auto mb-3" />
                       <h3 className="text-xl font-bold text-emerald-400">Correto! 🎉</h3>
-                      <p className="text-sm text-gray-300 mt-2">+{resultData.pfEarned} PF • +{resultData.xpEarned} PF</p>
+                      {resultData.pfEarned > 0 ? (
+                        <p className="text-sm text-gray-300 mt-2">+{resultData.pfEarned} PF • +{resultData.xpEarned} XP</p>
+                      ) : (
+                        <p className="text-sm text-blue-300 mt-2">Missão já concluída antes — modo treino, sem PF.</p>
+                      )}
                     </>
                   ) : (
                     <>
@@ -954,32 +999,45 @@ export default function GamePortal() {
                 )}
 
                 {resultData?.isCorrect ? (
-                  <Button
-                    onClick={() => {
-                      if (pendingBossWeek !== null) {
-                        // Launch boss immediately on click
-                        const week = pendingBossWeek;
-                        setPendingBossWeek(null);
-                        setView("map");
-                        setSelectedQuest(null);
-                        setShowResult(false);
-                        setResultData(null);
-                        setActiveBossWeek(week);
-                        setView("boss");
-                      } else {
-                        setView("map");
-                        setSelectedQuest(null);
-                        setShowResult(false);
-                      }
-                    }}
-                    className={`w-full ${pendingBossWeek !== null ? "bg-red-600 hover:bg-red-700 animate-pulse" : "bg-emerald-600 hover:bg-emerald-700"}`}
-                  >
-                    {pendingBossWeek !== null ? (
-                      <><Skull size={16} className="mr-2" /> Enfrentar o Chefe!</>
-                    ) : (
-                      <><Map size={16} className="mr-2" /> Voltar ao Mapa</>
+                  <div className="space-y-2">
+                    <Button
+                      onClick={() => {
+                        if (pendingBossWeek !== null) {
+                          // Launch boss immediately on click
+                          const week = pendingBossWeek;
+                          setPendingBossWeek(null);
+                          setView("map");
+                          setSelectedQuest(null);
+                          setShowResult(false);
+                          setResultData(null);
+                          setActiveBossWeek(week);
+                          setView("boss");
+                        } else if (nextQuestInWeek) {
+                          // Segue direto para a próxima missão da semana
+                          startQuest(nextQuestInWeek);
+                        } else {
+                          voltarAoMapa();
+                        }
+                      }}
+                      className={`w-full ${pendingBossWeek !== null ? "bg-red-600 hover:bg-red-700 animate-pulse" : nextQuestInWeek ? "bg-amber-600 hover:bg-amber-700" : "bg-emerald-600 hover:bg-emerald-700"}`}
+                    >
+                      {pendingBossWeek !== null ? (
+                        <><Skull size={16} className="mr-2" /> Enfrentar o Chefe!</>
+                      ) : nextQuestInWeek ? (
+                        <>Próxima missão: {nextQuestInWeek.title} <ChevronRight size={16} className="ml-2" /></>
+                      ) : (
+                        <><Map size={16} className="mr-2" /> Voltar ao Mapa</>
+                      )}
+                    </Button>
+                    {(pendingBossWeek !== null || nextQuestInWeek) && (
+                      <button
+                        onClick={voltarAoMapa}
+                        className="w-full text-sm text-gray-400 hover:text-white py-2 transition-colors"
+                      >
+                        Voltar ao mapa
+                      </button>
                     )}
-                  </Button>
+                  </div>
                 ) : (
                   <Button
                     onClick={() => {
