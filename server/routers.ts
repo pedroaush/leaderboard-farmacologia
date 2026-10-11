@@ -35,6 +35,9 @@ import { seminarioPosterRouter } from "./routers/seminarioPoster";
 import { casosClinicosRouter } from "./routers/casosClinicos";
 import { simulacoesClinicasRouter } from "./routers/simulacoesClinicas";
 import { correcaoProvaRouter } from "./routers/correcaoProva";
+import { materiaisGrandesRouter } from "./routers/materiaisGrandes";
+
+
 
 // Helper: fire-and-forget notification (never blocks the main operation)
 function sendNotificationAsync(title: string, content: string) {
@@ -153,6 +156,7 @@ export const appRouter = router({
   seminarioPoster: seminarioPosterRouter,
   casosClinicos: casosClinicosRouter,
   correcaoProva: correcaoProvaRouter,
+  materiaisGrandes: materiaisGrandesRouter,
   qrcode: qrcodeRouter,
   studentNotifications: studentNotificationsRouter,
   studentStats: studentStatsRouter,

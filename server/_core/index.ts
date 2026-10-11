@@ -12,6 +12,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { initializeWebSocket } from "./websocket";
+import { registrarRotaR2 } from "../rotaR2";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -434,6 +435,7 @@ async function startServer() {
   });
 
   // tRPC API (rate limited above)
+  registrarRotaR2(app);
   app.use(
     "/api/trpc",
     createExpressMiddleware({
