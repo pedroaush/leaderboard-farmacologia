@@ -50,7 +50,7 @@ async function startServer() {
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "https:", "data:", "blob:"],
-        connectSrc: ["'self'", "https://files.manuscdn.com", "https://api.manus.im", "wss:", "ws:"],
+        connectSrc: ["'self'", "https://files.manuscdn.com", "https://api.manus.im", "https://*.r2.cloudflarestorage.com", "wss:", "ws:"],
         frameSrc: ["'self'", "https://www.youtube.com", "https://youtube.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         mediaSrc: ["'self'", "https://files.manuscdn.com", "blob:"],
