@@ -6,9 +6,12 @@ import { R2_PREFIXO, R2_TAMANHO_MAXIMO, r2Configurado, r2NovaChave, r2UrlDeEnvio
 
 /**
  * Upload de materiais grandes (até 250 MB) direto do navegador para o R2.
- *  1. pedirEnvio  -> o servidor devolve um endereço assinado
+ *  1. pedirEnvio  -> o servidor devolve um endereço assinado (15 min)
  *  2. o navegador envia o arquivo direto para esse endereço (PUT)
  *  3. confirmar   -> o servidor cria o material, como os demais
+ *
+ * Autorização: a mesma do painel Admin (senha de administrador),
+ * ou o token de sessão de professor.
  */
 const TIPOS_PERMITIDOS = [
   "application/pdf",
@@ -22,28 +25,33 @@ const TIPOS_PERMITIDOS = [
   "video/mp4",
 ];
 
-async function exigirProfessor(sessionToken: string) {
-  const t = await db.getTeacherAccountBySessionToken(sessionToken);
-  if (!t) throw new TRPCError({ code: "FORBIDDEN", message: "Faça login como professor." });
-  return t;
+async function autorizar(password: string) {
+  const senhaSalva = await db.getSetting("admin_password");
+  const senhaCorreta = senhaSalva || "farmaco2026"; // mesma regra de verifyAdminPassword em routers.ts
+  if (password === senhaCorreta) return;
+  const professor = await db.getTeacherAccountBySessionToken(password).catch(() => null);
+  if (professor) return;
+  throw new TRPCError({ code: "FORBIDDEN", message: "Não autorizado" });
 }
 
 export const materiaisGrandesRouter = router({
   pedirEnvio: publicProcedure
     .input(z.object({
-      sessionToken: z.string(),
+      password: z.string(),
       fileName: z.string().min(1).max(300),
       mimeType: z.string(),
       tamanho: z.number().int().positive(),
     }))
     .mutation(async ({ input }) => {
-      await exigirProfessor(input.sessionToken);
-      if (!r2Configurado()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Armazenamento de arquivos grandes não configurado no servidor." });
+      await autorizar(input.password);
+      if (!r2Configurado()) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Armazenamento R2 não configurado no servidor (variáveis R2_* no Railway)." });
+      }
       if (input.tamanho > R2_TAMANHO_MAXIMO) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `Arquivo com ${(input.tamanho / 1048576).toFixed(1)} MB; o limite é 250 MB.` });
       }
       if (!TIPOS_PERMITIDOS.includes(input.mimeType)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Tipo de arquivo não permitido (use PDF, Word, Excel, PowerPoint, JPG, PNG ou MP4)." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Tipo de arquivo não permitido (PDF, Word, Excel, PowerPoint, JPG, PNG ou MP4)." });
       }
       const chave = r2NovaChave("materiais", input.fileName);
       const uploadUrl = await r2UrlDeEnvio(chave, input.mimeType, input.tamanho);
@@ -52,8 +60,8 @@ export const materiaisGrandesRouter = router({
 
   confirmar: publicProcedure
     .input(z.object({
-      sessionToken: z.string(),
-      fileKey: z.string().startsWith(R2_PREFIXO),
+      password: z.string(),
+      fileKey: z.string().startsWith(R2_PREFIXO + "materiais/"),
       fileName: z.string(),
       mimeType: z.string(),
       title: z.string().min(1),
@@ -62,18 +70,20 @@ export const materiaisGrandesRouter = router({
       week: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      await exigirProfessor(input.sessionToken);
+      await autorizar(input.password);
+      const chave = input.fileKey.slice(R2_PREFIXO.length);
+      const url = `/api/r2/arquivo?k=${encodeURIComponent(chave)}&nome=${encodeURIComponent(input.fileName)}`;
       const id = await db.createMaterial({
         title: input.title,
         description: input.description,
         type: "file",
-        url: `/api/r2/arquivo?k=${encodeURIComponent(input.fileKey.slice(R2_PREFIXO.length))}&nome=${encodeURIComponent(input.fileName)}`,
+        url,
         fileKey: input.fileKey,
         fileName: input.fileName,
         mimeType: input.mimeType,
         module: input.module,
         week: input.week,
-      } as any);
-      return { success: true, id };
+      });
+      return { id, url };
     }),
 });

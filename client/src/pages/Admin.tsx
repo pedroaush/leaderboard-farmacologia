@@ -17,6 +17,7 @@ import { TagInput, TagDisplay, type Tag } from "@/components/TagInput";
 import JigsawRebalancingManager from "./AdminJigsawRebalancing";
 import ExamToolsManager from "@/components/ExamToolsManager";
 import AdminJigsawPanel from "./AdminJigsawPanel";
+import { enviarMaterialGrande, LIMITE_MATERIAL_MB } from "@/lib/enviarMaterialGrande";
 import AttendanceQRCodeManager from "./AdminAttendanceQRCode";
 import GradesSpreadsheet from "@/components/GradesSpreadsheet";
 import {
@@ -2338,6 +2339,9 @@ function MaterialsManager({ password }: { password: string }) {
   const [week, setWeek] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [progresso, setProgresso] = useState(0);
+const pedirEnvioR2 = trpc.materiaisGrandes.pedirEnvio.useMutation();
+const confirmarR2 = trpc.materiaisGrandes.confirmar.useMutation();
   const [filterTypes, setFilterTypes] = useState<MaterialType[]>(["file", "link", "comment"]);
   const [tags, setTags] = useState<Tag[]>([]);
   const pdfPreview = usePDFPreview();
@@ -2400,26 +2404,23 @@ function MaterialsManager({ password }: { password: string }) {
           module,
           week: week ? parseInt(week) : undefined,
         });
-      } else if (materialType === "file" && fileInputMode === "upload" && selectedFile) {
-        const reader = new FileReader();
-        const base64 = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => {
-            const result = reader.result as string;
-            resolve(result.split(",")[1]);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(selectedFile);
-        });
-        await uploadMaterial.mutateAsync({
+       } else if (materialType === "file" && fileInputMode === "upload" && selectedFile) {
+        setProgresso(0);
+        await enviarMaterialGrande(selectedFile, {
           password,
           title,
           description: description || undefined,
           module,
           week: week ? parseInt(week) : undefined,
-          fileName: selectedFile.name,
-          mimeType: selectedFile.type || "application/octet-stream",
-          fileBase64: base64,
+          pedirEnvio: pedirEnvioR2.mutateAsync,
+          confirmar: confirmarR2.mutateAsync,
+          onProgresso: setProgresso,
         });
+        utils.materials.getAll.invalidate();
+        utils.materials.getVisible.invalidate();
+        toast.success("Arquivo enviado com sucesso!");
+        resetForm();
+
       } else if (materialType === "link") {
         if (!linkUrl) { toast.error("URL é obrigatória para links"); setUploading(false); return; }
         await createMaterial.mutateAsync({
@@ -2441,8 +2442,8 @@ function MaterialsManager({ password }: { password: string }) {
           week: week ? parseInt(week) : undefined,
         });
       }
-    } catch {
-      toast.error("Erro ao enviar material");
+        } catch (e: any) {
+      toast.error(e?.message || "Erro ao enviar material");
     }
     setUploading(false);
   }
@@ -2524,8 +2525,8 @@ function MaterialsManager({ password }: { password: string }) {
                     }
                   }
                 }}
-                acceptedTypes={[".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".jpg", ".jpeg", ".png"]}
-                maxSize={50 * 1024 * 1024}
+                acceptedTypes={[".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".jpg", ".jpeg", ".png", ".mp4"]}
+maxSize={LIMITE_MATERIAL_MB * 1024 * 1024}
                 multiple={false}
               />
             )}
@@ -2612,7 +2613,7 @@ function MaterialsManager({ password }: { password: string }) {
             disabled={uploading || !title || (materialType === "file" && fileInputMode === "url" && !fileExternalUrl) || (materialType === "file" && fileInputMode === "upload" && !selectedFile) || (materialType === "link" && !linkUrl)}
             className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 flex items-center gap-1.5"
           >
-            {uploading ? "Enviando..." : <><Upload size={14} /> Publicar Material</>}
+          {uploading ? (fileInputMode === "upload" && materialType === "file" ? `Enviando... ${progresso}%` : "Enviando...") : <><Upload size={14} /> Publicar Material</>}
           </button>
         </div>
       </div>
