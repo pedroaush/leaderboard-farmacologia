@@ -28,6 +28,10 @@ function getCliente(): S3Client {
     cliente = new S3Client({
       region: "auto",
       endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      // Versões recentes do SDK colocam "checksum" no endereço assinado, o que
+      // faz o R2 recusar o envio feito pelo navegador. Desligado aqui.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
       credentials: {
         accessKeyId: process.env.R2_ACCESS_KEY_ID!,
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
@@ -38,11 +42,11 @@ function getCliente(): S3Client {
 }
 
 /** Endereço assinado para o navegador enviar o arquivo (PUT), válido por 15 minutos. */
-export async function r2UrlDeEnvio(chave: string, contentType: string, tamanho: number): Promise<string> {
+export async function r2UrlDeEnvio(chave: string, contentType: string, _tamanho?: number): Promise<string> {
   return getSignedUrl(
     getCliente(),
-    new PutObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: chave, ContentType: contentType, ContentLength: tamanho }),
-    { expiresIn: 15 * 60 }
+    new PutObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: chave, ContentType: contentType }),
+    { expiresIn: 15 * 60, signableHeaders: new Set(["content-type"]) }
   );
 }
 
