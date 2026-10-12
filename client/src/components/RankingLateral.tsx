@@ -102,8 +102,9 @@ export default function RankingLateral({ teams, memberId, qtdAlunos = 10, qtdEqu
 }
 
 /** Botão "Provas" da grade de navegação: resultado, gabarito comentado e parecer. */
-export function CardProvas({ classId }: { classId?: number | null }) {
-  const destino = classId ? `/aluno/${classId}?tab=provas` : "/";
+export function CardProvas(_props: { classId?: number | null }) {
+  // Página própria: o servidor descobre a turma pela sessão do aluno
+  const destino = "/minhas-provas";
   return (
     <Link href={destino}>
       <motion.div

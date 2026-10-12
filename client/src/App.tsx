@@ -77,6 +77,7 @@ import PraticaSimulada from "./pages/PraticaSimulada";
 import PraticaSeminario from "./pages/PraticaSeminario";
 import { useStudentAuth } from "./pages/StudentLogin";
 import CorrecaoCartao from "@/pages/CorrecaoCartao";
+import MinhasProvas from "@/pages/MinhasProvas";
 import PainelProva from "@/pages/PainelProva";
 
 function LiveQuizStudentWrapper() {
@@ -156,6 +157,7 @@ function Router() {
       <Route path={"/prova-digital"} component={DigitalExam} />
       <Route path={"/quiz-ao-vivo"} component={LiveQuizStudentWrapper} />
       <Route path="/correcao/painel" component={PainelProva} />
+      <Route path="/minhas-provas" component={MinhasProvas} />
       <Route path="/correcao" component={CorrecaoCartao} />
       <Route path={"/professor/notas"} component={ProfessorGrades} />
 
