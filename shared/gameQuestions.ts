@@ -8,7 +8,8 @@
  *   Semana 1  — Farmacocinética/Farmacodinâmica: Absorção e Vias
  *   Semana 2  — Distribuição, Metabolismo e Excreção
  *   Semana 3  — Mecanismo de ação e Interações medicamentosas
- *   Semana 4  — Boas Práticas de Prescrição
+ *   Semana 4  — Farmacodinâmica: dose-resposta, potência, eficácia, índice terapêutico
+ *               (a aula de Boas Práticas de Prescrição não entra no jogo: fora dos 9 temas)
  *   Semana 5  — Colinérgicos de ação direta e anticolinesterásicos
  *   Semana 6  — Antagonistas colinérgicos e bloqueadores neuromusculares
  *   Semana 7  — Revisão geral (semanas 1-6) — dia de Seminários
@@ -247,72 +248,72 @@ export const ALL_GAME_QUESTIONS: GameQuestion[] = [
   ),
 
   q(15, 3, 5, "O Guardião dos Mecanismos", "Dragão Ancião", "boss", "boss",
-    "Dois fármacos depressores do sistema nervoso central (ex: um benzodiazepínico e um opioide) são usados juntos. O risco de depressão respiratória aumentado é um exemplo de:",
+    "Um paciente usa um AINE não seletivo diariamente e passa a receber também um glicocorticoide sistêmico. O aumento do risco de úlcera e sangramento digestivo com a associação é um exemplo de:",
     [
       { id: "a", text: "Interação farmacocinética por indução enzimática" },
-      { id: "b", text: "Interação farmacodinâmica por sinergismo de efeito" },
-      { id: "c", text: "Antagonismo competitivo" },
+      { id: "b", text: "Interação farmacodinâmica: efeitos adversos que se somam (adição/sinergismo)" },
+      { id: "c", text: "Antagonismo competitivo pelo mesmo receptor" },
       { id: "d", text: "Efeito de primeira passagem" },
     ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
-    "Quando dois fármacos com mecanismos diferentes produzem efeitos farmacológicos semelhantes que se somam (aqui, depressão do SNC), isso é uma interação farmacodinâmica por sinergismo — não envolve alteração de absorção/metabolismo, e sim soma de efeitos no organismo."
+    "Os dois fármacos não alteram a absorção nem o metabolismo um do outro de forma relevante: o AINE reduz as prostaglandinas protetoras da mucosa (COX-1) e o glicocorticoide prejudica a cicatrização e a defesa da mucosa. Os efeitos se somam no mesmo órgão — interação farmacodinâmica por adição/sinergismo."
   ),
 
   // ══════════════════════════════════════════════════════════════════
-  // SEMANA 4 — Boas Práticas de Prescrição
+  // SEMANA 4 — Farmacodinâmica: curva dose-resposta, potência, eficácia e índice terapêutico
   // ══════════════════════════════════════════════════════════════════
-  q(16, 4, 1, "O Pergaminho Correto", "Mestre dos Magos", "mage", "easy",
-    "Ao prescrever um medicamento, por que é considerada boa prática usar a Denominação Comum Brasileira (DCB) em vez do nome comercial?",
+  q(16, 4, 1, "A Curva da Resposta", "Mestre dos Magos", "mage", "easy",
+    "Na curva dose-resposta, a POTÊNCIA de um fármaco é melhor expressa por qual parâmetro?",
     [
-      { id: "a", text: "Porque nomes comerciais são proibidos por lei em qualquer receita" },
-      { id: "b", text: "Porque o nome genérico identifica o fármaco de forma clara e reduz risco de confusão entre marcas" },
-      { id: "c", text: "Porque o nome comercial é sempre mais barato" },
-      { id: "d", text: "Não há diferença prática entre as duas formas" },
+      { id: "a", text: "Efeito máximo (Emax)" },
+      { id: "b", text: "EC50 — concentração que produz 50% do efeito máximo" },
+      { id: "c", text: "Meia-vida de eliminação" },
+      { id: "d", text: "Volume de distribuição" },
     ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
-    "Usar a denominação genérica (DCB/DCI) evita ambiguidade — várias marcas comerciais podem existir para o mesmo princípio ativo, e o nome genérico deixa claro exatamente qual substância está sendo prescrita, facilitando também a dispensação pelo SUS."
+    "Potência refere-se à quantidade de fármaco necessária para produzir um efeito: quanto menor a EC50 (ou DE50), mais potente. Já o efeito máximo alcançável (Emax) define a eficácia — são conceitos diferentes."
   ),
 
-  q(17, 4, 2, "O Selo de Controle Especial", "Presto", "mage", "easy",
-    "Medicamentos sujeitos a controle especial (ex: alguns psicotrópicos) exigem, no Brasil, qual tipo de receituário?",
+  q(17, 4, 2, "Força Máxima", "Presto", "mage", "easy",
+    "Dois agonistas atuam no mesmo receptor. O fármaco A atinge 100% de resposta e o fármaco B, mesmo em doses muito altas, atinge só 60%. Isso significa que B tem:",
     [
-      { id: "a", text: "Receita comum, sem exigências adicionais" },
-      { id: "b", text: "Notificação de Receita (talão específico, conforme a Portaria 344/98)" },
-      { id: "c", text: "Prescrição verbal é sempre suficiente" },
-      { id: "d", text: "Nenhum documento é necessário para dispensação" },
+      { id: "a", text: "Maior potência que A" },
+      { id: "b", text: "Menor eficácia que A" },
+      { id: "c", text: "Maior índice terapêutico que A" },
+      { id: "d", text: "Meia-vida mais curta que A" },
     ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
-    "Substâncias controladas (psicotrópicos, entorpecentes etc.) exigem notificação de receita em talão específico e numerado, seguindo a Portaria SVS/MS 344/1998, com regras de retenção e validade próprias."
+    "Eficácia é a capacidade de produzir o efeito máximo. Um fármaco cujo platô fica abaixo do de outro, no mesmo receptor, tem menor eficácia — independentemente de sua potência (EC50)."
   ),
 
-  q(18, 4, 3, "Nomes Parecidos, Riscos Diferentes", "Hank", "warrior", "medium",
-    "Dois medicamentos com grafia e som semelhantes (ex: nomes 'look-alike/sound-alike') representam qual tipo de risco na prescrição?",
+  q(18, 4, 3, "O Agonista pela Metade", "Hank", "warrior", "medium",
+    "Um agonista parcial é administrado a um paciente que já tem altas concentrações de um agonista total no mesmo receptor. O efeito esperado é:",
     [
-      { id: "a", text: "Risco de erro de dispensação/administração por troca acidental" },
-      { id: "b", text: "Risco exclusivamente estético da receita" },
-      { id: "c", text: "Nenhum risco relevante, é só uma coincidência de nomes" },
-      { id: "d", text: "Risco apenas para medicamentos fitoterápicos" },
+      { id: "a", text: "Soma dos efeitos, ultrapassando o máximo do agonista total" },
+      { id: "b", text: "Redução do efeito do agonista total — o parcial passa a se comportar como antagonista" },
+      { id: "c", text: "Nenhuma alteração, pois os dois não competem" },
+      { id: "d", text: "Efeito oposto ao do agonista total (agonismo inverso)" },
+    ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
+    "O agonista parcial ocupa receptores mas gera resposta submáxima. Ao deslocar o agonista total, reduz a resposta global — por isso, na presença de agonista total, o parcial atua como antagonista parcial."
+  ),
+
+  q(19, 4, 4, "A Curva Deslocada", "Sheila", "warrior", "hard",
+    "Na presença de um antagonista competitivo reversível, como fica a curva dose-resposta do agonista?",
+    [
+      { id: "a", text: "Desloca-se paralelamente para a direita, com o mesmo efeito máximo" },
+      { id: "b", text: "Desloca-se para a esquerda, com maior efeito máximo" },
+      { id: "c", text: "Mantém a posição, mas o efeito máximo cai" },
+      { id: "d", text: "Desaparece, pois nenhum efeito é possível" },
     ].map(a => ({ ...a, isCorrect: a.id === "a" } as Alternative)),
-    "Nomes parecidos (LASA — look-alike, sound-alike) são uma causa clássica e bem documentada de erro de medicação, seja na prescrição, na dispensação pela farmácia ou na administração pela enfermagem — por isso protocolos de segurança recomendam escrever com clareza e, se possível, destacar diferenças (ex: maiúsculas)."
+    "O antagonista competitivo reversível disputa o mesmo sítio: com doses maiores de agonista o efeito máximo ainda é alcançado, mas é preciso mais agonista (EC50 aumenta) — desvio paralelo à direita. Antagonistas irreversíveis/não competitivos é que reduzem o Emax."
   ),
 
-  q(19, 4, 4, "A Receita com Falhas", "Sheila", "warrior", "hard",
-    "Uma prescrição informa apenas 'Dipirona, tomar se dor' sem especificar dose, via de administração e intervalo. Qual é o principal problema dessa prescrição?",
+  q(20, 4, 5, "O Guardião da Dose-Resposta", "Dragão Ancião", "boss", "boss",
+    "O índice terapêutico (IT = DT50/DE50) de um fármaco é baixo. Na prática clínica, isso significa que:",
     [
-      { id: "a", text: "Nenhum — está completa" },
-      { id: "b", text: "Falta de clareza pode levar a subdose, superdose ou uso inadequado pelo paciente" },
-      { id: "c", text: "O problema é só a falta de assinatura do médico" },
-      { id: "d", text: "Dipirona nunca deve ser prescrita 'se necessário'" },
+      { id: "a", text: "O fármaco é muito seguro e dispensa monitorização" },
+      { id: "b", text: "A dose eficaz está próxima da dose tóxica, exigindo ajuste cuidadoso e monitorização" },
+      { id: "c", text: "O fármaco é pouco potente" },
+      { id: "d", text: "O fármaco tem meia-vida curta" },
     ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
-    "Uma prescrição completa e segura deve conter, no mínimo: nome do fármaco, dose, via, intervalo/frequência e duração do tratamento. Omitir esses dados abre espaço para interpretação equivocada por quem administra ou pelo próprio paciente, aumentando o risco de erro de dose ou uso incorreto."
-  ),
-
-  q(20, 4, 5, "O Guardião da Prescrição", "Dragão Ancião", "boss", "boss",
-    "Um prescritor identifica que dois medicamentos de um mesmo paciente têm potencial de interação farmacocinética grave. Qual é a conduta mais alinhada às boas práticas de prescrição?",
-    [
-      { id: "a", text: "Ignorar, pois a interação raramente se manifesta na prática" },
-      { id: "b", text: "Revisar a prescrição, considerando ajuste de dose, substituição ou monitorização adicional" },
-      { id: "c", text: "Aumentar a dose de ambos para compensar a interação" },
-      { id: "d", text: "Suspender toda a medicação do paciente sem avaliação" },
-    ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
-    "Boas práticas de prescrição incluem revisar ativamente o esquema terapêutico diante de uma interação potencialmente grave — o que pode significar ajustar dose, trocar por alternativa mais segura, ou reforçar monitorização, e não simplesmente ignorar ou tomar decisões drásticas sem avaliação criteriosa."
+    "O IT compara a dose que causa toxicidade em 50% (DT50, ou DL50 em animais) com a dose eficaz em 50% (DE50). IT baixo = janela terapêutica estreita: pequenas variações de dose ou interações podem levar a toxicidade, exigindo cautela e monitorização."
   ),
 
   // ══════════════════════════════════════════════════════════════════
@@ -500,15 +501,15 @@ export const ALL_GAME_QUESTIONS: GameQuestion[] = [
     "Em urina ácida, bases fracas ficam mais ionizadas e por isso são menos reabsorvidas pelos túbulos renais, sendo eliminadas mais rapidamente — o princípio do 'ion trapping' usado em algumas intoxicações."
   ),
 
-  q(78, 7, 7, "Revisão: A Receita Segura", "Sheila", "warrior", "medium",
-    "Segundo as boas práticas de prescrição, por que se recomenda escrever a dose e a via de administração de forma explícita, mesmo para medicamentos considerados 'óbvios'?",
+  q(78, 7, 7, "Revisão: Potência ou Eficácia?", "Sheila", "warrior", "medium",
+    "Um fármaco tem EC50 menor que outro do mesmo receptor, mas ambos atingem o mesmo efeito máximo. Podemos afirmar que ele é:",
     [
-      { id: "a", text: "Porque ambiguidade em qualquer prescrição pode gerar erro de administração, independentemente do fármaco" },
-      { id: "b", text: "Porque a lei brasileira não exige isso para medicamentos comuns" },
-      { id: "c", text: "Porque só medicamentos controlados precisam dessa informação" },
-      { id: "d", text: "Não há necessidade real, é apenas formalidade" },
+      { id: "a", text: "Mais potente, com a mesma eficácia" },
+      { id: "b", text: "Mais eficaz, com a mesma potência" },
+      { id: "c", text: "Menos potente e menos eficaz" },
+      { id: "d", text: "Um agonista parcial" },
     ].map(a => ({ ...a, isCorrect: a.id === "a" } as Alternative)),
-    "Prescrições ambíguas são uma fonte reconhecida de erro de medicação — a clareza (dose, via, frequência, duração) protege o paciente independentemente de o fármaco parecer 'simples' ou de uso comum."
+    "EC50 menor = é preciso menos fármaco para metade do efeito máximo, ou seja, maior potência. Como o efeito máximo é igual, a eficácia é a mesma."
   ),
 
   q(79, 7, 8, "Revisão: O Duelo das Enzimas Hepáticas", "Presto", "mage", "medium",
@@ -556,14 +557,14 @@ export const ALL_GAME_QUESTIONS: GameQuestion[] = [
   ),
 
   q(83, 7, 12, "Revisão: O Encontro dos Temas", "Hank", "warrior", "hard",
-    "Um paciente recebe simultaneamente um inibidor do CYP450 e um fármaco de margem terapêutica estreita metabolizado por essa mesma via, sem ajuste de dose. Além do risco de acúmulo tóxico, o que mais deve ser avaliado na prescrição desse paciente?",
+    "Um paciente com intoxicação por organofosforado recebe atropina e a bradicardia e a broncorreia melhoram, mas a fraqueza muscular e as fasciculações persistem. Por quê?",
     [
-      { id: "a", text: "Se a prescrição informa claramente dose, via e frequência, permitindo identificar e corrigir o risco a tempo" },
-      { id: "b", text: "Nada mais precisa ser avaliado além da interação" },
-      { id: "c", text: "Apenas a cor da embalagem dos medicamentos" },
-      { id: "d", text: "Se o paciente prefere sabor doce ou amargo do medicamento" },
-    ].map(a => ({ ...a, isCorrect: a.id === "a" } as Alternative)),
-    "Essa questão integra dois temas do bloco 1: interação farmacocinética por inibição enzimática E boas práticas de prescrição — uma prescrição clara e completa facilita a identificação precoce de riscos como esse antes que causem dano ao paciente."
+      { id: "a", text: "A dose de atropina foi insuficiente para bloquear receptores nicotínicos" },
+      { id: "b", text: "A atropina bloqueia apenas receptores muscarínicos; os efeitos nicotínicos na placa motora não são revertidos por ela" },
+      { id: "c", text: "Fasciculações são efeito adverso da própria atropina" },
+      { id: "d", text: "O organofosforado foi totalmente eliminado, restando apenas sequela" },
+    ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
+    "Integra farmacodinâmica (seletividade de receptor) e sistema colinérgico: a atropina é antagonista competitivo muscarínico. O excesso de ACh na junção neuromuscular atua em receptores nicotínicos, que ela não bloqueia — por isso pode-se associar uma oxima (pralidoxima) precocemente, para reativar a acetilcolinesterase."
   ),
 
   q(84, 7, 13, "Revisão: O Bloqueio Duplo", "Sheila", "warrior", "hard",
@@ -578,14 +579,14 @@ export const ALL_GAME_QUESTIONS: GameQuestion[] = [
   ),
 
   q(35, 7, 14, "O Guardião da Revisão", "Dragão Ancião", "boss", "boss",
-    "Uma prescrição sem via de administração especificada, associada a um fármaco metabolizado pelo CYP450 sendo coadministrado com um potente inibidor dessa enzima. Qual é o risco combinado mais provável?",
+    "Ao final de uma cirurgia, um paciente que recebeu rocurônio tem o bloqueio revertido com neostigmina associada à atropina. Qual alternativa explica corretamente o papel de cada fármaco?",
     [
-      { id: "a", text: "Erro de administração E acúmulo tóxico do fármaco por inibição do metabolismo" },
-      { id: "b", text: "Nenhum risco, pois os dois problemas se anulam" },
-      { id: "c", text: "Apenas risco estético na receita" },
-      { id: "d", text: "Redução da absorção oral, sem qualquer outro efeito" },
-    ].map(a => ({ ...a, isCorrect: a.id === "a" } as Alternative)),
-    "Essa questão integra dois temas: prescrição incompleta (risco de erro de via/administração) e interação farmacocinética por inibição enzimática (acúmulo e toxicidade) — mostrando como problemas de segurança do paciente costumam se somar, não ocorrer isoladamente."
+      { id: "a", text: "Neostigmina bloqueia receptores nicotínicos; atropina reativa a acetilcolinesterase" },
+      { id: "b", text: "Neostigmina inibe a acetilcolinesterase e aumenta a ACh na placa motora; atropina bloqueia os efeitos muscarínicos (bradicardia, secreções) causados pelo excesso de ACh" },
+      { id: "c", text: "Ambas são antagonistas muscarínicos" },
+      { id: "d", text: "A atropina potencializa o bloqueio neuromuscular" },
+    ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
+    "Integra farmacodinâmica e sistema colinérgico: a neostigmina (anticolinesterásico) eleva a ACh, que compete com o rocurônio (antagonista competitivo nicotínico) e reverte o bloqueio. Como a ACh também ativa receptores muscarínicos, associa-se atropina (ou glicopirrolato) para evitar bradicardia, broncorreia e salivação."
   ),
 
   // ══════════════════════════════════════════════════════════════════
@@ -1118,7 +1119,7 @@ export const ALL_GAME_QUESTIONS: GameQuestion[] = [
     "A anafilaxia envolve múltiplos sistemas ao mesmo tempo (hipotensão, broncoespasmo, edema) — a ação combinada da adrenalina em receptores alfa-1, beta-1 e beta-2 cobre essas múltiplas frentes simultaneamente, o que um agonista beta-2 isolado não conseguiria fazer sozinho."
   ),
 
-  q(74, 15, 4, "A Grande Revisão: Segurança do Paciente", "Sheila", "warrior", "hard",
+  q(74, 15, 4, "A Grande Revisão: Glicocorticoides", "Sheila", "warrior", "hard",
     "Um paciente em uso crônico de glicocorticoide sistêmico desenvolve uma infecção grave. Qual é a relação mais provável entre o uso do corticoide e essa complicação?",
     [
       { id: "a", text: "O uso crônico de glicocorticoide causa imunossupressão, aumentando a suscetibilidade a infecções" },
@@ -1184,15 +1185,15 @@ export const ALL_GAME_QUESTIONS: GameQuestion[] = [
     "Reconhecer precocemente os sinais neurológicos (zumbido, gosto metálico, formigamento perioral) permite intervir antes da progressão para convulsão e colapso cardiovascular, incluindo o uso de emulsão lipídica se necessário."
   ),
 
-  q(98, 15, 10, "Revisão Final: A Prescrição e a Interação", "Sheila", "warrior", "hard",
-    "Um paciente recebe um fármaco de margem terapêutica estreita junto com um inibidor do CYP450 que o metaboliza, numa prescrição sem via de administração especificada. Quais dois riscos de segurança estão presentes simultaneamente?",
+  q(98, 15, 10, "Revisão Final: Interação e Margem Estreita", "Sheila", "warrior", "hard",
+    "Um paciente usa um fármaco de índice terapêutico estreito metabolizado pelo CYP450 e passa a usar também um inibidor potente dessa enzima, sem ajuste de dose. O que se espera?",
     [
-      { id: "a", text: "Risco de acúmulo tóxico por inibição enzimática E risco de erro de administração por prescrição incompleta" },
-      { id: "b", text: "Nenhum risco relevante, os problemas se anulam" },
-      { id: "c", text: "Apenas risco estético da receita" },
-      { id: "d", text: "Redução da absorção oral, sem qualquer outro efeito" },
-    ].map(a => ({ ...a, isCorrect: a.id === "a" } as Alternative)),
-    "Essa questão integra dois temas centrais do semestre: interação farmacocinética por inibição enzimática (acúmulo/toxicidade) e boas práticas de prescrição (clareza previne erro de administração) — problemas de segurança do paciente costumam se somar."
+      { id: "a", text: "Queda dos níveis plasmáticos e perda de efeito" },
+      { id: "b", text: "Aumento dos níveis plasmáticos com risco de toxicidade, agravado pela janela terapêutica estreita" },
+      { id: "c", text: "Nenhuma alteração, pois o metabolismo hepático não influencia os níveis" },
+      { id: "d", text: "Aumento da absorção oral apenas" },
+    ].map(a => ({ ...a, isCorrect: a.id === "b" } as Alternative)),
+    "A inibição enzimática reduz a depuração e eleva a concentração do fármaco. Em fármacos de índice terapêutico estreito, mesmo aumentos modestos podem ultrapassar a faixa tóxica — por isso exigem ajuste de dose e monitorização."
   ),
 
   q(99, 15, 11, "Revisão Final: O Eixo e a Suspensão", "Presto", "mage", "hard",

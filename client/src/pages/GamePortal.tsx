@@ -12,7 +12,7 @@ import {
   CheckCircle2, XCircle, ChevronRight, MessageCircle, Skull, Flame
 } from "lucide-react";
 import { toast } from "sonner";
-import BossBattle, { BOSSES } from "@/components/game/BossBattle";
+import BossBattle, { chefesDaDisciplina } from "@/components/game/BossBattle";
 import { BossVictoryAnimation } from "@/components/game/BossVictoryAnimation";
 import { playCorrectSound, playWrongSound, playVictorySound, playDefeatSound, playWeekCompleteSound } from "@/lib/gameSounds";
 import { WeekReview } from "@/components/game/WeekReview";
@@ -153,6 +153,11 @@ export default function GamePortal() {
     { enabled: memberId > 0 }
   );
 
+  // Banco de questões da turma (Farmacologia I, II...) — cada turma joga só a sua disciplina
+  const { data: configTurma } = trpc.game.getConfigTurma.useQuery({ classId: classIdNum });
+  const disciplina = configTurma?.disciplina ?? "farmaco1";
+  const chefes = useMemo(() => chefesDaDisciplina(disciplina), [disciplina]);
+
   // Count earned achievements for badge
   const earnedAchievementCount = useMemo(() => {
     if (!progress?.achievements) return 0;
@@ -249,7 +254,7 @@ export default function GamePortal() {
     if (completedQuestIds?.includes(quest.id)) {
       // Open review mode for the week this quest belongs to
       const weekNumber = quest.weekNumber || Math.ceil(quest.id / 5);
-      const boss = BOSSES.find(b => b.weekNumber === weekNumber);
+      const boss = chefes.find(b => b.weekNumber === weekNumber);
       setReviewWeek({ weekNumber, weekTitle: boss?.name || `Semana ${weekNumber}` });
       return;
     }
@@ -295,7 +300,7 @@ export default function GamePortal() {
         } else {
           playDefeatSound();
         }
-        const boss = BOSSES.find((b: any) => b.weekNumber === selectedQuest?.weekNumber);
+        const boss = chefes.find((b: any) => b.weekNumber === selectedQuest?.weekNumber);
         setBossAnimData({
           isVictory: result.isCorrect,
           bossEmoji: boss?.emoji || "🐉",
@@ -461,12 +466,31 @@ export default function GamePortal() {
   };
 
   // ═══════════════════════════════════════
+  // RENDER: DISCIPLINA SEM JOGO AINDA (ex.: Farmacologia II em preparação)
+  // ═══════════════════════════════════════
+  if (configTurma && !configTurma.disponivel) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-[#0a0e27] via-[#111638] to-[#0a0e27] text-white flex items-center justify-center p-6">
+        <div className="max-w-md text-center rounded-2xl border border-white/10 bg-white/5 p-8">
+          <div className="text-5xl mb-4">🐉</div>
+          <h1 className="text-xl font-bold mb-2">Jogo de {configTurma.nomeDisciplina} em preparação</h1>
+          <p className="text-white/60 text-sm mb-6">As missões desta disciplina ainda estão sendo preparadas pelo professor. Volte em breve!</p>
+          <button onClick={() => setLocation(`/aluno/${classIdNum}`)} className="px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-sm font-semibold">
+            Voltar à Área do Aluno
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════
   // RENDER: BOSS BATTLE VIEW
   // ═══════════════════════════════════════
   if (view === "boss" && activeBossWeek) {
     return (
       <BossBattle
         weekNumber={activeBossWeek}
+        disciplina={disciplina}
         gender={["diana", "sheila"].includes((progress?.characterId || "").toLowerCase()) ? "female" : "male"}
         onComplete={handleBossComplete}
         onBack={() => {
@@ -616,7 +640,7 @@ export default function GamePortal() {
             })}
 
             {/* Boss markers on map */}
-            {BOSSES.map((boss) => {
+            {chefes.map((boss) => {
               const pos = BOSS_POSITIONS[boss.weekNumber];
               if (!pos) return null;
               const status = bossStatusMap[boss.weekNumber];
@@ -680,7 +704,7 @@ export default function GamePortal() {
               <Skull size={20} /> Chefes da Semana
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 2xl:gap-4">
-              {BOSSES.map((boss) => {
+              {chefes.map((boss) => {
                 const status = bossStatusMap[boss.weekNumber];
                 const isAvailable = status?.available || false;
                 const isDefeated = status?.defeated || false;

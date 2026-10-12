@@ -4,6 +4,7 @@ import {
   Shield, Sword, Heart, Zap, Star, Trophy, Skull,
   ArrowLeft, Timer, Flame, ChevronRight, AlertTriangle, RotateCcw
 } from "lucide-react";
+import { CHEFES, type DisciplinaJogo } from "@shared/gameBanks";
 
 // ═══════════════════════════════════════
 // HERO AVATAR IMAGES
@@ -91,7 +92,7 @@ function getBossVideo(bossId: number, type: "victory" | "defeat", gender: "male"
 }
 
 // ═══════════════════════════════════════
-// BOSS DATA - 17 bosses, 1 per week
+// BOSS DATA — biblioteca visual (perguntas em shared/gameBanks.ts)
 // ═══════════════════════════════════════
 
 interface BossQuestion {
@@ -121,7 +122,9 @@ interface BossData {
   phases: BossPhase[];
 }
 
-const BOSSES: BossData[] = [
+// Biblioteca VISUAL dos chefes (imagem, cor, vídeos por id). As perguntas
+// usadas no jogo vêm de shared/gameBanks.ts, por disciplina e semana.
+const VISUAIS_CHEFES: BossData[] = [
   {
     id: 1, weekNumber: 1, name: "Guardião do Portal", title: "Sentinela da Farmacocinética",
     emoji: "🛡️", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/JbsXuycNvrmiUuhC.png", color: "#3b82f6", hp: 300, playerHp: 100, pfReward: 25, xpReward: 200,
@@ -397,6 +400,43 @@ const BOSSES: BossData[] = [
 ];
 
 
+// Economia de PF/HP por SEMANA (mantida igual à versão anterior, para não
+// alterar a pontuação de quem já enfrentou chefes)
+const ECONOMIA_POR_SEMANA: Record<number, { hp: number; pfReward: number; xpReward: number }> = {
+  1: { hp: 300, pfReward: 25, xpReward: 200 }, 2: { hp: 350, pfReward: 30, xpReward: 250 },
+  3: { hp: 400, pfReward: 35, xpReward: 300 }, 4: { hp: 450, pfReward: 40, xpReward: 350 },
+  5: { hp: 500, pfReward: 45, xpReward: 400 }, 6: { hp: 500, pfReward: 45, xpReward: 400 },
+  7: { hp: 550, pfReward: 50, xpReward: 450 }, 8: { hp: 550, pfReward: 50, xpReward: 450 },
+  9: { hp: 600, pfReward: 55, xpReward: 500 }, 10: { hp: 700, pfReward: 75, xpReward: 600 },
+  11: { hp: 650, pfReward: 60, xpReward: 520 }, 12: { hp: 650, pfReward: 60, xpReward: 520 },
+  13: { hp: 680, pfReward: 65, xpReward: 550 }, 14: { hp: 700, pfReward: 65, xpReward: 550 },
+  15: { hp: 720, pfReward: 70, xpReward: 580 },
+};
+
+/** Chefes da disciplina: visual da biblioteca + perguntas do banco da turma. */
+export function chefesDaDisciplina(disciplina: DisciplinaJogo = "farmaco1"): BossData[] {
+  return CHEFES[disciplina].map((c) => {
+    const visual = VISUAIS_CHEFES.find((v) => v.id === c.visualId) ?? VISUAIS_CHEFES[0];
+    const eco = ECONOMIA_POR_SEMANA[c.weekNumber] ?? { hp: visual.hp, pfReward: visual.pfReward, xpReward: visual.xpReward };
+    return {
+      ...visual,
+      id: visual.id, // define os vídeos de vitória/derrota
+      weekNumber: c.weekNumber,
+      name: c.name,
+      title: c.title,
+      emoji: c.emoji ?? visual.emoji,
+      color: c.color ?? visual.color,
+      hp: eco.hp,
+      pfReward: eco.pfReward,
+      xpReward: eco.xpReward,
+      phases: c.phases,
+    };
+  });
+}
+
+/** Compatibilidade: chefes de Farmacologia I */
+const BOSSES: BossData[] = chefesDaDisciplina("farmaco1");
+
 // ═══════════════════════════════════════
 // CSS ANIMATIONS - Caverna do Dragão Style
 // ═══════════════════════════════════════
@@ -542,6 +582,8 @@ const BATTLE_STYLES = `
 
 export interface BossBattleProps {
   weekNumber: number;
+  /** Banco de questões da turma (padrão: Farmacologia I) */
+  disciplina?: DisciplinaJogo;
   gender?: "male" | "female";
   onComplete: (result: {
     isVictory: boolean;
@@ -558,8 +600,8 @@ export interface BossBattleProps {
   onBack: () => void;
 }
 
-export default function BossBattle({ weekNumber, gender = "male", onComplete, onBack }: BossBattleProps) {
-  const boss = useMemo(() => BOSSES.find(b => b.weekNumber === weekNumber), [weekNumber]);
+export default function BossBattle({ weekNumber, disciplina = "farmaco1", gender = "male", onComplete, onBack }: BossBattleProps) {
+  const boss = useMemo(() => chefesDaDisciplina(disciplina).find(b => b.weekNumber === weekNumber), [weekNumber, disciplina]);
   
   const [phase, setPhase] = useState(0);
   const [questionIdx, setQuestionIdx] = useState(0);

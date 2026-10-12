@@ -40,7 +40,7 @@ export default function CorrecaoCartao() {
   const [classId, setClassId] = useState<number | null>(inicial.classId);
   const [cartao, setCartao] = useState<string | null>(inicial.cartao);
   const [memberId, setMemberId] = useState<number | null>(inicial.memberId);
-  const [versao, setVersao] = useState<Letra | null>(null);
+  const [versao, setVersao] = useState<string | null>(null);
   const [respostas, setRespostas] = useState<(Letra | null)[]>([]);
   const [busca, setBusca] = useState("");
   const [resultado, setResultado] = useState<null | { nota: number; acertos: number; total: number; aluno: string }>(null);
@@ -65,7 +65,7 @@ export default function CorrecaoCartao() {
     setErro(null);
     const l = contexto.data?.lancamento;
     if (l && l.respostas.length === numQuestoes) {
-      setVersao(l.versao as Letra);
+      setVersao(l.versao);
       setRespostas(l.respostas as (Letra | null)[]);
     } else {
       setVersao(null);
@@ -89,7 +89,7 @@ export default function CorrecaoCartao() {
     if (!memberId || !versao || !classId) return;
     setErro(null);
     try {
-      const r = await lancar.mutateAsync({ sessionToken: token, classId, provaType: prova, memberId, versao, respostas });
+      const r = await lancar.mutateAsync({ sessionToken: token, classId, provaType: prova, memberId, versao: versao as any, respostas });
       setResultado({ nota: r.nota, acertos: r.acertos, total: r.total, aluno: r.aluno });
       contexto.refetch();
     } catch (e: any) {
@@ -190,8 +190,8 @@ export default function CorrecaoCartao() {
               {/* Versão */}
               <div className="rounded-xl p-4" style={{ backgroundColor: CARD_BG }}>
                 <p className="text-xs text-white/50 mb-2">Versão marcada no cartão</p>
-                <div className="flex gap-2">
-                  {LETRAS.filter(l => contexto.data?.versoes.includes(l)).map(l => (
+                <div className="flex flex-wrap gap-2">
+                  {(contexto.data?.versoes || []).map(l => (
                     <button key={l} onClick={() => { setVersao(l); setResultado(null); }}
                       className="w-11 h-11 rounded-full font-bold text-base"
                       style={{ backgroundColor: versao === l ? ORANGE : "rgba(255,255,255,0.06)", color: versao === l ? "#fff" : "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)" }}>

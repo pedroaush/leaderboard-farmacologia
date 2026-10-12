@@ -1,0 +1,483 @@
+import { router, publicProcedure } from "../_core/trpc";
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { eq, and } from "drizzle-orm";
+import { getDb, getTeacherAccountBySessionToken, getStudentAccountBySessionToken, getSetting, upsertSetting } from "../db";
+import { examGabaritos, examStudentGrades, members, studentAccounts } from "../../drizzle/schema";
+
+/**
+ * ============================================================================
+ * CORREÇÃO DE CARTÃO-RESPOSTA POR QR CODE — v2
+ * ============================================================================
+ * Novidades da v2:
+ *  - Versões A a J (A–E para a 1ª chamada, F–J para a 2ª chamada da mesma
+ *    prova, sem misturar gabaritos).
+ *  - MAPA da prova: para cada versão, qual questão original está em cada
+ *    posição e como as alternativas foram embaralhadas. Guardado no campo
+ *    `difficulties` de examGabaritos (que este fluxo não usa para peso).
+ *    Com o mapa, a estatística é feita por QUESTÃO ORIGINAL, juntando todas
+ *    as versões.
+ *  - ANULAÇÃO: uma questão anulada vale ponto para todos, em todas as
+ *    versões. Marcada com "*" no gabarito de cada versão.
+ *  - Painel: resumo, distribuição de notas, % de acerto e discriminação por
+ *    questão, alternativas marcadas e lista de ausentes.
+ *  - Resultado do aluno: nota, respostas e gabarito da própria versão, só
+ *    depois que o professor liberar.
+ *
+ * Nota = acertos × (10 ÷ número de questões).
+ * ============================================================================
+ */
+
+const LETRA = z.enum(["A", "B", "C", "D", "E"]);
+const VERSAO = z.enum(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]);
+const PROVA = z.enum(["P1", "P2"]);
+const ANULADA = "*";
+
+const mapaItem = z.object({
+  q: z.number(),                    // nº da questão original (igual em todas as versões)
+  tema: z.string().optional(),
+  posA: z.number().optional(),      // posição dessa questão na versão A (para o professor achar no papel)
+  alt: z.record(z.string(), LETRA), // letra nesta versão -> letra canônica (a da versão A)
+});
+type MapaItem = z.infer<typeof mapaItem>;
+
+async function autenticar(db: any, sessionToken: string, classId: number): Promise<{ id: number; name: string; tipo: "professor" | "monitor" }> {
+  const teacher = await getTeacherAccountBySessionToken(sessionToken);
+  if (teacher) return { id: teacher.id, name: teacher.name, tipo: "professor" };
+
+  const rows = await db.select().from(studentAccounts)
+    .where(and(eq(studentAccounts.sessionToken, sessionToken), eq(studentAccounts.accountType, "monitor"), eq(studentAccounts.isActive, 1)))
+    .limit(1);
+  const monitor = rows[0];
+  if (!monitor) throw new TRPCError({ code: "FORBIDDEN", message: "Faça login como professor ou monitor para corrigir cartões." });
+  if (monitor.assignedClassId && monitor.assignedClassId !== classId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode corrigir cartões da sua turma." });
+  }
+  return { id: monitor.id, name: `${monitor.displayName || monitor.email} (monitor)`, tipo: "monitor" };
+}
+
+async function exigirProfessor(sessionToken: string) {
+  const teacher = await getTeacherAccountBySessionToken(sessionToken);
+  if (!teacher) throw new TRPCError({ code: "FORBIDDEN", message: "Somente o professor pode fazer isso." });
+  return teacher;
+}
+
+function limparNome(n: string | null | undefined): string {
+  if (!n) return "";
+  const p = n.split("\t");
+  return (p.length >= 2 ? p[1] : n).trim();
+}
+
+function lerMapa(raw: string | null | undefined): MapaItem[] | null {
+  try {
+    const v = JSON.parse(raw || "null");
+    if (Array.isArray(v) && v.length && typeof v[0] === "object" && v[0] && "q" in v[0]) return v as MapaItem[];
+  } catch { /* sem mapa */ }
+  return null;
+}
+
+/** Corrige um conjunto de respostas com um gabarito (posições "*" = anuladas, valem para todos). */
+function corrigir(respostas: (string | null)[], gabarito: string[]) {
+  const acertos = respostas.reduce((n, r, i) => n + ((gabarito[i] === ANULADA || (r !== null && r === gabarito[i])) ? 1 : 0), 0);
+  const nota = Math.round(acertos * (10 / gabarito.length) * 100) / 100;
+  return { acertos, nota };
+}
+
+const chaveLiberacao = (classId: number, provaType: string) => `resultado_liberado_${classId}_${provaType}`;
+const chaveAnuladas = (classId: number, provaType: string) => `questoes_anuladas_${classId}_${provaType}`;
+
+async function carregarGabaritos(db: any, classId: number, provaType: string) {
+  const gabs = await db.select().from(examGabaritos)
+    .where(and(eq(examGabaritos.classId, classId), eq(examGabaritos.provaType, provaType)));
+  return gabs.map((g: any) => ({
+    id: g.id,
+    versao: g.examVersion as string,
+    gabarito: JSON.parse(g.answers) as string[],
+    mapa: lerMapa(g.difficulties),
+  }));
+}
+
+async function recorrigirTurma(db: any, classId: number, provaType: string) {
+  const gabs = await carregarGabaritos(db, classId, provaType);
+  const porVersao = new Map<string, string[]>(gabs.map((g: any) => [g.versao, g.gabarito]));
+  const notas = await db.select().from(examStudentGrades)
+    .where(and(eq(examStudentGrades.classId, classId), eq(examStudentGrades.provaType, provaType)));
+  let recorrigidos = 0;
+  for (const n of notas) {
+    const gabarito = porVersao.get(n.examVersion || "A");
+    if (!gabarito) continue;
+    const respostas = JSON.parse(n.answers || "[]") as (string | null)[];
+    if (respostas.length !== gabarito.length) continue;
+    const { acertos, nota } = corrigir(respostas, gabarito);
+    await db.update(examStudentGrades).set({ score: nota.toFixed(2), correctCount: acertos }).where(eq(examStudentGrades.id, n.id));
+    recorrigidos++;
+  }
+  return recorrigidos;
+}
+
+export const correcaoProvaRouter = router({
+  /**
+   * PROFESSOR: grava os gabaritos de todas as versões (e, opcionalmente, o
+   * mapa de cada versão). Questões já anuladas continuam anuladas.
+   */
+  salvarGabaritos: publicProcedure
+    .input(z.object({
+      sessionToken: z.string(),
+      classId: z.number(),
+      provaType: PROVA,
+      gabaritos: z.record(z.string(), z.array(LETRA).min(1).max(60)),
+      mapas: z.record(z.string(), z.array(mapaItem)).optional(),
+      examDate: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const teacher = await exigirProfessor(input.sessionToken);
+
+      const versoes = Object.keys(input.gabaritos);
+      const tamanhos = new Set(versoes.map(v => input.gabaritos[v].length));
+      if (tamanhos.size !== 1) throw new TRPCError({ code: "BAD_REQUEST", message: "Todas as versões precisam ter o mesmo número de questões" });
+
+      const anuladasRaw = await getSetting(chaveAnuladas(input.classId, input.provaType));
+      const anuladas: number[] = anuladasRaw ? JSON.parse(anuladasRaw) : [];
+
+      for (const versao of versoes) {
+        if (!VERSAO.safeParse(versao).success) throw new TRPCError({ code: "BAD_REQUEST", message: `Versão inválida: ${versao} (use A a J)` });
+        const mapa = input.mapas?.[versao];
+        if (mapa && mapa.length !== input.gabaritos[versao].length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `O mapa da versão ${versao} não tem o mesmo número de questões do gabarito` });
+        }
+        const gabarito: string[] = [...input.gabaritos[versao]];
+        // Questões já anuladas continuam anuladas; a letra correta fica guardada no mapa ("c") para poder desfazer
+        if (mapa) mapa.forEach((m, i) => { if (anuladas.includes(m.q)) { (m as any).c = gabarito[i]; gabarito[i] = ANULADA; } });
+
+        const existe = await db.select().from(examGabaritos)
+          .where(and(eq(examGabaritos.classId, input.classId), eq(examGabaritos.provaType, input.provaType), eq(examGabaritos.examVersion, versao)))
+          .limit(1);
+        const dados: any = {
+          answers: JSON.stringify(gabarito),
+          examDate: input.examDate,
+          createdByName: teacher.name,
+        };
+        // Mantém o mapa já salvo se este envio não trouxer um novo
+        if (mapa) dados.difficulties = JSON.stringify(mapa);
+        else if (!existe.length) dados.difficulties = JSON.stringify(gabarito.map(() => "intermediario"));
+
+        if (existe.length) await db.update(examGabaritos).set(dados).where(eq(examGabaritos.id, existe[0].id));
+        else await db.insert(examGabaritos).values({ classId: input.classId, provaType: input.provaType, examVersion: versao, ...dados });
+      }
+      return { success: true, versoes, questoes: [...tamanhos][0], comMapa: !!input.mapas };
+    }),
+
+  /** PROFESSOR/MONITOR: dados da tela de correção de um cartão. */
+  getContexto: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA, memberId: z.number().optional() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const quem = await autenticar(db, input.sessionToken, input.classId);
+
+      const gabs = await carregarGabaritos(db, input.classId, input.provaType);
+      const versoes = gabs.map((g: any) => g.versao).filter(Boolean).sort();
+      const numQuestoes = gabs.length ? gabs[0].gabarito.length : 0;
+
+      const alunosRaw = await db.select().from(members).where(eq(members.classId, input.classId));
+      const alunos = alunosRaw
+        .map((m: any) => ({ id: m.id, nome: limparNome(m.name) }))
+        .sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+
+      let lancamento: null | { versao: string; respostas: (string | null)[]; nota: number; acertos: number } = null;
+      if (input.memberId) {
+        const g = await db.select().from(examStudentGrades)
+          .where(and(eq(examStudentGrades.memberId, input.memberId), eq(examStudentGrades.provaType, input.provaType)))
+          .limit(1);
+        if (g.length) {
+          lancamento = { versao: g[0].examVersion || "A", respostas: JSON.parse(g[0].answers || "[]"), nota: Number(g[0].score), acertos: g[0].correctCount };
+        }
+      }
+
+      return {
+        corretor: quem.name,
+        versoes,
+        numQuestoes,
+        aluno: input.memberId ? alunos.find((a: any) => a.id === input.memberId) || null : null,
+        alunos,
+        lancamento,
+      };
+    }),
+
+  /** PROFESSOR/MONITOR: corrige um cartão e grava a nota na planilha. */
+  lancarCartao: publicProcedure
+    .input(z.object({
+      sessionToken: z.string(),
+      classId: z.number(),
+      provaType: PROVA,
+      memberId: z.number(),
+      versao: VERSAO,
+      respostas: z.array(LETRA.nullable()).min(1).max(60),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const quem = await autenticar(db, input.sessionToken, input.classId);
+
+      const gab = await db.select().from(examGabaritos)
+        .where(and(eq(examGabaritos.classId, input.classId), eq(examGabaritos.provaType, input.provaType), eq(examGabaritos.examVersion, input.versao)))
+        .limit(1);
+      if (!gab.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Gabarito da versão ${input.versao} não cadastrado` });
+      const gabarito = JSON.parse(gab[0].answers) as string[];
+      if (gabarito.length !== input.respostas.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `A prova tem ${gabarito.length} questões; foram enviadas ${input.respostas.length}` });
+      }
+
+      const aluno = await db.select().from(members).where(eq(members.id, input.memberId)).limit(1);
+      if (!aluno.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Aluno não encontrado" });
+      if (aluno[0].classId !== input.classId) throw new TRPCError({ code: "BAD_REQUEST", message: "Este aluno não é desta turma" });
+
+      const { acertos, nota } = corrigir(input.respostas, gabarito);
+
+      const dados = {
+        classId: input.classId,
+        memberName: limparNome(aluno[0].name),
+        examVersion: input.versao,
+        answers: JSON.stringify(input.respostas),
+        score: nota.toFixed(2),
+        correctCount: acertos,
+      };
+      const existe = await db.select().from(examStudentGrades)
+        .where(and(eq(examStudentGrades.memberId, input.memberId), eq(examStudentGrades.provaType, input.provaType)))
+        .limit(1);
+      if (existe.length) await db.update(examStudentGrades).set(dados).where(eq(examStudentGrades.id, existe[0].id));
+      else await db.insert(examStudentGrades).values({ memberId: input.memberId, provaType: input.provaType, ...dados });
+
+      return { success: true, aluno: dados.memberName, acertos, total: gabarito.length, nota, corrigidoPor: quem.name, jaExistia: existe.length > 0 };
+    }),
+
+  /** PROFESSOR: recorrige todos os cartões já lançados com os gabaritos atuais. */
+  recorrigirTodos: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      await exigirProfessor(input.sessionToken);
+      const recorrigidos = await recorrigirTurma(db, input.classId, input.provaType);
+      return { success: true, recorrigidos };
+    }),
+
+  /**
+   * PROFESSOR: anula (ou desanula) uma questão ORIGINAL em todas as versões
+   * e recorrige a turma inteira na hora. Exige que o mapa tenha sido salvo.
+   */
+  anularQuestao: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA, questaoOriginal: z.number(), anular: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      await exigirProfessor(input.sessionToken);
+
+      const gabs = await carregarGabaritos(db, input.classId, input.provaType);
+      if (!gabs.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum gabarito cadastrado" });
+      if (gabs.some((g: any) => !g.mapa)) throw new TRPCError({ code: "BAD_REQUEST", message: "Falta o mapa da prova em alguma versão — cadastre os gabaritos com o mapa antes de anular." });
+
+      const chave = chaveAnuladas(input.classId, input.provaType);
+      const anuladas: number[] = JSON.parse((await getSetting(chave)) || "[]");
+      const novas = input.anular ? Array.from(new Set([...anuladas, input.questaoOriginal])) : anuladas.filter(q => q !== input.questaoOriginal);
+
+      // Para desanular, precisamos do gabarito original: ele fica guardado no próprio mapa (campo "c").
+      for (const g of gabs) {
+        const pos = g.mapa.findIndex((m: any) => m.q === input.questaoOriginal);
+        if (pos < 0) continue;
+        const gabarito = [...g.gabarito];
+        if (input.anular) {
+          if (gabarito[pos] !== ANULADA) {
+            g.mapa[pos] = { ...g.mapa[pos], c: gabarito[pos] }; // guarda a letra correta para poder desfazer
+            gabarito[pos] = ANULADA;
+          }
+        } else {
+          const original = (g.mapa[pos] as any).c;
+          if (gabarito[pos] === ANULADA && original) gabarito[pos] = original;
+        }
+        await db.update(examGabaritos)
+          .set({ answers: JSON.stringify(gabarito), difficulties: JSON.stringify(g.mapa) })
+          .where(eq(examGabaritos.id, g.id));
+      }
+      await upsertSetting(chave, JSON.stringify(novas));
+      const recorrigidos = await recorrigirTurma(db, input.classId, input.provaType);
+      return { success: true, anuladas: novas, recorrigidos };
+    }),
+
+  /**
+   * PROFESSOR: painel da prova — resumo, distribuição das notas, estatística
+   * por questão (juntando as versões pelo mapa) e lista de ausentes.
+   */
+  getPainel: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      await exigirProfessor(input.sessionToken);
+
+      const gabs = await carregarGabaritos(db, input.classId, input.provaType);
+      const gabPorVersao = new Map<string, any>(gabs.map((g: any) => [g.versao, g]));
+      const n = gabs.length ? gabs[0].gabarito.length : 0;
+      const temMapa = gabs.length > 0 && gabs.every((g: any) => !!g.mapa);
+
+      const notas = await db.select().from(examStudentGrades)
+        .where(and(eq(examStudentGrades.classId, input.classId), eq(examStudentGrades.provaType, input.provaType)));
+      const alunos = await db.select().from(members).where(eq(members.classId, input.classId));
+
+      // Só conta como "corrigido" quem tem respostas de cartão (não nota digitada à mão na planilha)
+      const corrigidos = notas
+        .map((x: any) => ({ ...x, respostas: JSON.parse(x.answers || "[]") as (string | null)[], nota: Number(x.score) }))
+        .filter((x: any) => x.respostas.length === n && gabPorVersao.has(x.examVersion || "A"));
+
+      const comNota = new Set(notas.map((x: any) => x.memberId));
+      const ausentes = alunos
+        .filter((a: any) => !comNota.has(a.id))
+        .map((a: any) => ({ id: a.id, nome: limparNome(a.name) }))
+        .sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+
+      const valores = corrigidos.map((x: any) => x.nota).sort((a: number, b: number) => a - b);
+      const media = valores.length ? valores.reduce((s: number, v: number) => s + v, 0) / valores.length : 0;
+      const mediana = valores.length ? (valores.length % 2 ? valores[(valores.length - 1) / 2] : (valores[valores.length / 2 - 1] + valores[valores.length / 2]) / 2) : 0;
+      const faixas = [0, 2, 4, 5, 6, 7, 8, 9, 10];
+      const distribuicao = faixas.slice(0, -1).map((ini, i) => {
+        const fim = faixas[i + 1];
+        return { faixa: `${ini}–${fim}`, alunos: valores.filter((v: number) => v >= ini && (i === faixas.length - 2 ? v <= fim : v < fim)).length };
+      });
+
+      // Grupos superior e inferior (27%) para o índice de discriminação
+      const ordenados = [...corrigidos].sort((a: any, b: any) => b.nota - a.nota);
+      const k = Math.max(1, Math.round(ordenados.length * 0.27));
+      const superior = new Set(ordenados.slice(0, k).map((x: any) => x.id));
+      const inferior = new Set(ordenados.slice(-k).map((x: any) => x.id));
+
+      const anuladas: number[] = JSON.parse((await getSetting(chaveAnuladas(input.classId, input.provaType))) || "[]");
+
+      // Estatística: por questão original (com mapa) ou por posição (sem mapa)
+      type Est = { chave: number; tema?: string; posA?: number; corretaCanonica?: string; respondentes: number; acertos: number; brancos: number; marcadas: Record<string, number>; supAc: number; supN: number; infAc: number; infN: number };
+      const est = new Map<number, Est>();
+      for (const x of corrigidos) {
+        const g = gabPorVersao.get(x.examVersion || "A");
+        x.respostas.forEach((r: string | null, i: number) => {
+          const m = temMapa ? g.mapa[i] : null;
+          const chave = m ? m.q : i + 1;
+          if (!est.has(chave)) est.set(chave, { chave, tema: m?.tema, posA: m?.posA ?? (temMapa ? undefined : i + 1), respondentes: 0, acertos: 0, brancos: 0, marcadas: {}, supAc: 0, supN: 0, infAc: 0, infN: 0 });
+          const e = est.get(chave)!;
+          const correta = g.gabarito[i] === ANULADA ? (m as any)?.c : g.gabarito[i];
+          if (m && correta) e.corretaCanonica = m.alt[correta] || correta;
+          else if (!m && correta) e.corretaCanonica = correta;
+          e.respondentes++;
+          const acertou = r !== null && r === correta;
+          if (acertou) e.acertos++;
+          if (r === null) e.brancos++;
+          else {
+            const canon = m ? (m.alt[r] || r) : r;
+            e.marcadas[canon] = (e.marcadas[canon] || 0) + 1;
+          }
+          if (superior.has(x.id)) { e.supN++; if (acertou) e.supAc++; }
+          if (inferior.has(x.id)) { e.infN++; if (acertou) e.infAc++; }
+        });
+      }
+      const questoes = [...est.values()]
+        .map(e => {
+          const pct = e.respondentes ? e.acertos / e.respondentes : 0;
+          const disc = (e.supN ? e.supAc / e.supN : 0) - (e.infN ? e.infAc / e.infN : 0);
+          let alerta: string | null = null;
+          if (e.respondentes >= 10) {
+            if (pct < 0.3) alerta = "Muito difícil — revisar enunciado e gabarito";
+            else if (disc < 0) alerta = "Discriminação negativa — os melhores alunos erraram mais; conferir gabarito";
+            else if (disc < 0.1 && pct < 0.9) alerta = "Discrimina pouco";
+          }
+          return {
+            questaoOriginal: temMapa ? e.chave : null,
+            posicao: temMapa ? null : e.chave,
+            posA: e.posA ?? null,
+            tema: e.tema ?? null,
+            correta: e.corretaCanonica ?? null,
+            pctAcerto: Math.round(pct * 1000) / 10,
+            discriminacao: Math.round(disc * 100) / 100,
+            marcadas: e.marcadas,
+            brancos: e.brancos,
+            anulada: temMapa ? anuladas.includes(e.chave) : false,
+            alerta,
+          };
+        })
+        .sort((a, b) => (a.posA ?? a.posicao ?? 0) - (b.posA ?? b.posicao ?? 0));
+
+      const liberado = (await getSetting(chaveLiberacao(input.classId, input.provaType))) === "1";
+
+      return {
+        totalAlunos: alunos.length,
+        corrigidos: corrigidos.length,
+        notasManuais: notas.length - corrigidos.length,
+        ausentes,
+        media: Math.round(media * 100) / 100,
+        mediana: Math.round(mediana * 100) / 100,
+        aprovados6: valores.filter((v: number) => v >= 6).length,
+        distribuicao,
+        porVersao: gabs.map((g: any) => ({ versao: g.versao, alunos: corrigidos.filter((x: any) => (x.examVersion || "A") === g.versao).length })),
+        temMapa,
+        questoes,
+        anuladas,
+        liberado,
+      };
+    }),
+
+  /** PROFESSOR: libera (ou recolhe) a visualização do resultado para os alunos. */
+  liberarResultado: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA, liberar: z.boolean() }))
+    .mutation(async ({ input }) => {
+      await exigirProfessor(input.sessionToken);
+      await upsertSetting(chaveLiberacao(input.classId, input.provaType), input.liberar ? "1" : "0");
+      return { success: true, liberado: input.liberar };
+    }),
+
+  /**
+   * ALUNO: o próprio resultado (nota, respostas e gabarito da sua versão),
+   * só depois da liberação pelo professor.
+   */
+  getMeuResultado: publicProcedure
+    .input(z.object({ sessionToken: z.string(), provaType: PROVA }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const conta = await getStudentAccountBySessionToken(input.sessionToken);
+      if (!conta?.memberId) throw new TRPCError({ code: "FORBIDDEN", message: "Faça login como aluno" });
+
+      const membro = await db.select().from(members).where(eq(members.id, conta.memberId)).limit(1);
+      const classId = membro[0]?.classId;
+      if (!classId) return { liberado: false as const };
+
+      const liberado = (await getSetting(chaveLiberacao(classId, input.provaType))) === "1";
+      if (!liberado) return { liberado: false as const };
+
+      const g = await db.select().from(examStudentGrades)
+        .where(and(eq(examStudentGrades.memberId, conta.memberId), eq(examStudentGrades.provaType, input.provaType)))
+        .limit(1);
+      if (!g.length) return { liberado: true as const, fezProva: false as const };
+
+      const versao = g[0].examVersion || "A";
+      const gab = await db.select().from(examGabaritos)
+        .where(and(eq(examGabaritos.classId, classId), eq(examGabaritos.provaType, input.provaType), eq(examGabaritos.examVersion, versao)))
+        .limit(1);
+      const gabarito: string[] = gab.length ? JSON.parse(gab[0].answers) : [];
+      const respostas: (string | null)[] = JSON.parse(g[0].answers || "[]");
+
+      return {
+        liberado: true as const,
+        fezProva: true as const,
+        versao,
+        nota: Number(g[0].score),
+        acertos: g[0].correctCount,
+        total: gabarito.length || respostas.length,
+        questoes: respostas.map((r, i) => ({
+          numero: i + 1,
+          marcada: r,
+          correta: gabarito[i] === ANULADA ? null : (gabarito[i] ?? null),
+          anulada: gabarito[i] === ANULADA,
+          acertou: gabarito[i] === ANULADA || (r !== null && r === gabarito[i]),
+        })),
+      };
+    }),
+});

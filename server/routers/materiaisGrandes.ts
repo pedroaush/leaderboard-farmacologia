@@ -2,6 +2,7 @@ import { router, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "../db";
+import { avisarMaterialNovo } from "../push";
 import { R2_PREFIXO, R2_TAMANHO_MAXIMO, r2Configurado, r2NovaChave, r2UrlDeEnvio } from "../storageR2";
 
 /**
@@ -84,6 +85,7 @@ export const materiaisGrandesRouter = router({
         module: input.module,
         week: input.week,
       });
+      avisarMaterialNovo({ title: input.title, type: "file", module: input.module });
       return { id, url };
     }),
 });
