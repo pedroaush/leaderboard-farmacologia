@@ -35,6 +35,8 @@ import { seminarioPosterRouter } from "./routers/seminarioPoster";
 import { casosClinicosRouter } from "./routers/casosClinicos";
 import { simulacoesClinicasRouter } from "./routers/simulacoesClinicas";
 import { correcaoProvaRouter } from "./routers/correcaoProva";
+import { notificacoesRouter } from "./routers/notificacoes";
+import { avisarMaterialNovo } from "./push";
 import { materiaisGrandesRouter } from "./routers/materiaisGrandes";
 
 
@@ -156,6 +158,7 @@ export const appRouter = router({
   seminarioPoster: seminarioPosterRouter,
   casosClinicos: casosClinicosRouter,
   correcaoProva: correcaoProvaRouter,
+  notificacoes: notificacoesRouter,
   materiaisGrandes: materiaisGrandesRouter,
   qrcode: qrcodeRouter,
   studentNotifications: studentNotificationsRouter,
@@ -3059,6 +3062,7 @@ if (!SUPER_ADMIN_SECRET) {
         if (!valid) throw new Error("Não autorizado");
         const { password, ...data } = input;
         const id = await db.createMaterial(data);
+        if (data.isVisible !== 0) avisarMaterialNovo({ title: data.title, type: data.type, module: data.module });
         return { id };
       }),
 
@@ -3125,6 +3129,7 @@ if (!SUPER_ADMIN_SECRET) {
           module: input.module,
           week: input.week,
         });
+        avisarMaterialNovo({ title: input.title, type: "file", module: input.module });
         return { id, url };
       }),
   }),

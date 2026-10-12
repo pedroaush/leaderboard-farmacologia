@@ -5,6 +5,8 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import StudentNavBar from "@/components/StudentNavBar";
 import StudentNotificationBanner from "@/components/StudentNotificationBanner";
+import MeuResultadoProva from "@/components/MeuResultadoProva";
+import AtivarNotificacoes from "@/components/AtivarNotificacoes";
 import { useStudentAuth } from "@/pages/StudentLogin";
 import { useAudioContext } from "@/contexts/AudioContext";
 import {
@@ -364,6 +366,7 @@ if (!studentSessionToken && !isEnrolled && !modoConferencia) {
               { key: "cronograma", label: "Cronograma", icon: <Calendar size={14} /> },
               { key: "presenca", label: "Presença", icon: <QrCode size={14} /> },
               { key: "media", label: "Média", icon: <BarChart3 size={14} /> },
+              { key: "provas", label: "Provas", icon: <FileText size={14} /> },
               { key: "materiais", label: "Materiais", icon: <BookOpen size={14} /> },
               { key: "casos_clinicos", label: "Casos Clínicos", icon: <FlaskConical size={14} /> },
               { key: "seminario", label: "Seminário", icon: <FileText size={14} /> },
@@ -397,6 +400,8 @@ if (!studentSessionToken && !isEnrolled && !modoConferencia) {
         {memberId && (
           <StudentNotificationBanner memberId={memberId} classId={classId || undefined} />
         )}
+
+        <AtivarNotificacoes sessionToken={studentSessionToken} />
 
         {/* ═══ DESTAQUES DA SEMANA + RANKING (sempre visíveis) ═══ */}
         {leaderboardData && (
@@ -799,6 +804,8 @@ if (!studentSessionToken && !isEnrolled && !modoConferencia) {
         )}
 
         {/* ═══ MATERIAIS ═══ */}
+        {activeTab === "provas" && <MeuResultadoProva token={studentSessionToken} />}
+
         {activeTab === "materiais" && (
           <div>
             <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">

@@ -9,6 +9,7 @@ import {
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { QUEST_EXTRA_QUESTIONS } from "../../shared/questExtraQuestions";
 import { ALL_GAME_QUESTIONS } from "../../shared/gameQuestions";
+import { TODAS_AS_QUESTOES, disciplinaPorNomeTurma, semanasDaDisciplina, NOMES_DISCIPLINA, type DisciplinaJogo } from "../../shared/gameBanks";
 
 // ─── Helper: título real da semana, vindo do cronograma da turma ───
 // Busca em scheduleEntries (classId + gameWeekNumber) o título verdadeiro
@@ -51,7 +52,8 @@ async function findMemberId(db: any, userId: number): Promise<number | null> {
 
 // ─── Built-in 85 quests data (17 weeks × 5 questions) ───
 // Convert GameQuestion format to the legacy BUILTIN_QUESTS format for compatibility
-const BUILTIN_QUESTS = ALL_GAME_QUESTIONS.map(gq => ({
+const BUILTIN_QUESTS = TODAS_AS_QUESTOES.map(gq => ({
+  disciplina: gq.disciplina as DisciplinaJogo,
   id: gq.id,
   order: gq.id,
   level: Math.ceil(gq.weekNumber / 2),
@@ -71,6 +73,37 @@ const BUILTIN_QUESTS = ALL_GAME_QUESTIONS.map(gq => ({
   explanation: gq.explanation,
 }));
 
+
+
+// ─── Jogo por turma: cada turma joga o banco da sua disciplina ───
+const _cacheDisciplina = new Map<number, { d: DisciplinaJogo; ate: number }>();
+async function disciplinaDaTurma(classId: number): Promise<DisciplinaJogo> {
+  const c = _cacheDisciplina.get(classId);
+  if (c && c.ate > Date.now()) return c.d;
+  let d: DisciplinaJogo = "farmaco1";
+  try {
+    const { getSetting } = await import("../db");
+    const fixada = await getSetting(`jogo_disciplina_${classId}`);
+    if (fixada === "farmaco1" || fixada === "farmaco2") {
+      d = fixada;
+    } else {
+      const raw = await getRawDb();
+      if (raw) {
+        const [rows] = await raw.execute("SELECT * FROM `classes` WHERE id = ? LIMIT 1", [classId]);
+        const t: any = (rows as any[])[0] || {};
+        d = disciplinaPorNomeTurma([t.name, t.discipline, t.disciplina, t.course, t.curso]);
+      }
+    }
+  } catch (e) {
+    console.warn("[disciplinaDaTurma]", e);
+  }
+  _cacheDisciplina.set(classId, { d, ate: Date.now() + 5 * 60 * 1000 });
+  return d;
+}
+async function questsDaTurma(classId: number) {
+  const d = await disciplinaDaTurma(classId);
+  return [...BUILTIN_QUESTS].filter(q => q.disciplina === d);
+}
 
 // ─── Achievement definitions ───
 const ACHIEVEMENT_DEFS = [
@@ -102,7 +135,7 @@ export const gameRouter = router({
     .input(z.object({ classId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      if (!db) return BUILTIN_QUESTS.filter(q => q.weekNumber <= 1); // Default: only week 1
+      if (!db) return (await questsDaTurma(input.classId)).filter(q => q.weekNumber <= 1); // Default: only week 1
 
       // Check weekly releases for this class
       const releases = await db
@@ -117,12 +150,12 @@ export const gameRouter = router({
 
       if (releases.length === 0) {
         // No releases configured - return week 1 by default
-        return BUILTIN_QUESTS.filter(q => q.weekNumber <= 1);
+        return (await questsDaTurma(input.classId)).filter(q => q.weekNumber <= 1);
       }
 
       // Get released week numbers
       const releasedWeeks = releases.map(r => r.weekNumber);
-      return BUILTIN_QUESTS.filter(q => releasedWeeks.includes(q.weekNumber));
+      return (await questsDaTurma(input.classId)).filter(q => releasedWeeks.includes(q.weekNumber));
     }),
 
   /**
@@ -169,9 +202,9 @@ export const gameRouter = router({
    * Get all questions for a week in review mode (no PF awarded)
    */
   getWeekReviewQuestions: publicProcedure
-    .input(z.object({ weekNumber: z.number() }))
-    .query(({ input }) => {
-      const weekQuests = BUILTIN_QUESTS.filter(q => q.weekNumber === input.weekNumber);
+    .input(z.object({ weekNumber: z.number(), classId: z.number().optional() }))
+    .query(async ({ input }) => {
+      const weekQuests = (input.classId ? await questsDaTurma(input.classId) : BUILTIN_QUESTS).filter(q => q.weekNumber === input.weekNumber);
       return weekQuests.map(quest => {
         const extras = QUEST_EXTRA_QUESTIONS[quest.id] || [];
         const pool = [
@@ -704,7 +737,7 @@ export const gameRouter = router({
       if (!db) throw new Error("Database unavailable");
 
       // Get quest IDs for this week
-      const questIds = BUILTIN_QUESTS
+      const questIds = (await questsDaTurma(input.classId))
         .filter(q => q.weekNumber === input.weekNumber)
         .map(q => q.id);
 
@@ -789,7 +822,7 @@ export const gameRouter = router({
       if (!db) throw new Error("Database unavailable");
       const scheduledDate = new Date(input.scheduledDate);
       const scheduleTitle = await getScheduleWeekTitle(db, input.classId, input.weekNumber);
-      const questIds = BUILTIN_QUESTS.filter(q => q.weekNumber === input.weekNumber).map(q => q.id);
+      const questIds = (await questsDaTurma(input.classId)).filter(q => q.weekNumber === input.weekNumber).map(q => q.id);
       const existing = await db.select().from(gameWeeklyReleases)
         .where(and(eq(gameWeeklyReleases.classId, input.classId), eq(gameWeeklyReleases.weekNumber, input.weekNumber)))
         .limit(1);
@@ -1004,6 +1037,42 @@ export const gameRouter = router({
     }),
 
   /**
+   * Configuração do jogo para a turma (disciplina e semanas disponíveis)
+   */
+  getConfigTurma: publicProcedure
+    .input(z.object({ classId: z.number() }))
+    .query(async ({ input }) => {
+      const disciplina = await disciplinaDaTurma(input.classId);
+      const semanas = semanasDaDisciplina(disciplina);
+      return { disciplina, nomeDisciplina: NOMES_DISCIPLINA[disciplina], semanas, disponivel: semanas.length > 0 };
+    }),
+
+  /** Lista as turmas e a disciplina do jogo de cada uma (para conferência). */
+  listarDisciplinas: publicProcedure.query(async () => {
+    const raw = await getRawDb();
+    if (!raw) return [];
+    const [rows] = await raw.execute("SELECT id, name FROM `classes` ORDER BY id");
+    const out = [];
+    for (const r of rows as any[]) {
+      const d = await disciplinaDaTurma(r.id);
+      out.push({ classId: r.id, turma: r.name, disciplina: d, nome: NOMES_DISCIPLINA[d] });
+    }
+    return out;
+  }),
+
+  /** Professor fixa a disciplina do jogo de uma turma ("auto" volta a deduzir pelo nome). */
+  definirDisciplinaTurma: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), disciplina: z.enum(["farmaco1", "farmaco2", "auto"]) }))
+    .mutation(async ({ input }) => {
+      const { getTeacherAccountBySessionToken, upsertSetting } = await import("../db");
+      const prof = await getTeacherAccountBySessionToken(input.sessionToken);
+      if (!prof) throw new Error("Acesso negado");
+      await upsertSetting(`jogo_disciplina_${input.classId}`, input.disciplina === "auto" ? "" : input.disciplina);
+      _cacheDisciplina.delete(input.classId);
+      return { success: true, disciplina: await disciplinaDaTurma(input.classId) };
+    }),
+
+  /**
    * Get all builtin quests (for admin reference)
    */
   getAllQuests: publicProcedure.query(() => {
@@ -1027,7 +1096,7 @@ export const gameRouter = router({
       const db = await getDb();
       if (!db) return { available: false, defeated: false, attempts: 0 };
 
-      const weekQuests = BUILTIN_QUESTS.filter(q => q.weekNumber === input.weekNumber && !q.isBossQuestion);
+      const weekQuests = (await questsDaTurma(input.classId)).filter(q => q.weekNumber === input.weekNumber && !q.isBossQuestion);
       if (weekQuests.length === 0) return { available: false, defeated: false, attempts: 0 };
 
       const progressRows = await db
@@ -1127,8 +1196,8 @@ export const gameRouter = router({
         );
 
       const statuses = [];
-      for (let week = 1; week <= 10; week++) {
-        const weekQuests = BUILTIN_QUESTS.filter(q => q.weekNumber === week && !q.isBossQuestion);
+      for (const week of semanasDaDisciplina(await disciplinaDaTurma(input.classId))) {
+        const weekQuests = (await questsDaTurma(input.classId)).filter(q => q.weekNumber === week && !q.isBossQuestion);
         const allCompleted = weekQuests.length > 0 && weekQuests.every(q => completedQuestIds.has(q.id));
         const weekBattles = allBossBattles.filter(b => b.weekNumber === week);
         const defeated = weekBattles.some(b => b.isVictory);
