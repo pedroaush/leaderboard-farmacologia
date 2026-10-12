@@ -16,6 +16,7 @@ import { PDFPreview, usePDFPreview } from "@/components/PDFPreview";
 import { TagInput, TagDisplay, type Tag } from "@/components/TagInput";
 import JigsawRebalancingManager from "./AdminJigsawRebalancing";
 import ExamToolsManager from "@/components/ExamToolsManager";
+import ProvasHub from "@/components/ProvasHub";
 import AdminJigsawPanel from "./AdminJigsawPanel";
 import { enviarMaterialGrande, LIMITE_MATERIAL_MB } from "@/lib/enviarMaterialGrande";
 import AttendanceQRCodeManager from "./AdminAttendanceQRCode";
@@ -5003,17 +5004,22 @@ export default function Admin() {
         {activeSection === "qr-code" && <AttendanceQRCodeManager />}
         {activeSection === "settings" && password && <SettingsManager password={password} />}
         {activeSection === "provas" && teacherToken && (
-          <ExamToolsManager
+          <ProvasHub
             teacherToken={teacherToken}
-            classes={[
-              { id: 22, name: "Farmacologia 1 - Medicina" },
-              { id: 23, name: "Farmacologia 1 - Nutrição" },
-              { id: 24, name: "Farmacologia 1 - Biomedicina 1" },
-              { id: 25, name: "Farmacologia 1 - Biomedicina 2" },
-              { id: 26, name: "Farmacologia 1 - Enfermagem" },
-              { id: 27, name: "Farmacologia 1 - Medicina 2" },
-              { id: 28, name: "Farmacologia 1 - Nutrição Noturno" },
-            ]}
+            legado={
+              <ExamToolsManager
+                teacherToken={teacherToken}
+                classes={[
+                  { id: 22, name: "Farmacologia 1 - Medicina" },
+                  { id: 23, name: "Farmacologia 1 - Nutrição" },
+                  { id: 24, name: "Farmacologia 1 - Biomedicina 1" },
+                  { id: 25, name: "Farmacologia 1 - Biomedicina 2" },
+                  { id: 26, name: "Farmacologia 1 - Enfermagem" },
+                  { id: 27, name: "Farmacologia 1 - Medicina 2" },
+                  { id: 28, name: "Farmacologia 1 - Nutrição Noturno" },
+                ]}
+              />
+            }
           />
         )}
       </div>
