@@ -2,7 +2,7 @@ import { router, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and } from "drizzle-orm";
-import { getDb, getTeacherAccountBySessionToken, getStudentAccountBySessionToken, getSetting, upsertSetting } from "../db";
+import { getDb, getRawDb, getTeacherAccountBySessionToken, getStudentAccountBySessionToken, getSetting, upsertSetting } from "../db";
 import { examGabaritos, examStudentGrades, members, studentAccounts } from "../../drizzle/schema";
 
 /**
@@ -113,6 +113,45 @@ async function recorrigirTurma(db: any, classId: number, provaType: string) {
     recorrigidos++;
   }
   return recorrigidos;
+}
+
+
+// ─── Gabarito comentado ───
+// Um comentário por questão. Chave: nº da questão ORIGINAL ("q" do mapa, = numeração
+// da versão A), que vale para todas as versões embaralhadas; ou "F:3" para a questão 3
+// de uma versão sem mapa (ex.: 2ª chamada com questões próprias).
+let tabelaComentariosPronta = false;
+async function rawComentarios() {
+  const raw = await getRawDb();
+  if (!raw) throw new Error("Database not available");
+  if (!tabelaComentariosPronta) {
+    await raw.execute(`CREATE TABLE IF NOT EXISTS \`examComentarios\` (
+      \`id\` int AUTO_INCREMENT PRIMARY KEY,
+      \`classId\` int NOT NULL,
+      \`provaType\` varchar(10) NOT NULL,
+      \`chave\` varchar(20) NOT NULL,
+      \`texto\` text NOT NULL,
+      \`updatedAt\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY \`uq_coment\` (\`classId\`, \`provaType\`, \`chave\`)
+    )`);
+    tabelaComentariosPronta = true;
+  }
+  return raw;
+}
+async function lerComentarios(classId: number, provaType: string): Promise<Record<string, string>> {
+  const raw = await rawComentarios();
+  const [rows] = await raw.execute("SELECT chave, texto FROM `examComentarios` WHERE classId = ? AND provaType = ?", [classId, provaType]);
+  const out: Record<string, string> = {};
+  for (const r of rows as any[]) out[r.chave] = r.texto;
+  return out;
+}
+/** Comentário da questão na posição i (0-based) de uma versão. */
+function comentarioDaPosicao(coment: Record<string, string>, versao: string, i: number, mapa: MapaItem[] | null): string | null {
+  const proprio = coment[`${versao}:${i + 1}`];
+  if (proprio) return proprio;
+  if (mapa?.[i]) return coment[String(mapa[i].q)] ?? null;          // versão embaralhada: segue a questão original
+  if (versao === "A") return coment[String(i + 1)] ?? null;         // versão A sem mapa: numeração própria
+  return null;                                                       // outra versão sem mapa: só comentários "V:n"
 }
 
 export const correcaoProvaRouter = router({
@@ -424,6 +463,57 @@ export const correcaoProvaRouter = router({
       };
     }),
 
+  /** PROFESSOR: comentários do gabarito + estrutura das versões (para o editor). */
+  getComentarios: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      await exigirProfessor(input.sessionToken);
+      const gabs = await carregarGabaritos(db, input.classId, input.provaType);
+      const comentarios = await lerComentarios(input.classId, input.provaType);
+      const versoes = gabs
+        .map((g: any) => ({
+          versao: g.versao,
+          temMapa: !!g.mapa,
+          questoes: g.gabarito.map((letra: string, i: number) => ({
+            posicao: i + 1,
+            q: g.mapa?.[i]?.q ?? null,
+            tema: g.mapa?.[i]?.tema ?? null,
+            gabarito: letra === ANULADA ? (g.mapa?.[i] as any)?.c ?? "anulada" : letra,
+          })),
+        }))
+        .sort((a: any, b: any) => a.versao.localeCompare(b.versao));
+      return { versoes, comentarios };
+    }),
+
+  /** PROFESSOR: grava comentários (texto vazio apaga). */
+  salvarComentarios: publicProcedure
+    .input(z.object({
+      sessionToken: z.string(),
+      classId: z.number(),
+      provaType: PROVA,
+      comentarios: z.record(z.string().regex(/^([A-J]:)?\d{1,3}$/), z.string().max(5000)),
+    }))
+    .mutation(async ({ input }) => {
+      await exigirProfessor(input.sessionToken);
+      const raw = await rawComentarios();
+      let gravados = 0, apagados = 0;
+      for (const [chave, texto] of Object.entries(input.comentarios)) {
+        if (texto.trim()) {
+          await raw.execute(
+            "INSERT INTO `examComentarios` (classId, provaType, chave, texto) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE texto = VALUES(texto)",
+            [input.classId, input.provaType, chave, texto.trim()]
+          );
+          gravados++;
+        } else {
+          await raw.execute("DELETE FROM `examComentarios` WHERE classId = ? AND provaType = ? AND chave = ?", [input.classId, input.provaType, chave]);
+          apagados++;
+        }
+      }
+      return { success: true, gravados, apagados };
+    }),
+
   /** PROFESSOR: libera (ou recolhe) a visualização do resultado para os alunos. */
   liberarResultado: publicProcedure
     .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA, liberar: z.boolean() }))
@@ -463,6 +553,8 @@ export const correcaoProvaRouter = router({
         .limit(1);
       const gabarito: string[] = gab.length ? JSON.parse(gab[0].answers) : [];
       const respostas: (string | null)[] = JSON.parse(g[0].answers || "[]");
+      const mapa = gab.length ? lerMapa(gab[0].difficulties) : null;
+      const comentarios = await lerComentarios(classId, input.provaType);
 
       return {
         liberado: true as const,
@@ -477,6 +569,8 @@ export const correcaoProvaRouter = router({
           correta: gabarito[i] === ANULADA ? null : (gabarito[i] ?? null),
           anulada: gabarito[i] === ANULADA,
           acertou: gabarito[i] === ANULADA || (r !== null && r === gabarito[i]),
+          tema: mapa?.[i]?.tema ?? null,
+          comentario: comentarioDaPosicao(comentarios, versao, i, mapa),
         })),
       };
     }),

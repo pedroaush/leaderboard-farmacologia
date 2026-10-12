@@ -4,13 +4,14 @@
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { Loader2, CheckCircle2, XCircle, Lock, MinusCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Lock, MinusCircle, MessageSquareText } from "lucide-react";
 
 const ORANGE = "#F7941D";
 const CARD_BG = "#0D1B2A";
 
 export default function MeuResultadoProva({ token }: { token: string | null }) {
   const [prova, setProva] = useState<"P1" | "P2">("P1");
+  const [soErros, setSoErros] = useState(false);
   const r = trpc.correcaoProva.getMeuResultado.useQuery(
     { sessionToken: token || "", provaType: prova },
     { enabled: !!token, retry: false }
@@ -76,6 +77,39 @@ export default function MeuResultadoProva({ token }: { token: string | null }) {
             </div>
             <p className="text-[11px] text-white/40 mt-3">Questões anuladas valem ponto para todos. "—" = em branco, rasurada ou com mais de uma marcação.</p>
           </Caixa>
+
+          {r.data.questoes.some((q: any) => q.comentario) && (
+            <Caixa>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <p className="text-sm font-semibold text-white flex items-center gap-2">
+                  <MessageSquareText size={16} style={{ color: ORANGE }} /> Gabarito comentado
+                </p>
+                <label className="flex items-center gap-2 text-xs text-white/60 cursor-pointer">
+                  <input type="checkbox" checked={soErros} onChange={(e) => setSoErros(e.target.checked)} />
+                  mostrar só as que errei
+                </label>
+              </div>
+              <div className="space-y-3">
+                {r.data.questoes
+                  .filter((q: any) => q.comentario && (!soErros || (!q.acertou && !q.anulada)))
+                  .map((q: any) => (
+                    <div key={q.numero} className="rounded-lg p-3"
+                      style={{ backgroundColor: "rgba(255,255,255,0.03)", borderLeft: `3px solid ${q.anulada ? "rgba(255,255,255,0.3)" : q.acertou ? "#10b981" : "#ef4444"}` }}>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mb-1">
+                        <span className="font-semibold text-white">Questão {q.numero}</span>
+                        {q.tema && <span className="text-white/45">{q.tema}</span>}
+                        <span className="text-white/60">sua resposta: <b className="text-white">{q.marcada ?? "—"}</b></span>
+                        {q.anulada ? <span className="text-white/50">anulada</span> : <span className="text-emerald-300">correta: <b>{q.correta}</b></span>}
+                      </div>
+                      <p className="text-sm text-white/80 whitespace-pre-line leading-relaxed">{q.comentario}</p>
+                    </div>
+                  ))}
+                {soErros && !r.data.questoes.some((q: any) => q.comentario && !q.acertou && !q.anulada) && (
+                  <p className="text-sm text-white/50">Você não errou nenhuma questão comentada. 🎉</p>
+                )}
+              </div>
+            </Caixa>
+          )}
         </>
       )}
     </div>
