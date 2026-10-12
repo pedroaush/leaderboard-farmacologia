@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { Download, FileText, Loader2, Printer, Save, Sparkles, Users, X } from "lucide-react";
+import { Bot, Download, FileText, Loader2, Printer, Save, Sparkles, Users, X } from "lucide-react";
 
 /**
  * Aba Provas → Resultados da turma: exportação (Excel) e parecer individual.
@@ -20,6 +20,41 @@ export default function RelatorioTurma({ teacherToken, classId, prova, turmaNome
     { enabled: !!teacherToken && classId > 0, retry: false }
   );
   const salvar = trpc.correcaoProva.salvarParecer.useMutation();
+  const ia = trpc.correcaoProva.iaDisponivel.useQuery(undefined, { staleTime: Infinity });
+  const gerarIA = trpc.correcaoProva.gerarParecerIA.useMutation();
+  const [lote, setLote] = useState<{ feitos: number; total: number } | null>(null);
+
+  async function rascunhoIA(memberId: number) {
+    const r: any = await gerarIA.mutateAsync({ sessionToken: teacherToken, classId, provaType: prova, memberId });
+    return r.texto as string;
+  }
+  async function iaNoEditor() {
+    if (!alunoAberto) return;
+    try {
+      const texto = await rascunhoIA(alunoAberto.memberId);
+      setRascunho((r) => ({ ...r, texto: r.texto.trim() ? r.texto + "\n\n— Sugestão da IA —\n" + texto : texto }));
+      toast.success("Rascunho gerado — revise antes de salvar");
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao gerar com IA");
+    }
+  }
+  async function iaParaTodos() {
+    const semParecer = (d?.alunos ?? []).filter((a: any) => !d.pareceres?.[a.memberId]);
+    if (!semParecer.length) return toast.info("Todos os alunos já têm parecer.");
+    if (!confirm(`Gerar rascunhos com IA para ${semParecer.length} aluno(s) sem parecer? Eles ficam salvos como rascunho (não visíveis aos alunos) para você revisar.`)) return;
+    setLote({ feitos: 0, total: semParecer.length });
+    let falhas = 0;
+    for (let i = 0; i < semParecer.length; i++) {
+      try {
+        const texto = await rascunhoIA(semParecer[i].memberId);
+        await salvar.mutateAsync({ sessionToken: teacherToken, classId, provaType: prova, memberId: semParecer[i].memberId, texto, visivelAluno: false });
+      } catch { falhas++; }
+      setLote({ feitos: i + 1, total: semParecer.length });
+    }
+    setLote(null);
+    rel.refetch();
+    toast.success(`Rascunhos gerados${falhas ? ` (${falhas} falharam)` : ""}. Revise e marque "Mostrar ao aluno".`);
+  }
 
   const [aberto, setAberto] = useState<number | null>(null);
   const [rascunho, setRascunho] = useState<{ texto: string; visivel: boolean }>({ texto: "", visivel: false });
@@ -199,6 +234,12 @@ export default function RelatorioTurma({ teacherToken, classId, prova, turmaNome
           <p className="text-xs text-white/50">{d.corrigidos} alunos corrigidos · média {fmt(d.media)} · {comParecer} parecer(es) escrito(s)</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {ia.data?.disponivel && (
+            <button onClick={iaParaTodos} disabled={!!lote}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold disabled:opacity-60">
+              {lote ? <><Loader2 size={14} className="animate-spin" /> IA {lote.feitos}/{lote.total}</> : <><Bot size={14} /> Pareceres com IA (todos)</>}
+            </button>
+          )}
           <button onClick={exportar} disabled={exportando}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50">
             {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Exportar Excel
@@ -290,10 +331,18 @@ export default function RelatorioTurma({ teacherToken, classId, prova, turmaNome
 
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs uppercase tracking-wide text-white/40">Parecer</p>
-              <button onClick={() => setRascunho((r) => ({ ...r, texto: r.texto.trim() ? r.texto + "\n\n" + sugestao(alunoAberto) : sugestao(alunoAberto) }))}
-                className="inline-flex items-center gap-1 text-xs text-orange-300 hover:text-orange-200">
-                <Sparkles size={12} /> Gerar sugestão a partir dos acertos e erros
-              </button>
+              <div className="flex flex-wrap gap-3">
+                {ia.data?.disponivel && (
+                  <button onClick={iaNoEditor} disabled={gerarIA.isPending}
+                    className="inline-flex items-center gap-1 text-xs text-violet-300 hover:text-violet-200 disabled:opacity-60">
+                    {gerarIA.isPending ? <Loader2 size={12} className="animate-spin" /> : <Bot size={12} />} Gerar com IA (prova + padrão de respostas + jogo)
+                  </button>
+                )}
+                <button onClick={() => setRascunho((r) => ({ ...r, texto: r.texto.trim() ? r.texto + "\n\n" + sugestao(alunoAberto) : sugestao(alunoAberto) }))}
+                  className="inline-flex items-center gap-1 text-xs text-orange-300 hover:text-orange-200">
+                  <Sparkles size={12} /> Sugestão simples (sem IA)
+                </button>
+              </div>
             </div>
             <textarea value={rascunho.texto} onChange={(e) => setRascunho((r) => ({ ...r, texto: e.target.value }))} rows={9}
               placeholder="Escreva o parecer ou gere uma sugestão e ajuste…"

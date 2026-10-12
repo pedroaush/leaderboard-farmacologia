@@ -16,6 +16,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useStudentAuth } from "@/pages/StudentLogin";
+import RankingLateral, { CardProvas } from "@/components/RankingLateral";
 import { useAudioContext } from "@/contexts/AudioContext";
 
 import { toast } from "sonner";
@@ -447,6 +448,13 @@ export default function Home() {
   const courseName = leaderboard?.settings?.courseName || "Farmacologia I";
   const semester = leaderboard?.settings?.semester || "2026.1";
 
+  // Ranking lateral: turma do aluno logado (ou a turma filtrada)
+  const rankingTeams: TeamData[] = useMemo(() => {
+    const cid = (studentData as any)?.classId ?? selectedClassId;
+    const todas = (leaderboard?.teams ?? []) as TeamData[];
+    return cid ? todas.filter((t: any) => t.classId === cid) : todas;
+  }, [leaderboard, studentData, selectedClassId]);
+
   // Use real-time notifications hook
   const { unreadCount: notificationCount } = useNotifications(user?.id);
   
@@ -671,8 +679,10 @@ export default function Home() {
               <div className="h-px flex-1" style={{ background: `linear-gradient(270deg, ${ORANGE}40, transparent)` }} />
             </div>
 
+            <div className="flex flex-col lg:flex-row gap-4 items-start">
+            <div className="flex-1 min-w-0 w-full">
             {/* Primary action cards - large on desktop, compact on mobile */}
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-3">
               {/* Cronograma */}
               <Link href={studentData?.classId ? `/cronograma?classId=${studentData.classId}` : "/cronograma"}>
                 <motion.div
@@ -827,24 +837,8 @@ export default function Home() {
                 </motion.div>
               </button>
 
-              {/* Equipes */}
-              <button onClick={() => handleTabChange("teams")} className="text-left">
-                <motion.div
-                  className="flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-xl cursor-pointer"
-                  style={{
-                    backgroundColor: activeTab === "teams" ? ORANGE : ORANGE + "15",
-                    color: activeTab === "teams" ? "#fff" : ORANGE,
-                    border: `1px solid ${activeTab === "teams" ? ORANGE : ORANGE + "35"}`,
-                    boxShadow: activeTab === "teams" ? `0 4px 20px ${ORANGE}40` : "none",
-                  }}
-                  whileHover={{ scale: 1.06, y: -3 }}
-                  whileTap={{ scale: 0.97 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                >
-                  <Users className="w-6 h-6 sm:w-7 sm:h-7" />
-                  <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">Equipes</span>
-                </motion.div>
-              </button>
+              {/* Provas e Notas (resultado, gabarito comentado e parecer) */}
+              <CardProvas classId={(studentData as any)?.classId ?? null} />
 
               {/* Progresso */}
               <Link href="/meu-progresso">
@@ -944,6 +938,11 @@ export default function Home() {
                   <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">YouTube</span>
                 </motion.div>
               </a>
+            </div>
+            </div>
+
+            {/* Ranking lateral: melhores alunos e equipes */}
+            <RankingLateral teams={rankingTeams} memberId={(studentData as any)?.memberId ?? null} />
             </div>
           </div>
         </div>

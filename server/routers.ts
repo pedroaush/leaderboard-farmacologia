@@ -2945,6 +2945,7 @@ if (!SUPER_ADMIN_SECRET) {
           ...data,
           expiresAt: expiresAt ? new Date(expiresAt) : null,
         });
+        import("./push").then(({ enviarPush }) => enviarPush({ title: "📢 " + data.title, body: data.content || "Novo aviso do professor", url: "/avisos", tag: "aviso-mural" })).catch(() => {});
         return { id };
       }),
 
