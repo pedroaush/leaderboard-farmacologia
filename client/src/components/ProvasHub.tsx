@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import GabaritoComentado from "@/components/GabaritoComentado";
+import RelatorioTurma from "@/components/RelatorioTurma";
 import {
   BarChart3, ClipboardCheck, ExternalLink, Eye, EyeOff, FileKey, Loader2, QrCode, Save, Smartphone,
 } from "lucide-react";
@@ -170,6 +171,10 @@ export default function ProvasHub({ teacherToken, legado }: { teacherToken: stri
           {salvar.isPending ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Salvar gabarito ({versoesPreenchidas.join(", ") || "nenhuma versão"})
         </button>
       </div>
+
+      {/* Resultados, exportação e pareceres */}
+      <RelatorioTurma teacherToken={teacherToken} classId={classId} prova={prova}
+        turmaNome={(turmas as any[]).find((t) => t.id === classId)?.name ?? `Turma ${classId}`} />
 
       {/* Gabarito comentado */}
       <GabaritoComentado teacherToken={teacherToken} classId={classId} prova={prova} />

@@ -61,6 +61,13 @@ export default function MeuResultadoProva({ token }: { token: string | null }) {
             </div>
           </Caixa>
 
+          {(r.data as any).parecer && (
+            <Caixa>
+              <p className="text-sm font-semibold text-white mb-2">Parecer do professor</p>
+              <p className="text-sm text-white/80 whitespace-pre-line leading-relaxed">{(r.data as any).parecer}</p>
+            </Caixa>
+          )}
+
           <Caixa>
             <p className="text-sm font-semibold text-white mb-3">Suas respostas × gabarito da versão {r.data.versao}</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2">

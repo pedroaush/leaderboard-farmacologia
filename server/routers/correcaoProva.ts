@@ -154,6 +154,29 @@ function comentarioDaPosicao(coment: Record<string, string>, versao: string, i: 
   return null;                                                       // outra versão sem mapa: só comentários "V:n"
 }
 
+
+// ─── Parecer individual ───
+let tabelaPareceresPronta = false;
+async function rawPareceres() {
+  const raw = await getRawDb();
+  if (!raw) throw new Error("Database not available");
+  if (!tabelaPareceresPronta) {
+    await raw.execute(`CREATE TABLE IF NOT EXISTS \`examPareceres\` (
+      \`id\` int AUTO_INCREMENT PRIMARY KEY,
+      \`classId\` int NOT NULL,
+      \`provaType\` varchar(10) NOT NULL,
+      \`memberId\` int NOT NULL,
+      \`texto\` text NOT NULL,
+      \`visivelAluno\` tinyint NOT NULL DEFAULT 0,
+      \`autor\` varchar(255) NULL,
+      \`updatedAt\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY \`uq_parecer\` (\`classId\`, \`provaType\`, \`memberId\`)
+    )`);
+    tabelaPareceresPronta = true;
+  }
+  return raw;
+}
+
 export const correcaoProvaRouter = router({
   /**
    * PROFESSOR: grava os gabaritos de todas as versões (e, opcionalmente, o
@@ -514,6 +537,118 @@ export const correcaoProvaRouter = router({
       return { success: true, gravados, apagados };
     }),
 
+  /**
+   * PROFESSOR: desempenho detalhado de cada aluno (por questão e por tema),
+   * médias da turma por tema e pareceres — base da exportação e dos pareceres.
+   */
+  getRelatorio: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      await exigirProfessor(input.sessionToken);
+
+      const gabs = await carregarGabaritos(db, input.classId, input.provaType);
+      const gabPorVersao = new Map<string, any>(gabs.map((g: any) => [g.versao, g]));
+      const n = gabs.length ? gabs[0].gabarito.length : 0;
+      const temMapa = gabs.length > 0 && gabs.every((g: any) => !!g.mapa);
+
+      const notas = await db.select().from(examStudentGrades)
+        .where(and(eq(examStudentGrades.classId, input.classId), eq(examStudentGrades.provaType, input.provaType)));
+      const membros = await db.select().from(members).where(eq(members.classId, input.classId));
+      const nomePorId = new Map<number, string>(membros.map((m: any) => [m.id, limparNome(m.name)]));
+
+      const corrigidos = notas
+        .map((x: any) => ({ ...x, respostas: JSON.parse(x.answers || "[]") as (string | null)[], nota: Number(x.score) }))
+        .filter((x: any) => x.respostas.length === n && gabPorVersao.has(x.examVersion || "A"));
+      const idsCorrigidos = new Set(corrigidos.map((x: any) => x.memberId));
+      const notasManuais = notas
+        .filter((x: any) => !idsCorrigidos.has(x.memberId))
+        .map((x: any) => ({ memberId: x.memberId, nome: nomePorId.get(x.memberId) || x.memberName || "", nota: Number(x.score) }));
+      const comNota = new Set(notas.map((x: any) => x.memberId));
+      const ausentes = membros.filter((m: any) => !comNota.has(m.id)).map((m: any) => ({ memberId: m.id, nome: limparNome(m.name) }))
+        .sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+
+      const ordenados = [...corrigidos].sort((a: any, b: any) => b.nota - a.nota);
+      const posicao = new Map<number, number>();
+      ordenados.forEach((x: any, i: number) => {
+        const anterior = i > 0 ? ordenados[i - 1] : null;
+        posicao.set(x.memberId, anterior && anterior.nota === x.nota ? posicao.get(anterior.memberId)! : i + 1);
+      });
+
+      const temaTurma = new Map<string, { ac: number; tot: number }>();
+      const alunos = corrigidos.map((x: any) => {
+        const versao = x.examVersion || "A";
+        const g = gabPorVersao.get(versao);
+        const porTema = new Map<string, { ac: number; tot: number }>();
+        const porQuestao = x.respostas.map((r: string | null, i: number) => {
+          const m = temMapa ? g.mapa[i] : null;
+          const tema = m?.tema || "Geral";
+          const anulada = g.gabarito[i] === ANULADA;
+          const correta = anulada ? ((m as any)?.c ?? null) : g.gabarito[i];
+          const acertou = anulada || (r !== null && r === correta);
+          if (!anulada) {
+            const t = porTema.get(tema) || { ac: 0, tot: 0 }; t.tot++; if (acertou) t.ac++; porTema.set(tema, t);
+            const tt = temaTurma.get(tema) || { ac: 0, tot: 0 }; tt.tot++; if (acertou) tt.ac++; temaTurma.set(tema, tt);
+          }
+          return { chave: m ? m.q : i + 1, posicao: i + 1, tema, marcada: r, correta, acertou, anulada };
+        });
+        return {
+          memberId: x.memberId,
+          nome: nomePorId.get(x.memberId) || x.memberName || "",
+          versao,
+          nota: x.nota,
+          acertos: x.correctCount,
+          total: n,
+          posicao: posicao.get(x.memberId) ?? null,
+          porQuestao,
+          porTema: [...porTema.entries()].map(([tema, v]) => ({ tema, acertos: v.ac, total: v.tot })),
+        };
+      }).sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+
+      const valores = corrigidos.map((x: any) => x.nota);
+      const media = valores.length ? valores.reduce((s: number, v: number) => s + v, 0) / valores.length : 0;
+
+      const raw = await rawPareceres();
+      const [linhas] = await raw.execute(
+        "SELECT memberId, texto, visivelAluno, autor, updatedAt FROM `examPareceres` WHERE classId = ? AND provaType = ?",
+        [input.classId, input.provaType]
+      );
+      const pareceres: Record<number, { texto: string; visivel: boolean; autor: string | null; atualizado: string }> = {};
+      for (const l of linhas as any[]) pareceres[l.memberId] = { texto: l.texto, visivel: !!l.visivelAluno, autor: l.autor, atualizado: new Date(l.updatedAt).toISOString() };
+
+      return {
+        provaType: input.provaType,
+        totalAlunos: membros.length,
+        corrigidos: corrigidos.length,
+        media: Math.round(media * 100) / 100,
+        temMapa,
+        temasTurma: [...temaTurma.entries()].map(([tema, v]) => ({ tema, pct: v.tot ? Math.round((v.ac / v.tot) * 1000) / 10 : 0, questoes: temMapa ? gabs[0].mapa.filter((m: any) => (m.tema || "Geral") === tema).length : n })),
+        alunos,
+        notasManuais,
+        ausentes,
+        pareceres,
+      };
+    }),
+
+  /** PROFESSOR: grava o parecer individual (texto vazio apaga). */
+  salvarParecer: publicProcedure
+    .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA, memberId: z.number(), texto: z.string().max(10000), visivelAluno: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const prof = await exigirProfessor(input.sessionToken);
+      const raw = await rawPareceres();
+      if (!input.texto.trim()) {
+        await raw.execute("DELETE FROM `examPareceres` WHERE classId = ? AND provaType = ? AND memberId = ?", [input.classId, input.provaType, input.memberId]);
+        return { success: true, apagado: true };
+      }
+      await raw.execute(
+        `INSERT INTO \`examPareceres\` (classId, provaType, memberId, texto, visivelAluno, autor) VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE texto = VALUES(texto), visivelAluno = VALUES(visivelAluno), autor = VALUES(autor)`,
+        [input.classId, input.provaType, input.memberId, input.texto.trim(), input.visivelAluno ? 1 : 0, (prof as any).name || null]
+      );
+      return { success: true, apagado: false };
+    }),
+
   /** PROFESSOR: libera (ou recolhe) a visualização do resultado para os alunos. */
   liberarResultado: publicProcedure
     .input(z.object({ sessionToken: z.string(), classId: z.number(), provaType: PROVA, liberar: z.boolean() }))
@@ -556,9 +691,17 @@ export const correcaoProvaRouter = router({
       const mapa = gab.length ? lerMapa(gab[0].difficulties) : null;
       const comentarios = await lerComentarios(classId, input.provaType);
 
+      const rawP = await rawPareceres();
+      const [lp] = await rawP.execute(
+        "SELECT texto FROM `examPareceres` WHERE classId = ? AND provaType = ? AND memberId = ? AND visivelAluno = 1 LIMIT 1",
+        [classId, input.provaType, conta.memberId]
+      );
+      const parecer: string | null = (lp as any[])[0]?.texto ?? null;
+
       return {
         liberado: true as const,
         fezProva: true as const,
+        parecer,
         versao,
         nota: Number(g[0].score),
         acertos: g[0].correctCount,
