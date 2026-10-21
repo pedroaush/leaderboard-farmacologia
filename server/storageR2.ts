@@ -64,6 +64,11 @@ export async function r2UrlDeLeitura(chave: string, nomeArquivo?: string | null,
   );
 }
 
+/** Lê o arquivo do R2 (para o servidor repassar ao navegador, sem redirecionar). */
+export async function r2Obter(chave: string, faixa?: string) {
+  return getCliente().send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: chave, Range: faixa }));
+}
+
 export async function r2Apagar(chave: string): Promise<void> {
   await getCliente().send(new DeleteObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: chave }));
 }
