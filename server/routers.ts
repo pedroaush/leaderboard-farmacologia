@@ -3001,6 +3001,13 @@ if (!SUPER_ADMIN_SECRET) {
     getDownloadUrl: publicProcedure
       .input(z.object({ fileKey: z.string() }))
       .query(async ({ input }) => {
+        // R2: arquivos grandes (fileKey "r2:...") não estão no Cloudinary
+        if (input.fileKey.startsWith("r2:")) {
+          const chave = input.fileKey.slice(3);
+          const mat: any = (await db.getAllMaterials()).find((m: any) => m.fileKey === input.fileKey);
+          const nome = mat?.fileName ? `&nome=${encodeURIComponent(mat.fileName)}` : "";
+          return { url: `/api/r2/arquivo?k=${encodeURIComponent(chave)}${nome}` };
+        }
         try {
           const { v2: cloudinary } = await import('cloudinary');
           const { ENV } = await import('./_core/env');
