@@ -60,6 +60,7 @@ async function enviarArquivo(chave: string, nome: string | undefined, abrir: boo
     if (obj.ContentLength != null) res.setHeader("Content-Length", String(obj.ContentLength));
     if (obj.ContentRange) res.setHeader("Content-Range", obj.ContentRange);
     res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("X-Download-Via", "r2");
     res.setHeader("Cache-Control", "private, max-age=3600");
     const ascii = nomeFinal.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\x20-\x7E]/g, "_");
     res.setHeader("Content-Disposition", `${abrir ? "inline" : "attachment"}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(nomeFinal)}`);
@@ -83,8 +84,12 @@ function priorizar(app: Express, quantas: number) {
   const pilha: any[] | undefined = (app as any)._router?.stack;
   if (!pilha) return;
   const novas = pilha.splice(pilha.length - quantas, quantas);
-  const pos = pilha.findIndex((l) => !!l.route);
+  // Logo depois do "expressInit" (o Express não está empacotado, então os nomes são estáveis);
+  // se não achar, antes da primeira rota ou sub-roteador (app.use("/api", router)).
+  let pos = pilha.findIndex((l) => l?.name === "expressInit") + 1;
+  if (pos <= 0) pos = pilha.findIndex((l) => !!l.route || l?.name === "router");
   pilha.splice(pos < 0 ? pilha.length : pos, 0, ...novas);
+  console.log("[R2] rotas de download registradas na posição", pos, "de", pilha.length);
 }
 
 export function registrarRotaR2(app: Express) {
