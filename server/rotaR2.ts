@@ -26,10 +26,31 @@ const TIPOS: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", mp4: "video/mp4",
 };
 
+/**
+ * A chave no R2 foi gravada "limpa" (sem acentos/espaços: r2NovaChave). Algumas
+ * telas mandam o nome com espaços ("Aula 113 - ...") — aqui volta ao formato gravado.
+ */
+function normalizarChave(chave: string): string {
+  let k = chave;
+  try { k = decodeURIComponent(chave); } catch { /* já decodificada */ }
+  k = k.replace(/^r2:/, "").trim();
+  const i = k.indexOf("/");
+  if (i < 0) return k;
+  const pasta = k.slice(0, i);
+  const resto = k.slice(i + 1).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return `${pasta}/${resto}`;
+}
+/** "materiais/1791…-hjk078y6-Aula_113_-_Anti.pptx" → "Aula 113 - Anti.pptx" */
+function nomeDaChave(chave: string): string {
+  const base = chave.split("/").pop() || "arquivo";
+  return base.replace(/^\d{10,}-[a-z0-9]{4,12}-/, "").replace(/_/g, " ");
+}
+
 async function enviarArquivo(chave: string, nome: string | undefined, abrir: boolean, req: Request, res: Response) {
   if (!r2Configurado()) return res.status(503).send("Armazenamento não configurado");
+  chave = normalizarChave(chave);
   if (!chave.startsWith("materiais/") || chave.includes("..")) return res.status(400).send("Arquivo inválido");
-  const nomeFinal = (nome || chave.split("/").pop() || "arquivo").replace(/["\r\n]/g, "");
+  const nomeFinal = (nome || nomeDaChave(chave)).replace(/["\r\n]/g, "");
   const ext = nomeFinal.split(".").pop()?.toLowerCase() || "";
   try {
     const faixa = typeof req.headers.range === "string" ? req.headers.range : undefined;
