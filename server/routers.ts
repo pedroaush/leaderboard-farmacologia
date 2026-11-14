@@ -2945,6 +2945,10 @@ if (!SUPER_ADMIN_SECRET) {
           ...data,
           expiresAt: expiresAt ? new Date(expiresAt) : null,
         });
+        // Aviso também por e-mail para os alunos cadastrados (em segundo plano)
+        import("./avisoEmail").then(({ enviarAvisoPorEmail }) => enviarAvisoPorEmail({ title: data.title, content: data.content, priority: data.priority }))
+          .then((r) => sendNotificationAsync("📧 Aviso enviado por e-mail", `"${data.title}": ${r.enviados}/${r.total} e-mails enviados${r.falhas ? `, ${r.falhas} falha(s)` : ""}${r.motivo ? ` — ${r.motivo}` : ""}`))
+          .catch((e) => console.error("[Aviso e-mail]", e));
         import("./push").then(({ enviarPush }) => enviarPush({ title: "📢 " + data.title, body: data.content || "Novo aviso do professor", url: "/avisos", tag: "aviso-mural" })).catch(() => {});
         return { id };
       }),
