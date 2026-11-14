@@ -2883,7 +2883,7 @@ if (!SUPER_ADMIN_SECRET) {
         const sortedMembers = [...(allMembers as any[])]
           .sort((a, b) => parseFloat(String(b.xp || 0)) - parseFloat(String(a.xp || 0)));
         const topMember = sortedMembers[0];
-        const topStudentName = topMember ? topMember.name : "—";
+        const topStudentName = topMember ? ((p: string[]) => (p.length >= 2 ? p[1] : topMember.name).trim())(String(topMember.name || "").split("\t")) : "—";
 
         // Find top team by total XP
         const teamXP = (allTeams as any[]).map(t => ({
@@ -3377,17 +3377,21 @@ if (!SUPER_ADMIN_SECRET) {
       .input(z.object({
         password: z.string(),
         badgeId: z.number().optional(),
+        classId: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
         const valid = await verifyAdminPassword(input.password);
         if (!valid) throw new Error("N\u00e3o autorizado");
 
-        const [allBadges, allMembers, allTeams, allMemberBadges] = await Promise.all([
+        const [allBadges, todosMembros, allTeams, allMemberBadges] = await Promise.all([
           db.getAllBadges(),
           db.getAllMembers(),
           db.getAllTeams(),
           db.getAllMemberBadges(),
         ]);
+        // Só a turma escolhida (ranking e revogação não misturam turmas)
+        const allMembers = input.classId ? ((await db.getMembersByClass(input.classId)) as unknown as typeof todosMembros) : todosMembros;
+        const idsDaTurmaConquista = new Set(allMembers.map(m => m.id));
 
         const targetBadges = allBadges.filter(b =>
           b.autoAssign === 1 && b.isActive === 1 &&
@@ -3424,7 +3428,7 @@ if (!SUPER_ADMIN_SECRET) {
             targetMemberIds = allMembers.filter(m => parseFloat(String(m.xp)) >= minXP).map(m => m.id);
           }
 
-          const currentEarnerIds = allMemberBadges.filter(mb => mb.badgeId === badge.id).map(mb => mb.memberId);
+          const currentEarnerIds = allMemberBadges.filter(mb => mb.badgeId === badge.id && (!input.classId || idsDaTurmaConquista.has(mb.memberId))).map(mb => mb.memberId);
           const toAward = targetMemberIds.filter(id => !currentEarnerIds.includes(id));
           const toRevoke = currentEarnerIds.filter(id => !targetMemberIds.includes(id));
 
@@ -3465,6 +3469,7 @@ if (!SUPER_ADMIN_SECRET) {
       .input(z.object({
         password: z.string(),
         rule: z.string(),
+        classId: z.number().optional(),
       }))
       .query(async ({ input }) => {
         const valid = await verifyAdminPassword(input.password);
@@ -3473,7 +3478,8 @@ if (!SUPER_ADMIN_SECRET) {
         let rule: { type: string; n?: number; xp?: number };
         try { rule = JSON.parse(input.rule); } catch { return []; }
 
-        const [allMembers, allTeams] = await Promise.all([db.getAllMembers(), db.getAllTeams()]);
+        const [todosMembros, allTeams] = await Promise.all([db.getAllMembers(), db.getAllTeams()]);
+        const allMembers = input.classId ? ((await db.getMembersByClass(input.classId)) as unknown as typeof todosMembros) : todosMembros;
         let targetMemberIds: number[] = [];
 
         if (rule.type === "top_individual") {

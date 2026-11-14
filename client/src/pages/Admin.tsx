@@ -596,6 +596,7 @@ function HighlightsManager({ password }: { password: string }) {
       toast.success("Destaque adicionado!");
       setWeek(""); setDate(""); setActivity(""); setDescription(""); setTopTeam(""); setTopStudent("");
     },
+    onError: (e) => toast.error(e.message),
   });
 
   const autoGenerate = trpc.highlights.autoGenerate.useMutation({
@@ -609,6 +610,7 @@ function HighlightsManager({ password }: { password: string }) {
 
   const deleteHighlight = trpc.highlights.delete.useMutation({
     onSuccess: () => { utils.leaderboard.getData.invalidate(); toast.success("Destaque removido!"); },
+    onError: (e) => toast.error(e.message),
   });
 
   return (
@@ -2715,14 +2717,16 @@ function BadgesManager({ password }: { password: string }) {
   const [editRuleXP, setEditRuleXP] = useState(50);
   const [autoAssignResult, setAutoAssignResult] = useState<{ totalAwarded: number; totalRevoked: number; results: any[] } | null>(null);
   const [previewRule, setPreviewRule] = useState<string | null>(null);
+  const [turmaConquistas, setTurmaConquistas] = useState<number | undefined>(1);
+  const { data: turmasConquistas = [] } = trpc.classes.listAll.useQuery();
 
   const { data: badges, refetch: refetchBadges } = trpc.badges.getWithMembers.useQuery();
   const { data: leaderboard } = trpc.leaderboard.getData.useQuery();
-  const createBadge = trpc.badges.create.useMutation({ onSuccess: () => { refetchBadges(); setShowCreate(false); setNewBadge({ name: "", description: "", category: "Semana 1", week: 1, criteria: "", iconUrl: "", autoAssign: false, autoAssignRuleType: "top_individual", autoAssignN: 3, autoAssignXP: 50 }); toast.success("Badge criado!"); } });
-  const assignBadge = trpc.badges.award.useMutation({ onSuccess: () => { refetchBadges(); setAssignBadgeId(null); setAssignMemberId(null); setAssignNote(""); toast.success("Badge atribuído!"); } });
-  const removeBadge = trpc.badges.revoke.useMutation({ onSuccess: () => { refetchBadges(); toast.success("Badge removido!"); } });
-  const deleteBadge = trpc.badges.delete.useMutation({ onSuccess: () => { refetchBadges(); toast.success("Badge excluído!"); } });
-  const updateBadge = trpc.badges.update.useMutation({ onSuccess: () => { refetchBadges(); setEditingAutoRuleBadgeId(null); toast.success("Regra de auto-atribuição salva!"); } });
+  const createBadge = trpc.badges.create.useMutation({ onSuccess: () => { refetchBadges(); setShowCreate(false); setNewBadge({ name: "", description: "", category: "Semana 1", week: 1, criteria: "", iconUrl: "", autoAssign: false, autoAssignRuleType: "top_individual", autoAssignN: 3, autoAssignXP: 50 }); toast.success("Badge criado!"); }, onError: (e) => toast.error(e.message) });
+  const assignBadge = trpc.badges.award.useMutation({ onSuccess: () => { refetchBadges(); setAssignBadgeId(null); setAssignMemberId(null); setAssignNote(""); toast.success("Badge atribuído!"); }, onError: (e) => toast.error(e.message) });
+  const removeBadge = trpc.badges.revoke.useMutation({ onSuccess: () => { refetchBadges(); toast.success("Badge removido!"); }, onError: (e) => toast.error(e.message) });
+  const deleteBadge = trpc.badges.delete.useMutation({ onSuccess: () => { refetchBadges(); toast.success("Badge excluído!"); }, onError: (e) => toast.error(e.message) });
+  const updateBadge = trpc.badges.update.useMutation({ onSuccess: () => { refetchBadges(); setEditingAutoRuleBadgeId(null); toast.success("Regra de auto-atribuição salva!"); }, onError: (e) => toast.error(e.message) });
   const autoAssignMutation = trpc.badges.autoAssign.useMutation({
     onSuccess: (data) => {
       refetchBadges();
@@ -2739,14 +2743,17 @@ function BadgesManager({ password }: { password: string }) {
   }, [previewRule]);
 
   const { data: previewMembers } = trpc.badges.previewAutoAssign.useQuery(
-    { password, rule: previewRuleStr ?? "" },
+    { password, rule: previewRuleStr ?? "", classId: turmaConquistas },
     { enabled: !!previewRuleStr && previewRuleStr.length > 2 }
   );
 
   const allMembers = useMemo(() => {
     if (!leaderboard?.teams) return [];
-    return leaderboard.teams.flatMap(t => t.members.map(m => ({ id: m.id, name: m.name, teamName: t.name })));
-  }, [leaderboard]);
+    return leaderboard.teams
+      .filter((t: any) => !turmaConquistas || t.classId === turmaConquistas)
+      .flatMap(t => t.members.map(m => { const p = (m.name || "").split("\t"); return { id: m.id, name: (p.length >= 2 ? p[1] : m.name).trim(), teamName: t.name }; }))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [leaderboard, turmaConquistas]);
 
   const categories = ["Semana 1", "Semana 2", "Semana 3", "TBL", "Jigsaw", "Casos Clínicos", "Escape Room", "Participação", "Geral"];
 
@@ -2838,14 +2845,21 @@ function BadgesManager({ password }: { password: string }) {
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Zap size={14} className="text-primary" /> Atribuição Automática por PF
           </h3>
+          <div className="flex items-center gap-2">
+          <select value={turmaConquistas ?? ""} onChange={e => { setTurmaConquistas(e.target.value ? Number(e.target.value) : undefined); setAutoAssignResult(null); }}
+            className="px-2 py-1.5 rounded-md bg-background border border-border text-xs text-foreground" title="Turma em que as regras serão aplicadas">
+            <option value="">Todas as turmas (ranking único)</option>
+            {(turmasConquistas as any[]).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
           <button
-            onClick={() => autoAssignMutation.mutate({ password })}
+            onClick={() => autoAssignMutation.mutate({ password, classId: turmaConquistas })}
             disabled={autoAssignMutation.isPending}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50"
           >
             <Zap size={12} />
             {autoAssignMutation.isPending ? "Processando..." : "Executar Todas as Regras"}
           </button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">Configure regras de auto-atribuição em cada badge abaixo. Ao executar, o sistema avalia todos os badges com regra ativa e atribui/revoga automaticamente com base no ranking de PF.</p>
         {autoAssignResult && (
@@ -2944,7 +2958,7 @@ function BadgesManager({ password }: { password: string }) {
                     <Zap size={12} className={hasAutoRule ? "text-emerald-400" : "text-muted-foreground"} />
                   </button>
                   <button
-                    onClick={() => autoAssignMutation.mutate({ password, badgeId: badge.id })}
+                    onClick={() => autoAssignMutation.mutate({ password, badgeId: badge.id, classId: turmaConquistas })}
                     disabled={!hasAutoRule || autoAssignMutation.isPending}
                     className="text-xs px-2 py-1 rounded bg-secondary text-foreground hover:bg-secondary/80 disabled:opacity-30"
                     title={hasAutoRule ? "Executar regra agora" : "Configure uma regra primeiro"}
