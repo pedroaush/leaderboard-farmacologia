@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 
-const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png";
+const LOGO_URL = "/logos/TYglakFwBNwpBXzT.png";
 const ORANGE = "#F7941D";
 
 interface IntroVinhetaProps {

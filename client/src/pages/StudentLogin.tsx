@@ -12,7 +12,7 @@ import {
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
-const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png";
+const LOGO_URL = "/logos/TYglakFwBNwpBXzT.png";
 const ORANGE = "#F7941D";
 
 // Student session management via localStorage

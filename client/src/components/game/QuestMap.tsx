@@ -69,7 +69,7 @@ export default function QuestMap({ onQuestClick, completedQuests = [], currentLe
       {/* Background Map */}
       <div className="absolute inset-0">
         <img
-          src="https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/kTVTdKnTVaNYAwXL.png"
+          src="/logos/kTVTdKnTVaNYAwXL.png"
           alt="Quest Map"
           className="w-full h-full object-cover opacity-80"
         />

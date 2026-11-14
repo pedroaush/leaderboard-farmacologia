@@ -16,10 +16,10 @@ import BackgroundMusic from "@/components/BackgroundMusic";
 import YouTubeButton from "@/components/YouTubeButton";
 import RecentVideos from "@/components/RecentVideos";
 
-const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png";
+const LOGO_URL = "/logos/TYglakFwBNwpBXzT.png";
 const INTRO_VIDEO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/yCXpFhcMWFXbhcrj.mp4";
 const YOUTUBE_URL = "https://www.youtube.com/@Conex%C3%A3oemCi%C3%AAncia-Farmacol%C3%B3gica";
-const PROFESSOR_AVATAR_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/kmrZlZNcVzNpoWYz.png";
+const PROFESSOR_AVATAR_URL = "/logos/kmrZlZNcVzNpoWYz.png";
 
 // Floating particles for background
 function FloatingParticles() {

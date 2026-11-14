@@ -340,6 +340,6 @@ export const courseInfo = {
 };
 
 // Logo e branding
-export const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/oUYumbCRVNHBqtNw.png";
+export const LOGO_URL = "/logos/oUYumbCRVNHBqtNw.png";
 export const YOUTUBE_CHANNEL_URL = "https://www.youtube.com/@Conex%C3%A3oemCi%C3%AAncia-Farmacol%C3%B3gica";
 export const PLATFORM_NAME = "Conexão em Farmacologia";

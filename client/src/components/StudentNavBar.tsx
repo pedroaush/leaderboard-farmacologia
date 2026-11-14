@@ -36,7 +36,7 @@ export default function StudentNavBar({
             {/* Logo + Home */}
             <Link href="/" className="flex items-center gap-2 flex-shrink-0">
               <img
-                src="https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png"
+                src="/logos/TYglakFwBNwpBXzT.png"
                 alt="Logo"
                 className="h-8 w-auto"
               />

@@ -11,7 +11,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 
-const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png";
+const LOGO_URL = "/logos/TYglakFwBNwpBXzT.png";
 const ORANGE = "#F7941D";
 const DARK_BG = "#0A1628";
 const CARD_BG = "#0D1B2A";

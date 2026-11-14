@@ -5,7 +5,7 @@ import { Eye, EyeOff, LogIn, AlertCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 const ORANGE = "#F7941D";
-const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png";
+const LOGO_URL = "/logos/TYglakFwBNwpBXzT.png";
 
 export default function ProfessorLogin() {
   const [, navigate] = useLocation();

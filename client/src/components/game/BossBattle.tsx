@@ -10,14 +10,14 @@ import { CHEFES, type DisciplinaJogo } from "@shared/gameBanks";
 // HERO AVATAR IMAGES
 // ═══════════════════════════════════════
 const HERO_IMAGES = {
-  idle: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/kwzBmmnYSpOpUuWI.png",
-  attack: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/geTmiCzwyIxiizrk.png",
-  defeated: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/qTmvMkatpNAucyRM.png",
+  idle: "/logos/kwzBmmnYSpOpUuWI.png",
+  attack: "/logos/geTmiCzwyIxiizrk.png",
+  defeated: "/logos/qTmvMkatpNAucyRM.png",
 };
 
 const BATTLE_SCENES = {
-  victory: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/vaNACrYrOCYvaVZD.png",
-  defeat: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663038327412/mnlOkwxnLBBFRuFl.png",
+  victory: "/logos/vaNACrYrOCYvaVZD.png",
+  defeat: "/logos/mnlOkwxnLBBFRuFl.png",
 };
 
 // Fallback videos (generic) - used for bosses 10-17 until specific videos are generated
@@ -127,7 +127,7 @@ interface BossData {
 const VISUAIS_CHEFES: BossData[] = [
   {
     id: 1, weekNumber: 1, name: "Guardião do Portal", title: "Sentinela da Farmacocinética",
-    emoji: "🛡️", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/JbsXuycNvrmiUuhC.png", color: "#3b82f6", hp: 300, playerHp: 100, pfReward: 25, xpReward: 200,
+    emoji: "🛡️", imageUrl: "/logos/JbsXuycNvrmiUuhC.png", color: "#3b82f6", hp: 300, playerHp: 100, pfReward: 25, xpReward: 200,
     phases: [
       { name: "Absorção", questions: [
         { question: "Qual via de administração tem 100% de biodisponibilidade?", alternatives: [{ id: "a", text: "Oral" }, { id: "b", text: "Intravenosa" }, { id: "c", text: "Sublingual" }, { id: "d", text: "Retal" }], correctAnswer: "b", explanation: "A via IV injeta o fármaco diretamente na corrente sanguínea, garantindo biodisponibilidade de 100%." },
@@ -143,7 +143,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 2, weekNumber: 2, name: "Quimera dos Receptores", title: "Besta da Farmacodinâmica",
-    emoji: "🐲", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/mEsWljGyRXvvuUgf.png", color: "#8b5cf6", hp: 350, playerHp: 100, pfReward: 30, xpReward: 250,
+    emoji: "🐲", imageUrl: "/logos/mEsWljGyRXvvuUgf.png", color: "#8b5cf6", hp: 350, playerHp: 100, pfReward: 30, xpReward: 250,
     phases: [
       { name: "Receptores", questions: [
         { question: "Qual tipo de receptor tem ação mais RÁPIDA?", alternatives: [{ id: "a", text: "Receptor acoplado a proteína G" }, { id: "b", text: "Canal iônico regulado por ligante" }, { id: "c", text: "Receptor nuclear" }, { id: "d", text: "Receptor tirosina quinase" }], correctAnswer: "b", explanation: "Canais iônicos regulados por ligante abrem em milissegundos, sendo os mais rápidos." },
@@ -159,7 +159,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 3, weekNumber: 3, name: "Hidra Autonômica", title: "Serpente do SNA",
-    emoji: "🐍", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/jPOGVblAgLnIiLdt.png", color: "#10b981", hp: 400, playerHp: 100, pfReward: 35, xpReward: 300,
+    emoji: "🐍", imageUrl: "/logos/jPOGVblAgLnIiLdt.png", color: "#10b981", hp: 400, playerHp: 100, pfReward: 35, xpReward: 300,
     phases: [
       { name: "Simpático", questions: [
         { question: "Qual neurotransmissor é liberado pelos neurônios simpáticos PÓS-ganglionares?", alternatives: [{ id: "a", text: "Acetilcolina" }, { id: "b", text: "Noradrenalina" }, { id: "c", text: "Dopamina" }, { id: "d", text: "Serotonina" }], correctAnswer: "b", explanation: "Os neurônios simpáticos pós-ganglionares liberam noradrenalina (exceto glândulas sudoríparas)." },
@@ -175,7 +175,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 4, weekNumber: 4, name: "Venger, o Senhor Colinérgico", title: "Mestre dos Receptores Muscarínicos",
-    emoji: "😈", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/IJclFIdvDkbZLdKj.png", color: "#ef4444", hp: 450, playerHp: 100, pfReward: 40, xpReward: 350,
+    emoji: "😈", imageUrl: "/logos/IJclFIdvDkbZLdKj.png", color: "#ef4444", hp: 450, playerHp: 100, pfReward: 40, xpReward: 350,
     phases: [
       { name: "Colinérgicos Diretos", questions: [
         { question: "Qual fármaco colinérgico é usado no tratamento do glaucoma?", alternatives: [{ id: "a", text: "Atropina" }, { id: "b", text: "Pilocarpina" }, { id: "c", text: "Tubocurarina" }, { id: "d", text: "Adrenalina" }], correctAnswer: "b", explanation: "A pilocarpina é um agonista muscarínico que contrai o músculo ciliar, facilitando a drenagem do humor aquoso." },
@@ -191,7 +191,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 5, weekNumber: 5, name: "Tiamat, Dragão Adrenérgico", title: "As 5 Cabeças dos Receptores Adrenérgicos",
-    emoji: "🐉", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/EcTqzpkeXTPMTrZC.png", color: "#f59e0b", hp: 500, playerHp: 100, pfReward: 45, xpReward: 400,
+    emoji: "🐉", imageUrl: "/logos/EcTqzpkeXTPMTrZC.png", color: "#f59e0b", hp: 500, playerHp: 100, pfReward: 45, xpReward: 400,
     phases: [
       { name: "Agonistas Adrenérgicos", questions: [
         { question: "A adrenalina ativa quais receptores?", alternatives: [{ id: "a", text: "Apenas α1" }, { id: "b", text: "Apenas β1 e β2" }, { id: "c", text: "Todos os receptores adrenérgicos (α e β)" }, { id: "d", text: "Apenas receptores muscarínicos" }], correctAnswer: "c", explanation: "A adrenalina é um agonista não-seletivo que ativa todos os receptores α e β adrenérgicos." },
@@ -207,7 +207,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 6, weekNumber: 6, name: "Espectro do Sono", title: "Fantasma dos Anestésicos",
-    emoji: "👻", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/ZzpfcLIlXJIelFeC.png", color: "#6366f1", hp: 500, playerHp: 100, pfReward: 45, xpReward: 400,
+    emoji: "👻", imageUrl: "/logos/ZzpfcLIlXJIelFeC.png", color: "#6366f1", hp: 500, playerHp: 100, pfReward: 45, xpReward: 400,
     phases: [
       { name: "Anestésicos Gerais", questions: [
         { question: "Qual anestésico inalatório tem o MENOR coeficiente de partição sangue/gás (indução mais rápida)?", alternatives: [{ id: "a", text: "Halotano" }, { id: "b", text: "Desflurano" }, { id: "c", text: "Isoflurano" }, { id: "d", text: "Éter" }], correctAnswer: "b", explanation: "O desflurano tem baixo coeficiente de partição sangue/gás, permitindo indução e recuperação rápidas." },
@@ -223,7 +223,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 7, weekNumber: 7, name: "Golem da Dor", title: "Colosso dos Analgésicos",
-    emoji: "🗿", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/NVIMkchXBsjsYLWQ.png", color: "#dc2626", hp: 550, playerHp: 100, pfReward: 50, xpReward: 450,
+    emoji: "🗿", imageUrl: "/logos/NVIMkchXBsjsYLWQ.png", color: "#dc2626", hp: 550, playerHp: 100, pfReward: 50, xpReward: 450,
     phases: [
       { name: "Opioides", questions: [
         { question: "A morfina exerce seu efeito analgésico principalmente através de receptores:", alternatives: [{ id: "a", text: "μ (mu)" }, { id: "b", text: "δ (delta)" }, { id: "c", text: "κ (kappa)" }, { id: "d", text: "NMDA" }], correctAnswer: "a", explanation: "Os receptores μ são os principais responsáveis pela analgesia, euforia e depressão respiratória dos opioides." },
@@ -239,7 +239,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 8, weekNumber: 8, name: "Fênix Inflamatória", title: "Ave de Fogo Anti-inflamatória",
-    emoji: "🔥", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/UBudIpcKSKWfhfCp.png", color: "#f97316", hp: 550, playerHp: 100, pfReward: 50, xpReward: 450,
+    emoji: "🔥", imageUrl: "/logos/UBudIpcKSKWfhfCp.png", color: "#f97316", hp: 550, playerHp: 100, pfReward: 50, xpReward: 450,
     phases: [
       { name: "Corticosteroides", questions: [
         { question: "Os glicocorticoides exercem efeito anti-inflamatório principalmente por:", alternatives: [{ id: "a", text: "Inibir a fosfolipase A2 via lipocortina" }, { id: "b", text: "Bloquear receptores de histamina" }, { id: "c", text: "Inibir apenas a COX-2" }, { id: "d", text: "Ativar receptores β2" }], correctAnswer: "a", explanation: "Glicocorticoides induzem lipocortina que inibe a fosfolipase A2, reduzindo prostaglandinas e leucotrienos." },
@@ -255,7 +255,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 9, weekNumber: 9, name: "Praga Bacteriana", title: "Enxame dos Antimicrobianos",
-    emoji: "🦠", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/saoQUPkDvEHxSsfW.png", color: "#14b8a6", hp: 600, playerHp: 100, pfReward: 55, xpReward: 500,
+    emoji: "🦠", imageUrl: "/logos/saoQUPkDvEHxSsfW.png", color: "#14b8a6", hp: 600, playerHp: 100, pfReward: 55, xpReward: 500,
     phases: [
       { name: "β-Lactâmicos", questions: [
         { question: "As penicilinas atuam inibindo:", alternatives: [{ id: "a", text: "A síntese proteica no ribossomo 30S" }, { id: "b", text: "A síntese da parede celular (transpeptidases/PBPs)" }, { id: "c", text: "A síntese de ácido fólico" }, { id: "d", text: "A DNA girase" }], correctAnswer: "b", explanation: "β-lactâmicos inibem as transpeptidases (PBPs), impedindo a síntese de peptidoglicano da parede celular." },
@@ -271,7 +271,7 @@ const VISUAIS_CHEFES: BossData[] = [
   },
   {
     id: 10, weekNumber: 10, name: "Tiamat Supremo", title: "O Dragão Final da Farmacologia",
-    emoji: "🐲", imageUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/wBoAgOslFPfCwoXg.png", color: "#dc2626", hp: 700, playerHp: 100, pfReward: 75, xpReward: 600,
+    emoji: "🐲", imageUrl: "/logos/wBoAgOslFPfCwoXg.png", color: "#dc2626", hp: 700, playerHp: 100, pfReward: 75, xpReward: 600,
     phases: [
       { name: "Revisão Geral I", questions: [
         { question: "Um paciente asmático precisa de um anti-hipertensivo. Qual β-bloqueador é MAIS seguro?", alternatives: [{ id: "a", text: "Propranolol" }, { id: "b", text: "Atenolol (β1-seletivo)" }, { id: "c", text: "Timolol" }, { id: "d", text: "Nadolol" }], correctAnswer: "b", explanation: "Atenolol é β1-seletivo, tendo menor risco de broncoconstrição que β-bloqueadores não-seletivos." },

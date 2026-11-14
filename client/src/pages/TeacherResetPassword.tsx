@@ -5,7 +5,7 @@ import { KeyRound, CheckCircle2, XCircle, Loader2, Eye, EyeOff, ArrowLeft, Alert
 import { toast } from "sonner";
 
 const ORANGE = "#F7941D";
-const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/TYglakFwBNwpBXzT.png";
+const LOGO_URL = "/logos/TYglakFwBNwpBXzT.png";
 
 function CountdownTimer({ expiresAt }: { expiresAt: string }) {
   const [timeLeft, setTimeLeft] = useState<{ minutes: number; seconds: number; expired: boolean }>({ minutes: 0, seconds: 0, expired: false });

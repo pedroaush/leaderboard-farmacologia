@@ -8,7 +8,7 @@ import {
   Youtube, Play, X, ChevronDown, ChevronUp, Loader2
 } from "lucide-react";
 
-const LOGO_URL = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/oUYumbCRVNHBqtNw.png";
+const LOGO_URL = "/logos/oUYumbCRVNHBqtNw.png";
 
 export default function Materiais() {
   const [selectedModule, setSelectedModule] = useState<string>("Todos");

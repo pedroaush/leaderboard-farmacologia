@@ -23,12 +23,12 @@ const CHARACTER_IMAGES: Record<string, string> = {
   eric: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/BxlQZJNGVgXfRqKS.png",
   diana: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/bwPTtxWJMdFJjRGy.png",
   presto: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/HdJKKcUJlYCxVdSp.png",
-  sheila: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/fHkVTuSmLcECPtYo.png",
+  sheila: "/logos/fHkVTuSmLcECPtYo.png",
   bobby: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/kkCZvfJJCqGLqXqe.png",
   uni: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/kkCZvfJJCqGLqXqe.png",
 };
 
-const MAP_IMAGE = "https://files.manuscdn.com/user_upload_by_module/session_file/310419663028318382/BxRpnDQgavBgFKVD.png";
+const MAP_IMAGE = "/logos/BxRpnDQgavBgFKVD.png";
 
 // Quest positions on map (relative %) — 85 quests across 17 weeks
 const QUEST_POSITIONS: Record<number, { x: number; y: number }> = {
