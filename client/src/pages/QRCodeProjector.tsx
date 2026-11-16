@@ -53,6 +53,8 @@ export default function QRCodeProjector() {
   const [newCheckInAlert, setNewCheckInAlert] = useState<{ name: string; id: number } | null>(null);
   const prevCheckInCountRef = useRef<number>(0);
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Evita criar duas sessões ao abrir o projetor
+  const criandoSessaoDeHojeRef = useRef(false);
 
   // Check teacher auth
   const teacherToken = localStorage.getItem("teacherSessionToken");
@@ -216,7 +218,15 @@ export default function QRCodeProjector() {
   // Auto-select active session on load
   useEffect(() => {
     if (sessions && sessions.length > 0) {
-      const active = sessions.find((s: QRSession) => s.isActive);
+      // Só reabre automaticamente a sessão criada HOJE; sessão de outra aula não é reaproveitada
+      const hojeSP = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+      const deHoje = (x: any) => !!x.createdAt && new Date(x.createdAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) === hojeSP;
+      const active = sessions.find((s: QRSession) => s.isActive && deHoje(s));
+      if (!active && !activeSessionDbId && !criandoSessaoDeHojeRef.current && sessions.some((s: QRSession) => s.isActive)) {
+        // Há uma sessão ativa de aula anterior: cria a de hoje (a antiga é desativada pelo servidor)
+        criandoSessaoDeHojeRef.current = true;
+        handleCreateSession();
+      }
       if (active && !activeSessionDbId) {
         setActiveSession(active);
         setActiveSessionDbId(active.id);

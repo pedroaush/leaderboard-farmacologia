@@ -108,11 +108,9 @@ export const qrcodeRouter = router({
       // Calcular automaticamente a semana do semestre:
       // weekNumber = número de sessões já criadas para esta turma + 1 (máx 17)
       // Cada novo QR Code gerado pelo professor avança automaticamente uma semana
-      const existingSessions = await db
-        .select({ id: qrCodeSessions.id })
-        .from(qrCodeSessions)
-        .where(eq(qrCodeSessions.classId, input.classId));
-      const nextWeekNumber = Math.min(existingSessions.length + 1, 17);
+      // Semana do semestre pela DATA da aula (Semana 1 = SEMESTRE_INICIO, padrão 18/08/2026)
+      const inicioSemestre = Date.parse(`${process.env.SEMESTRE_INICIO || "2026-08-18"}T00:00:00-03:00`);
+      const nextWeekNumber = Math.max(1, Math.min(30, Math.floor((Date.now() - inicioSemestre) / (7 * 86400000)) + 1));
 
       // Generate initial rotating token
       const { token, expiresAt } = generateRotatingToken(0, 0);
@@ -448,8 +446,11 @@ export const qrcodeRouter = router({
           )
         );
 
-      if (existingRecord.length > 0) {
-        const checkedAt = existingRecord[0].checkedInAt;
+      // Só conta como "já registrada" se a presença for de HOJE (a mesma sessão pode ter sido reaberta em outra aula)
+      const diaSP = (d: Date | string) => new Date(d).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+      const registroDeHoje = existingRecord.filter((r) => r.checkedInAt && diaSP(r.checkedInAt) === diaSP(new Date()));
+      if (registroDeHoje.length > 0) {
+        const checkedAt = registroDeHoje[0].checkedInAt;
         const timeStr = checkedAt
           ? new Date(checkedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
           : "";
