@@ -11,6 +11,9 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import crypto from "crypto";
+import { sincronizarPresencas, iniciarSincronizacaoPresencas } from "../presencaUnificada";
+
+iniciarSincronizacaoPresencas();
 
 // ═══════ TOKEN CONFIGURATION ═══════
 const TOKEN_VALIDITY_MINUTES = 10;
@@ -481,6 +484,9 @@ export const qrcodeRouter = router({
 
       // Atualizar resumo de presença
       await updateAttendanceSummary(input.memberId, input.classId);
+
+      // Frequência do painel e "Minha Presença" (tabela attendance)
+      void sincronizarPresencas();
 
       const distMsg = distanceFromClass != null ? ` (${Math.round(distanceFromClass)}m da sala)` : "";
       return {

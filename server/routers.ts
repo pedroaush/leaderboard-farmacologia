@@ -48,17 +48,9 @@ function sendNotificationAsync(title: string, content: string) {
 
 // Helper: create in-app notification for students
 async function createStudentNotification(title: string, content: string, priority: "normal" | "important" | "urgent" = "normal") {
-  try {
-    await db.createNotification({
-      title,
-      content,
-      priority,
-      type: "announcement",
-      isActive: 1,
-    });
-  } catch (err) {
-    console.warn("[StudentNotification] Failed:", err);
-  }
+  // avisos automáticos desligados (v18): conquistas e atualizações de PF não vão mais para o mural/faixa do topo.
+  // O professor continua recebendo a notificação dele (sendNotificationAsync).
+  void title; void content; void priority;
 }
 
 // Helper: log audit trail for teacher actions
@@ -4119,7 +4111,7 @@ if (!SUPER_ADMIN_SECRET) {
         const isWithinRange = distance <= MAX_DISTANCE_METERS;
 
         // Calculate current week (based on semester start)
-        const semesterStart = new Date("2026-03-10"); // Adjust to actual semester start
+        const semesterStart = new Date(`${process.env.SEMESTRE_INICIO || "2026-08-18"}T00:00:00-03:00`); // Semana 1 do cronograma 2026.2
         const weeksSinceStart = Math.floor((brasiliaTime.getTime() - semesterStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
         const currentWeek = Math.max(1, weeksSinceStart + 1);
 
